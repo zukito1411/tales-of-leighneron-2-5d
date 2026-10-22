@@ -218,7 +218,12 @@ export class GroundShadowSystem {
    const silhouette=this.silhouette(frame,caster.projectionBottom);
    const px=castX*projection,py=castY*projection;
    const m0=a-px*b,m1=-py*b,m2=c-px*d,m3=-py*d;
-   ctx.save();ctx.globalAlpha=(.34+daylight*.3)*(1-cloud*.35)*actor.alpha;
+   ctx.save();
+    // At an inclined camera, an entire painted building silhouette projected
+    // onto the ground becomes an opaque-looking black carpet. Preserve moving
+    // sunlight while keeping these ground shadows translucent and understated.
+    const perspective=this.scene.game.registry.get('presentation')==='three-2.5d';
+    ctx.globalAlpha=(perspective?.16+daylight*.07:.34+daylight*.3)*(1-cloud*.35)*actor.alpha;
    ctx.setTransform(m0,m1,m2,m3,x-m0*gx-m2*gy,y-m1*gx-m3*gy);
    ctx.drawImage(silhouette,0,0,frame.cutWidth,frame.cutHeight);ctx.restore();
   }

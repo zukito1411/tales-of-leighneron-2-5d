@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import { CHUNK_SIZE } from '../../data/world';
+import {projectedGroundView} from '../presentation25d/plane';
 import { artScale } from '../../data/art';
 import { WORLD_CONTENT } from '../../data/content';
 import { WorldGenerator } from './WorldGenerator';
@@ -66,12 +67,13 @@ export class ChunkManager {
   update(worldX: number, worldY: number,viewportOnly=false) {
     if(viewportOnly){
       const camera=this.scene.cameras.main;
-      this.updateView({left:worldX-camera.width/camera.zoom/2,right:worldX+camera.width/camera.zoom/2,
-        top:worldY-camera.height/camera.zoom/2,bottom:worldY+camera.height/camera.zoom/2});return;
+      this.updateView(projectedGroundView(camera,worldX,worldY));return;
     }
     const centerX = Math.floor(worldX / CHUNK_SIZE);
     const centerY = Math.floor(worldY / CHUNK_SIZE);
-    const camera=this.scene.cameras.main,halfW=camera.width/camera.zoom/2+128,halfH=camera.height/camera.zoom/2+128;
+    const camera=this.scene.cameras.main;
+    const groundView=projectedGroundView(camera,worldX,worldY,128);
+    const halfW=(groundView.right-groundView.left)/2,halfH=(groundView.bottom-groundView.top)/2;
     // Screen and player are still within exactly the same streamed cells:
     // avoid constructing two sets of chunk keys on every animation frame.
     const viewKey=centerX+':'+centerY+':'

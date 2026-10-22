@@ -90,6 +90,7 @@ import {WorldSpriteSystem,WORLD_SPRITE_OWNER} from '../systems/WorldSpriteSystem
 import {VolcanicTremor} from '../systems/VolcanicTremor';
 import {VolcanicCameraShake} from '../systems/VolcanicCameraShake';
 import {renderDensity} from '../systems/renderSizing';
+import {CAMERA_SIN,projectedGroundView} from '../presentation25d/plane';
 import {groundMarkerPosition} from '../systems/groundMarkers';
 import {inDragonArena,DRAGON_BOSS_ID} from '../../data/dragonLair';
 import {isTreeArt,treeFootprint} from '../../data/treeArt';
@@ -450,7 +451,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(this.inInterior)return this.interiors.ready&&this.cinematicSubjectReady(focusNpcId);
     const camera=this.cameras.main;camera.preRender();
     const halfWidth=Math.max(camera.width/camera.zoom,camera.width/zoom)/2;
-    const halfHeight=Math.max(camera.height/camera.zoom,camera.height/zoom)/2;
+    const halfHeight=Math.max(camera.height/camera.zoom,camera.height/zoom)/(2*CAMERA_SIN);
     return this.chunkManager.hasView({
       left:Math.min(camera.midPoint.x,target.x)-halfWidth,
       right:Math.max(camera.midPoint.x,target.x)+halfWidth,
@@ -469,8 +470,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const explicit=typeof viewOrX==='number'&&typeof focusOrY==='number'&&!this.cinematicDirector?.active;
     const x=explicit&&typeof viewOrX==='number'?viewOrX:camera.midPoint.x;
     const y=explicit&&typeof focusOrY==='number'?focusOrY:camera.midPoint.y;
-    const hw=camera.worldView.width/2,hh=camera.worldView.height/2;
-    const view={left:x-hw,right:x+hw,top:y-hh,bottom:y+hh};
+    const view=projectedGroundView(camera,x,y);
     const ready=this.chunkManager.updateView(view,staged);
     this.contentManager.update(x,y,view);
     if(focusNpcId)this.contentManager.activateNpcForPresentation('npc:'+focusNpcId);
@@ -768,7 +768,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     // initially; normal update() streams the offscreen neighbors later.
     this.chunkManager.update(this.player.x, this.player.y, true);
     this.registry.set('loadingStage','Activating nearby world actors');
-    this.contentManager.update(this.player.x, this.player.y);
+    this.contentManager.update(this.player.x, this.player.y,
+      projectedGroundView(this.cameras.main,this.player.x,this.player.y));
     // Layout updates can put a saved player inside a new foundation.
     // Repair position only, never health, stamina or story progress.
     if(this.isBlockedByBuilding(this.player.x,this.player.y)) {
@@ -939,7 +940,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
     this.enforceLandCollision();
     this.chunkManager.update(this.player.x, this.player.y);
-    if (this.contentManager.update(this.player.x, this.player.y)) {
+    if (this.contentManager.update(this.player.x, this.player.y,
+      projectedGroundView(this.cameras.main,this.player.x,this.player.y))) {
       useGameStore.getState().setContentWorld(this.contentManager.snapshot());
     }
     if (!uiBlocked) this.dayNight.update(delta, this.player.x, this.player.y);

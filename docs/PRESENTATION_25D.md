@@ -86,3 +86,17 @@ art rather than volumetric geometry. Fixed yaw and the existing 2D collision
 model are intentional. A fully modeled world, elevation traversal, new camera
 angles or measured FPS improvements require additional work. Do not label the
 migration as release-ready based on successful TypeScript or a web build.
+
+## Ground coverage and artifact correction
+
+The original Phaser camera's vertical world rectangle is too small for a tilted
+ground plane. Walking, initial loading and cinematics now share the projected
+45-degree ground footprint with chunk streaming. The normal 2D simulation and
+world-coordinate saves do not change. The camera-fitted darkness overlay is
+composited in screen space; large projected silhouette shadows are made
+translucent so painted props do not cover the floor in black. Atlas offsets
+move the sprite mesh only for genuinely trimmed frames.
+
+This removes known sources of black gaps and black overlay slabs, but does not
+constitute a real-device visual test. The scenery is still sprite art rather
+than extruded architecture; a fully modeled 2.5D environment is separate work.

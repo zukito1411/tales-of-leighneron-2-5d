@@ -1,10 +1,12 @@
-name: Build 2.5D Android preview
+name: Build and release 2.5D Android APK
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-25d-${{ github.ref }}
@@ -13,9 +15,10 @@ concurrency:
 jobs:
   android:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout separate 2.5D repository
+        uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
@@ -26,16 +29,113 @@ jobs:
           java-version: '21'
       - name: Install Android SDK packages
         run: |
+          set -euo pipefail
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;34.0.0'
       - run: npm ci
-      - name: Compile web game and sync the separate Android application
+      - name: Check TypeScript without starting the game
+        run: |
+          npm run test:types
+          npm exec --no -- tsc -p tsconfig.node.json --noEmit
+      - name: Build web content and sync separate Android app
         run: npm run cap:android:refresh
-      - name: Build experimental APK
+      - name: Configure Android release APK signing
+        env:
+          ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 }}
+          ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD }}
+          ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD }}
+          ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          install -d -m 700 "$HOME/.android"
+          if [[ -n "${ANDROID_25D_KEYSTORE_BASE64:-}" ]]; then
+            if [[ -z "${ANDROID_25D_STORE_PASSWORD:-}" || -z "${ANDROID_25D_KEY_PASSWORD:-}" || -z "${ANDROID_25D_KEY_ALIAS:-}" ]]; then
+              echo "::error::All four ANDROID_25D signing secrets are required for persistent signing."
+              exit 1
+            fi
+            printf '%s' "$ANDROID_25D_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/leighneron25d.keystore"
+            echo "SIGNING_MODE=persistent" >> "$GITHUB_ENV"
+          else
+            echo "::warning::No dedicated 2.5D signing secrets. This release will be signed with an EPHEMERAL key and cannot update earlier APKs in place."
+            keytool -genkeypair -noprompt -keystore "$HOME/.android/leighneron25d.keystore" \
+              -alias leighneron25d -storepass android25d -keypass android25d \
+              -dname "CN=Tales of Leighneron 2.5D Preview, O=Independent Build" \
+              -keyalg RSA -keysize 3072 -validity 10000
+            ANDROID_25D_STORE_PASSWORD=android25d
+            ANDROID_25D_KEY_PASSWORD=android25d
+            ANDROID_25D_KEY_ALIAS=leighneron25d
+            echo "SIGNING_MODE=ephemeral" >> "$GITHUB_ENV"
+          fi
+          chmod 600 "$HOME/.android/leighneron25d.keystore"
+          echo "ANDROID_25D_KEYSTORE=$HOME/.android/leighneron25d.keystore" >> "$GITHUB_ENV"
+          echo "::add-mask::$ANDROID_25D_STORE_PASSWORD"
+          echo "::add-mask::$ANDROID_25D_KEY_PASSWORD"
+          echo "ANDROID_25D_STORE_PASSWORD=$ANDROID_25D_STORE_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_25D_KEY_PASSWORD=$ANDROID_25D_KEY_PASSWORD" >> "$GITHUB_ENV"
+          echo "ANDROID_25D_KEY_ALIAS=$ANDROID_25D_KEY_ALIAS" >> "$GITHUB_ENV"
+          cat > android/app/ci-signing.gradle <<'GRADLE'
+          android {
+              signingConfigs {
+                  release {
+                      storeFile file(System.getenv('ANDROID_25D_KEYSTORE'))
+                      storePassword System.getenv('ANDROID_25D_STORE_PASSWORD')
+                      keyAlias System.getenv('ANDROID_25D_KEY_ALIAS')
+                      keyPassword System.getenv('ANDROID_25D_KEY_PASSWORD')
+                  }
+              }
+              buildTypes {
+                  release {
+                      signingConfig signingConfigs.release
+                      debuggable false
+                  }
+              }
+          }
+          GRADLE
+          printf '\napply from: "ci-signing.gradle"\n' >> android/app/build.gradle
+      - name: Assemble non-debuggable 2.5D release APK
         working-directory: android
-        run: bash gradlew :app:assembleDebug -PciVersionCode="$GITHUB_RUN_NUMBER" --no-daemon --console=plain
+        run: bash gradlew :app:assembleRelease -PciVersionCode="$GITHUB_RUN_NUMBER" --no-daemon --console=plain
+      - name: Verify signed APK and prepare release notes
+        run: |
+          set -euo pipefail
+          apk=android/app/build/outputs/apk/release/app-release.apk
+          [[ -s "$apk" ]] || { echo "::error::Missing release APK"; exit 1; }
+          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk"
+          metadata="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")"
+          grep -q "^package: name='com.mernondna.rpg25d'" <<< "$metadata" || { echo "::error::Wrong Android package"; exit 1; }
+          if grep -q '^application-debuggable' <<< "$metadata"; then echo "::error::APK still debuggable"; exit 1; fi
+          cp "$apk" Tales-of-Leighneron-2.5D.apk
+          sha256sum Tales-of-Leighneron-2.5D.apk > Tales-of-Leighneron-2.5D.apk.sha256
+          cat > release-notes.md <<NOTES
+          # Tales of Leighneron — Experimental 2.5D Android release
+
+          Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
+          Release-variant, non-debuggable, signed APK. This edition retains the original
+          simulation, quests, combat, and save payload, with a Three.js projected world.
+          Known rendering fixes include projected ground chunk coverage, daytime shadow
+          translucency, darkness compositing, and trimmed-frame alignment.
+
+          **Signing mode: $SIGNING_MODE.**
+          $(if [[ "$SIGNING_MODE" == ephemeral ]]; then echo "This APK has an ephemeral signing certificate. It **cannot** update another installation signed by a different key. Export a save backup before uninstalling/reinstalling. To enable permanent in-place updates, configure the four ANDROID_25D signing secrets."; else echo "Signed using the supplied persistent 2.5D keystore."; fi)
+
+          **Experimental**: This workflow verifies compilation, package ID, APK signing
+          and the non-debuggable manifest. Real-device rendering, FPS and gameplay have
+          **not** been visually verified. Back up saves before changing installations.
+          NOTES
+      - name: Publish APK to GitHub Releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="android-25d-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          gh release create "$tag" Tales-of-Leighneron-2.5D.apk Tales-of-Leighneron-2.5D.apk.sha256 \
+            --target "$GITHUB_SHA" --title "2.5D experimental Android build ${GITHUB_SHA:0:7}" \
+            --notes-file release-notes.md --latest
+          echo "APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D.apk" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
-          name: Tales-of-Leighneron-2.5D-Android-Preview
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Tales-of-Leighneron-2.5D-Android-Release
+          path: |
+            Tales-of-Leighneron-2.5D.apk
+            Tales-of-Leighneron-2.5D.apk.sha256
           if-no-files-found: error
           retention-days: 14

@@ -6,13 +6,13 @@ import {
 import {SpriteBatch} from './SpriteBatch';
 import {RasterCache} from './RasterCache';
 import {TextureCache} from './TextureCache';
-import {PRESENTATION_HINT,type PresentationHint,type PresentationPlane} from './plane';
+import {PRESENTATION_HINT,CAMERA_SIN,CAMERA_COS,type PresentationHint,type PresentationPlane} from './plane';
 import {GAME_DISPOSING} from '../systems/gameLifetime';
 
 type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameObjects.Text;
 type DrawingObject=ImageObject|Phaser.GameObjects.Graphics|Phaser.GameObjects.Shape|Phaser.GameObjects.TileSprite;
 interface LocalRect {left:number;top:number;width:number;height:number}
-const ANGLE=52*Math.PI/180,SIN=Math.sin(ANGLE),COS=Math.cos(ANGLE);
+const SIN=CAMERA_SIN,COS=CAMERA_COS;
 const HEIGHT=6000;
 const VERTICES=[[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]] as const;
 
@@ -125,7 +125,9 @@ export class ThreePresentation {
       const frame=object.frame;if(!frame?.source?.image)return;
       texture=this.textures.get(frame.source,this.frame);
       const resolution=frame.source.resolution||1;
-      let left=-object.displayOriginX+frame.x,top=-object.displayOriginY+frame.y;
+      // Atlas cutting coordinates belong in UVs, not in world-space geometry.
+      // Only genuinely trimmed frames carry a local sprite-source offset.
+      let left=-object.displayOriginX+(frame.trimmed?frame.x:0),top=-object.displayOriginY+(frame.trimmed?frame.y:0);
       let w=frame.cutWidth,h=frame.cutHeight,sx=frame.cutX,sy=frame.cutY;
       const flipX='flipX' in object&&object.flipX,flipY='flipY' in object&&object.flipY;
       if('isCropped' in object&&object.isCropped){
@@ -204,6 +206,9 @@ export class ThreePresentation {
     saved={id:this.nextMaskId++,rects};this.masks.set(graphic,saved);return saved;
   }
   private defaultPlane(object:DrawingObject):PresentationPlane{
+    // The darkness quad is camera-fitted world art, but must be composited in
+    // screen space; sending it to the tilted ground plane creates huge black slabs.
+    if(object.name==='night-darkness')return 'screen';
     if(object.scrollFactorX===0&&object.scrollFactorY===0)return 'screen';
     if(object instanceof Phaser.GameObjects.Text)return 'upright';
     const name=object.name,key='texture' in object?object.texture.key:'';
