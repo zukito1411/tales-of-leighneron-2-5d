@@ -73,6 +73,8 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
     document.addEventListener('visibilitychange',onVisible);
     const readinessPoll=window.setInterval(()=>{
       if(!game||recovering)return;
+      const presentationError=game.registry.get('presentationError');
+      if(typeof presentationError==='string'){setError(presentationError);return;}
       const assetError=game.registry.get('assetError');
       if(typeof assetError==='string'){failed(new Error(assetError));return;}
       const progress=game.registry.get('loadingProgress');

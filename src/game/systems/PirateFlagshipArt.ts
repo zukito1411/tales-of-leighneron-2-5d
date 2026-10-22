@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {FLAGSHIP,FLAGSHIP_OBSTACLES,shipPoint} from '../../data/pirateFlagship';
 import {getGraphicEffects} from './graphicsEffects';
 
@@ -54,6 +55,8 @@ export class PirateFlagshipArt {
     const front=add('flagship-front',125,978,shipPoint(0,978).y);
     const mast=add('flagship-mast',344,250,shipPoint(0,657).y);
     const pennant=add('flagship-pennant',190,45,shipPoint(0,260).y);
+    onPlane(front,'ground');
+    const mastFoot=shipPoint(0,657);onPlane(mast,'upright',mastFoot);onPlane(pennant,'upright',mastFoot);
     const foam=[shipPoint(155,945),shipPoint(655,945)].map((p,i)=>this.scene.add.image(p.x,p.y,'water-foam',i)
       .setScale(.9,2.5).setRotation(Math.PI/2).setAlpha(.12).setDepth(-965).setName('flagship-water:'+i));
     const colliders=FLAGSHIP_OBSTACLES.map(r=>{

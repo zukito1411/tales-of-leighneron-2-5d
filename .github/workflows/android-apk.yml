@@ -1,295 +1,41 @@
-
-name: Build and publish Android APK
+name: Build 2.5D Android preview
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: android-apk-${{ github.ref }}
+  group: android-25d-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-
-      - name: Restore and verify permanent Android signing key
-        env:
-          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
-        run: |
-          set -euo pipefail
-
-          if [[ -z "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]]; then
-            echo "::error::Missing ANDROID_DEBUG_KEYSTORE_BASE64 repository secret."
-            exit 1
-          fi
-
-          install -d -m 700 "$HOME/.android"
-
-          printf '%s' "$ANDROID_DEBUG_KEYSTORE_BASE64" \
-            | base64 --decode > "$HOME/.android/debug.keystore"
-
-          chmod 600 "$HOME/.android/debug.keystore"
-
-          expected_cert="FD2F95069BC3DA498DA78318F3A9CF121E86A47F2AFBA22C1A34B8092B9318AD"
-
-          actual_cert="$(
-            keytool -list -v \
-              -keystore "$HOME/.android/debug.keystore" \
-              -alias androiddebugkey \
-              -storepass android \
-              | sed -n 's/^[[:space:]]*SHA256:[[:space:]]*//p' \
-              | tr -d ':\r' \
-              | tr '[:lower:]' '[:upper:]'
-          )"
-
-          echo "Expected certificate: $expected_cert"
-          echo "Restored certificate: ${actual_cert:-NOT_FOUND}"
-
-          if [[ "$actual_cert" != "$expected_cert" ]]; then
-            echo "::error::Restored signing key does not match the existing installed game."
-            exit 1
-          fi
-
-          echo "ANDROID_CI_KEYSTORE=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
-
-          echo "Permanent Android signing key verified."
-
       - name: Install Android SDK packages
         run: |
-          set -euo pipefail
-
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" \
-            'platforms;android-35' \
-            'build-tools;34.0.0'
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Release fast path: the production build below already runs TypeScript
-      # compilation. Unit, artwork and browser regression tests stay available
-      # in the repository, but no longer hold up every APK publication.
-
-      # Fast, pure geometry regression: prevents a single wide death pose
-      # from blocking startup without launching the game or a browser.
-      - name: Check sprite fitting and save recovery (fast)
-        run: npm test -- tests/atlasPoseFit.test.ts tests/saveRecovery.test.ts tests/savePosition.test.ts tests/nativeBackupFlow.test.ts
-
-      - name: Build web assets and sync Android
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" 'platforms;android-35' 'build-tools;34.0.0'
+      - run: npm ci
+      - name: Compile web game and sync the separate Android application
         run: npm run cap:android:refresh
-
-      - name: Configure update-compatible release APK signing
-        run: |
-          set -euo pipefail
-
-          if [[ ! -s "$ANDROID_CI_KEYSTORE" ]]; then
-            echo "::error::Permanent Android keystore not found."
-            exit 1
-          fi
-
-          cat > android/app/ci-signing.gradle <<'GRADLE'
-          android {
-              // Retain the existing installed-app certificate. This is a
-              // release-variant APK for direct distribution, not a new Play
-              // Store app-signing identity.
-              signingConfigs {
-                  release {
-                      storeFile file(System.getenv('ANDROID_CI_KEYSTORE'))
-                      storePassword 'android'
-                      keyAlias 'androiddebugkey'
-                      keyPassword 'android'
-                  }
-              }
-
-              buildTypes {
-                  release {
-                      signingConfig signingConfigs.release
-                      debuggable false
-                  }
-              }
-          }
-          GRADLE
-
-          printf '\napply from: "ci-signing.gradle"\n' \
-            >> android/app/build.gradle
-
-          echo "Gradle release variant configured with the existing verified update certificate."
-
-      - name: Build installable APK
+      - name: Build experimental APK
         working-directory: android
-        run: |
-          set -euo pipefail
-
-          bash gradlew :app:assembleRelease \
-            -PciVersionCode="$GITHUB_RUN_NUMBER" \
-            --no-daemon \
-            --console=plain
-
-      - name: Verify and prepare downloads
-        run: |
-          set -euo pipefail
-
-          apk="android/app/build/outputs/apk/release/app-release.apk"
-
-          expected_cert="FD2F95069BC3DA498DA78318F3A9CF121E86A47F2AFBA22C1A34B8092B9318AD"
-
-          if [[ ! -s "$apk" ]]; then
-            echo "::error::Release APK was not generated."
-            exit 1
-          fi
-
-          # Check the actual packaged manifest, not merely the Gradle task.
-          # Preserve the old package ID so installed saves and updates survive.
-          package_metadata="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")"
-          if ! grep -q "^package: name='com.mernondna.rpg'" <<< "$package_metadata"; then
-            echo "::error::Release APK package ID is not com.mernondna.rpg."
-            exit 1
-          fi
-          if grep -q '^application-debuggable' <<< "$package_metadata"; then
-            echo "::error::Release APK is still debuggable."
-            exit 1
-          fi
-          echo "Verified: original package ID and non-debuggable release manifest."
-
-          cert_info="$(
-            "$ANDROID_HOME/build-tools/34.0.0/apksigner" \
-              verify --print-certs "$apk"
-          )"
-
-          apk_cert="$(
-            printf '%s\n' "$cert_info" \
-              | awk '/Signer #1 certificate SHA-256 digest:/ {print $NF; exit}' \
-              | tr -d ':\r' \
-              | tr '[:lower:]' '[:upper:]'
-          )"
-
-          echo "Expected certificate: $expected_cert"
-          echo "Actual APK certificate: ${apk_cert:-NOT_FOUND}"
-
-          if [[ -z "$apk_cert" ]]; then
-            echo "::error::Unable to extract APK signing certificate."
-            printf '%s\n' "$cert_info"
-            exit 1
-          fi
-
-          if [[ "$apk_cert" != "$expected_cert" ]]; then
-            echo "::error::APK signing certificate does not match the existing installed game."
-            exit 1
-          fi
-
-          echo "APK signing certificate verified successfully."
-
-          cp "$apk" Tales-of-Leighneron.apk
-
-          sha256sum Tales-of-Leighneron.apk \
-            > Tales-of-Leighneron.apk.sha256
-
-          cat > release-notes.md <<'NOTES'
-          # Tales of Leighneron - Android Build
-
-          Installable, non-debuggable Android release-variant APK containing the latest game changes.
-
-          ## Installation
-
-          Download Tales-of-Leighneron.apk and open it on your Android device.
-
-          Requires Android 6.0 or newer.
-
-          The APK contains the bundled game assets and does not require a running development server.
-
-          ## Updates and saved games
-
-          This APK uses the verified permanent Android signing certificate:
-
-          FD2F95069BC3DA498DA78318F3A9CF121E86A47F2AFBA22C1A34B8092B9318AD
-
-          It intentionally keeps the existing legacy debug-signing certificate so previous
-          GitHub sideload installations can receive in-place updates. Although the APK
-          uses Android's non-debuggable release build variant, it does NOT use a dedicated
-          production upload key and is not ready for Google Play submission.
-
-          The package identifier remains com.mernondna.rpg.
-
-          The Android versionCode increases with the GitHub Actions run number.
-
-          Updating an existing installation with the same package name, signing certificate, and a higher versionCode should preserve its local application data.
-
-          ## Verification
-
-          The packaged non-debuggable manifest, original package ID, signing certificate,
-          and APK integrity are verified in CI. The accompanying SHA-256 checksum file
-          can be used to verify the downloaded APK.
-          NOTES
-
-      - name: Publish APK on GitHub Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-
-          release_tag="android-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-
-          gh release create "$release_tag" \
-            Tales-of-Leighneron.apk \
-            Tales-of-Leighneron.apk.sha256 \
-            --target "$GITHUB_SHA" \
-            --title "Android build ${GITHUB_SHA:0:7}" \
-            --notes-file release-notes.md \
-            --latest
-
-          printf 'Download: https://github.com/%s/releases/download/%s/Tales-of-Leighneron.apk\n' \
-            "$GITHUB_REPOSITORY" \
-            "$release_tag" \
-            >> "$GITHUB_STEP_SUMMARY"
-
-      # GitHub Actions publishes releases with GITHUB_TOKEN, so a separate
-      # release:published workflow would not run. Prune in this job instead.
-      - name: Keep only the four newest Android releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          # Paginate the complete release list, then sort all pages together.
-          # Ignore drafts and unrelated releases; never delete Git tags.
-          mapfile -t old_tags < <(
-            gh api --paginate "repos/${GITHUB_REPOSITORY}/releases?per_page=100" |
-              jq -rs '
-                add
-                | map(select(.draft == false and (.tag_name | startswith("android-"))))
-                | sort_by(.published_at)
-                | reverse
-                | .[4:]
-                | .[].tag_name
-              '
-          )
-
-          for tag in "${old_tags[@]}"; do
-            echo "Removing older Android release: $tag"
-            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
-          done
-
-          printf 'Android release retention: kept the four most recent; deleted %s older releases.\n' "${#old_tags[@]}" \
-            >> "$GITHUB_STEP_SUMMARY"
+        run: bash gradlew :app:assembleDebug -PciVersionCode="$GITHUB_RUN_NUMBER" --no-daemon --console=plain
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Tales-of-Leighneron-2.5D-Android-Preview
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

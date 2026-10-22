@@ -1,4 +1,4 @@
-package com.mernondna.rpg;
+package com.mernondna.rpg25d;
 
 import android.os.Bundle;
 import android.view.View;

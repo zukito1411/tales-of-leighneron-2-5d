@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {WEAPONS,WEAPON_BY_ID} from '../../data/weapons';
 import {itemIcon} from '../../data/economy';
 import {alphaFrameBounds} from './spriteArt';
@@ -77,6 +78,7 @@ export class EquippedSwordVisual{
     this.hand=scene.add.sprite(0,0,'leigneron',0).setVisible(false).setName('equipped-sword-hand');
   }
   update(actor:Phaser.GameObjects.Sprite,stowed=false,facingUp=false){
+    onPlane(this.blade,'upright',actor);onPlane(this.hand,'upright',actor);
     const state=useGameStore.getState(),id=state.weaponId,definition=WEAPON_BY_ID[id];
     const frameId=awakenedProfile(id,state.awakenedWeapons)&&this.blade.scene.textures.get(SWORD_TEXTURE).has('awakened:'+id)?'awakened:'+id:id;
     const meta=heroFrameData(actor.frame),density=meta.heroDensity??4,bodyScale=meta.heroBodyScale??1;

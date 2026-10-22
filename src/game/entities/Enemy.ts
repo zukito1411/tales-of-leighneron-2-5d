@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
 import type { BossDefinition, EnemyDefinition, EncounterBehavior, BossPhaseSnapshot } from '../types';
 import { BOSS_BY_ID, enemyAppearanceMultiplier,isWolfFamily } from '../../data/enemies';
@@ -238,12 +239,13 @@ export class Enemy extends DepthSortedSprite {
     this.setDepth(scene.playerRenderDepth(y));
     this.anims.play(idle.key);
     if(definition.spriteTint!==undefined)this.setTint(definition.spriteTint);
-    this.healthBar = scene.add.graphics().setName(`enemy-health:${instanceId}`);
+    this.healthBar = onPlane(scene.add.graphics().setName(`enemy-health:${instanceId}`),'upright',this);
     this.nameLabel = scene.add.text(x, y - 40, this.displayName, {
       fontFamily: 'Georgia, serif', fontSize: definition.boss ? '12px' : '9px',
       color: definition.boss ? '#f3c69c' : '#edddcb', stroke: '#17120e', strokeThickness: 3,
     }).setResolution(2).setOrigin(.5,1).setName(`enemy-name:${instanceId}`);
-    this.targetIndicator=scene.add.graphics().setName('enemy-target:'+instanceId);
+    onPlane(this.nameLabel,'upright',this);
+    this.targetIndicator=onPlane(scene.add.graphics().setName('enemy-target:'+instanceId),'upright',this);
     this.targetRing=scene.add.graphics().setVisible(false).setName('enemy-target-ring:'+instanceId);
     const profile=combatProfile??(this.boss?worldBossCombatProfile(this.boss.id,this.ascended):undefined);
     if(definition.combatStyle==='dragon')this.dragonCombat=new DragonCombat(this,scene,profile);

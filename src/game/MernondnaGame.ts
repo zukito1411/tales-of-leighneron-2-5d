@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { BootScene } from './scenes/BootScene';
 import { WorldScene } from './scenes/WorldScene';
 import {backingSize,RENDER_DENSITY_KEY} from './systems/renderSizing';
+import {ThreePresentation} from './presentation25d/ThreePresentation';
 
 function followDisplaySize(game:Phaser.Game,parent:HTMLElement){
   let pending=0,stopped=false;
@@ -35,7 +36,9 @@ function followDisplaySize(game:Phaser.Game,parent:HTMLElement){
 export function createMernondnaGame(parent: HTMLElement) {
   const size=backingSize(parent.clientWidth,parent.clientHeight,window.devicePixelRatio);
   return new Phaser.Game({
-    type: Phaser.AUTO,
+    // Canvas remains an asset/vector preparation backend. ThreePresentation
+    // replaces its world render call; physics and gameplay run exactly once.
+    type: Phaser.CANVAS,
     parent,
     backgroundColor: '#1b2418',
     pixelArt: false,
@@ -54,7 +57,14 @@ export function createMernondnaGame(parent: HTMLElement) {
     },
     callbacks:{
       preBoot:game=>{game.registry.set(RENDER_DENSITY_KEY,size.density);},
-      postBoot:game=>followDisplaySize(game,parent),
+      postBoot:game=>{
+        followDisplaySize(game,parent);
+        try{new ThreePresentation(game,parent);}
+        catch(error){
+          game.registry.set('assetError','The 2.5D graphics could not be initialized. This version requires WebGL 2.');
+          console.error('[2.5d] Renderer initialization failed',error);
+        }
+      },
     },
     physics: {
       default: 'arcade',

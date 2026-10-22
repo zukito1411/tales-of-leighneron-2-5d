@@ -1,4 +1,4 @@
-name: Deploy Tales of Leigneron to GitHub Pages
+name: Build 2.5D browser game
 
 on:
   push:
@@ -9,50 +9,29 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages-${{ github.ref }}
+  group: browser-25d-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Build browser game
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - name: Checkout source
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # Apply the project subpath only to the Pages build. Keep the existing
-      # relative Vite base unchanged for Android/Capacitor packaging.
-      - name: Build website
-        run: npm run build -- --base=/${{ github.event.repository.name }}/
-
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload browser game
-        uses: actions/upload-pages-artifact@v4
+      - run: npm ci
+      - name: Check application, test and configuration types
+        run: |
+          npm run test:types
+          npm exec --no -- tsc -p tsconfig.node.json --noEmit
+      - name: Build browser game
+        run: npm run build
+      - uses: actions/upload-artifact@v4
         with:
-          path: dist
-
-  deploy:
-    name: Publish website
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          name: Tales-of-Leighneron-2.5D-Web
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

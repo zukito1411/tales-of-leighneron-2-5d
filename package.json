@@ -1,5 +1,5 @@
 {
-  "name": "mernondna-rpg-base",
+  "name": "tales-of-leighneron-2-5d",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -17,10 +17,11 @@
   },
   "dependencies": {
     "@capacitor/core": "^7.4.0",
-    "phaser": "^3.90.0",
+    "phaser": "3.90.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "simplex-noise": "^4.0.3",
+    "three": "0.186.1",
     "zustand": "^5.0.8"
   },
   "devDependencies": {
@@ -29,9 +30,11 @@
     "@playwright/test": "^1.63.0",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
+    "@types/three": "0.186.0",
     "@vitejs/plugin-react": "^5.0.0",
     "typescript": "^5.9.2",
     "vite": "^7.1.0",
     "vitest": "^4.1.11"
-  }
+  },
+  "description": "Tales of Leighneron with a Three.js 2.5D presentation and the original game simulation"
 }

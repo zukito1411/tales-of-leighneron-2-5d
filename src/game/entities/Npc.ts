@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
 import type { NpcDefinition, Vec2 } from '../types';
 import { ART_BY_KEY, actorScaleForHeight, artScale, type ArtTextureKey } from '../../data/art';
@@ -128,6 +129,7 @@ export class Npc extends DepthSortedSprite {
     this.titleLabel = scene.add.text(x, y + this.labelY + 2, definition.title, {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#d2c3a5', stroke: '#17130e', strokeThickness: 2,
     }).setResolution(2).setOrigin(.5,0).setDepth(y + 80).setName(`npc-title:${definition.id}`);
+    onPlane(this.nameLabel,'upright',this);onPlane(this.titleLabel,'upright',this);
     // Keep this cue separate from the sprite and its name label; like the
     // name, it follows a walking NPC without becoming a clickable obstacle.
     this.sideQuestMarker=definition.questIds.some(id=>QUEST_BY_ID[id]?.kind==='side')
@@ -137,6 +139,7 @@ export class Npc extends DepthSortedSprite {
       }).setResolution(2).setOrigin(.5,1).setDepth(y+82)
         .setVisible(false).setName(`npc-side-quest:${definition.id}`)
       :null;
+    if(this.sideQuestMarker)onPlane(this.sideQuestMarker,'upright',this);
     this.once('destroy', () => { this.nameLabel.destroy(); this.titleLabel.destroy(); this.sideQuestMarker?.destroy(); });
     if(regionalModel!==undefined)presentCitizen(this,regionalModel);
     else {

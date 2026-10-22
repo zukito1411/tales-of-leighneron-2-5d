@@ -1,15 +1,15 @@
 apply plugin: 'com.android.application'
 
 android {
-    namespace "com.mernondna.rpg"
+    namespace "com.mernondna.rpg25d"
     compileSdk rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.mernondna.rpg"
+        applicationId "com.mernondna.rpg25d"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI Android APK releases get an increasing versionCode; local builds keep versionCode 1.
         versionCode = (project.findProperty('ciVersionCode') ?: '1').toString().toInteger()
-        versionName "1.0"
+        versionName "1.0-2.5d"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

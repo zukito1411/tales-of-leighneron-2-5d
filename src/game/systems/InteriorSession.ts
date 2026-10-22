@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {housingFor,HOME_FLOORS,HOME_ENTRANCE,FURNITURE_BY_ART,furnitureFootprint,homeWeaponMount,type HomeItem} from '../../data/housing';
 import {isPlayerHome,PLAYER_HOME_BY_ID} from '../../data/playerHomes';
 import housingArt from '../../data/housingArt.json';
@@ -292,6 +293,7 @@ export class InteriorSession {
   }
   private drawArt(art:InteriorArtKey|'tower-door-closed',x:number,y:number,width:number,depth:number){
     const image=this.own(this.scene.add.image(this.origin.x+x,this.origin.y+y,ATLAS,art));
+    onPlane(image,art==='rug'?'ground':'upright');
     const dimensions=image.frame.customData as {visibleWidth:number;visibleHeight:number};
     return image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
   }
@@ -362,9 +364,9 @@ export class InteriorSession {
     const right=Math.max(...plan.floors.map(r=>r.x+r.width))+80,bottom=Math.max(...plan.floors.map(r=>r.y+r.height))+80;
     camera.setBounds(this.origin.x+left,this.origin.y+top,right-left,bottom-top);
     this.backdrop=this.own(scene.add.rectangle(0,0,1,1,0x000000)
-      .setOrigin(0).setScrollFactor(0).setDepth(DEPTH-1000));this.fitBackdrop();
+      .setOrigin(0).setScrollFactor(0).setDepth(DEPTH-1000).setName('interior-backdrop'));this.fitBackdrop();
     if(plan.roundFloor)this.own(scene.add.image(this.origin.x+TOWER_ROOM_SIZE/2,this.origin.y+TOWER_ROOM_SIZE/2,SOURCE)
-      .setDisplaySize(TOWER_ROOM_ART_EXTENT,TOWER_ROOM_ART_EXTENT).setDepth(DEPTH-900).setName('tower-round-chamber'));
+      .setDisplaySize(TOWER_ROOM_ART_EXTENT,TOWER_ROOM_ART_EXTENT).setDepth(DEPTH-900).setName('tower-round-chamber').setData('presentation25d',{plane:'ground'}));
     else for(const floor of plan.floors)this.own(scene.add.tileSprite(this.origin.x+floor.x,this.origin.y+floor.y,
       floor.width,floor.height,FLOORS[interiorFloorIndex(entry.kit,floor.kind)]).setOrigin(0).setDepth(DEPTH-900));
     for(const object of plan.objects){

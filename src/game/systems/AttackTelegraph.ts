@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {ATTACK_WARNING_FRAMES,ATTACK_WARNING_TEXTURE,windupProgress,type AttackArea} from './attackWarning';
 
 /** A full-size boundary remains fixed while the interior fills toward impact. */
@@ -10,7 +11,7 @@ export class AttackTelegraph {
   private lastColor=0;
   progress=0;
   constructor(scene:Phaser.Scene,name:string,preserveRune=true){
-    this.graphics=scene.add.graphics().setName(name).setVisible(false);
+    this.graphics=onPlane(scene.add.graphics().setName(name).setVisible(false),'ground');
     if(preserveRune&&scene.textures.exists(ATTACK_WARNING_TEXTURE))this.rune=scene.add.image(0,0,ATTACK_WARNING_TEXTURE,ATTACK_WARNING_FRAMES.circle.name)
       .setOrigin(.5).setVisible(false).setName(name+':rune');
   }

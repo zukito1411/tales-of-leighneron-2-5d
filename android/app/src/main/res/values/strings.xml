@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Tales of Leighneron</string>
-    <string name="title_activity_main">Tales of Leighneron</string>
-    <string name="package_name">com.mernondna.rpg</string>
-    <string name="custom_url_scheme">com.mernondna.rpg</string>
+    <string name="app_name">Tales of Leighneron 2.5D</string>
+    <string name="title_activity_main">Tales of Leighneron 2.5D</string>
+    <string name="package_name">com.mernondna.rpg25d</string>
+    <string name="custom_url_scheme">com.mernondna.rpg25d</string>
 </resources>

@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import {onPlane} from '../presentation25d/plane';
 import {isTreeArt,treeLayerKey} from '../../data/treeArt';
 import {getGraphicEffects} from './graphicsEffects';
 
@@ -18,6 +19,7 @@ export class TreeSwaySystem {
     const leaves=this.scene.add.image(tree.x,tree.y,treeLayerKey(texture,'leaves'),frame)
       .setOrigin(tree.originX,tree.originY).setScale(tree.scaleX,tree.scaleY).setRotation(tree.rotation).setFlip(tree.flipX,tree.flipY)
       .setDepth(tree.depth+.01).setName('foliage:'+tree.name);
+    onPlane(leaves,'upright',tree);
     const entry={tree,leaves,phase:((tree.x*.013+tree.y*.021)%(Math.PI*2))};this.canopies.add(entry);
     tree.once('destroy',()=>{this.canopies.delete(entry);leaves.destroy();});
   }

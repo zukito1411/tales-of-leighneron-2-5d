@@ -34,8 +34,9 @@ import {BASE_LEVEL_CAP,playerLevelCap,attributeCap} from '../data/progression';
 import {BREAKTHROUGH_ACCEPTED,BREAKTHROUGH_TRIAL,BREAKTHROUGH_COMPLETE,WORLD_ASCENSION,ASCENDED_MONSTER_LEVEL} from '../data/breakthrough';
 import {parseBossPhaseSnapshot} from '../game/systems/BossPhaseState';
 
-// Retain the key used by existing installations, including after schema migrations.
-export const SAVE_KEY = 'mernondna-save-v1';
+// Separate experiments from the original game on the same GitHub Pages origin.
+// The version-7 payload and manual import/export format remain unchanged.
+export const SAVE_KEY = 'mernondna-25d-save-v1';
 export type SavedState = Pick<GameState, 'hp' | 'stamina' | 'level' | 'xp' | 'attributes' | 'statPoints' | 'skillPoints' | 'learnedSkills' | 'gold' | 'weaponId' | 'inventory' | 'worldX' | 'worldY' | 'regionId' | 'townId' | 'day' | 'minuteOfDay' | 'quests' | 'defeatedBosses' | 'worldContent' | 'unlockedTownShrines' | 'storyFlags' | 'storyChoices' | 'trackedQuestId'> & Partial<Pick<GameState,'consumables'|'learnedCombatArts'|'skillSlots'|'weaponUpgrades'|'bossMaterials'|'bossHearts'|'awakenedWeapons'|'nextTowerResetAt'>>;
 export interface SaveData { version: 7; savedAt: string; state: SavedState & {housing?:GameState['housing'];cinematicQueue?:string[];journal?:JournalState;contracts?:GameState['contracts'];armorInventory?:string[];equippedArmor?:GameState['equippedArmor'];dungeons?:GameState['dungeons']} }
 

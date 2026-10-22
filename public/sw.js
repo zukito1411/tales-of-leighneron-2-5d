@@ -1,4 +1,4 @@
-const PREFIX = 'mernondna-shell-v3-';
+const PREFIX = 'mernondna-25d-shell-v3-';
 const root = new URL('./', self.registration.scope).href;
 const manifestUrl = new URL('offline-shell.json', root).href;
 let installed;
@@ -30,7 +30,7 @@ self.addEventListener('install', event => {
 self.addEventListener('activate', event => {
   event.waitUntil((async () => {
     const data = installed || await manifest();
-    const shells = (await caches.keys()).filter(key => key.startsWith('mernondna-shell-'));
+    const shells = (await caches.keys()).filter(key => key.startsWith('mernondna-25d-shell-'));
     for (const key of shells) if(key!==PREFIX+data.version) await caches.delete(key);
     await self.clients.claim();
   })());

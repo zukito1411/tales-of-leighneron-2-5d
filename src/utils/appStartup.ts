@@ -1,6 +1,6 @@
 import {Capacitor} from '@capacitor/core';
 
-const OFFLINE_PREFIX='mernondna-shell-';
+const OFFLINE_PREFIX='mernondna-25d-shell-';
 const REGISTRATION_TIMEOUT_MS=2500;
 
 // A stalled service-worker database must not hold the game at its splash screen.

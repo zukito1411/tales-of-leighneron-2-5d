@@ -53,6 +53,7 @@ export function HomeMenu({ canContinue, message, onContinue, onNewGame }: HomeMe
     <section className="home-menu" aria-label="Tales of Leighneron main menu">
       <TitleArtwork/>
       <div className="home-menu-actions">
+        <p className="home-menu-message">2.5D edition · Experimental</p>
         <button type="button" className="home-menu-button primary" disabled={!canContinue} onClick={onContinue}>Continue</button>
         <button type="button" className="home-menu-button" onClick={onNewGame}>Start New Game</button>
         <button type="button" className="home-menu-button" onClick={() => setOptionsOpen(true)}>Options</button>
