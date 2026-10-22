@@ -4,6 +4,7 @@ import {
   type Intersection,type Object3D,type Texture,
 } from 'three';
 import {SpriteBatch} from './SpriteBatch';
+import {Architecture25D} from './Architecture25D';
 import {RasterCache} from './RasterCache';
 import {TextureCache} from './TextureCache';
 import {PRESENTATION_HINT,CAMERA_SIN,CAMERA_COS,type PresentationHint,type PresentationPlane} from './plane';
@@ -22,6 +23,7 @@ const VERTICES=[[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5]] as const;
 export class ThreePresentation {
   private readonly renderer:WebGLRenderer;
   private readonly world=new Scene();
+  private readonly architecture=new Architecture25D(this.world);
   private readonly background=new Scene();
   private readonly screen=new Scene();
   private readonly camera=new OrthographicCamera(-1,1,1,-1,.1,20000);
@@ -92,6 +94,7 @@ export class ThreePresentation {
       if(this.frame-batch.lastUsed>2){batch.destroy();this.batches.delete(key);}
       else if(batch.mesh.visible)this.pickable.push(batch.mesh);
     }
+    this.architecture.finish(this.frame);
     this.textures.prune(this.frame);this.rasters.prune(this.frame);
     this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
     this.renderer.render(this.background,this.screenCamera);
@@ -113,6 +116,11 @@ export class ThreePresentation {
       ||object instanceof Phaser.GameObjects.Graphics||object instanceof Phaser.GameObjects.Shape||object instanceof Phaser.GameObjects.TileSprite)){
       if(!this.missing.has(object.type)){this.missing.add(object.type);console.warn('[2.5d] Unsupported presentation object',object.type);}return;
     }
+    if((object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite)
+      &&this.architecture.present(object,this.frame)){
+      camera.addToRenderList(object);
+      return;
+    }
     const emissionOwner=object.getData('emissionOwner') as Phaser.GameObjects.Sprite|undefined;
     const hint=explicit??inherited??(emissionOwner?{plane:'upright' as const,anchor:emissionOwner}:undefined);
     const plane=hint?.plane??this.defaultPlane(object);
@@ -124,7 +132,11 @@ export class ThreePresentation {
     }else{
       const frame=object.frame;if(!frame?.source?.image)return;
       texture=this.textures.get(frame.source,this.frame);
-      const resolution=frame.source.resolution||1;
+      // Text canvases can use a 2x backing buffer even when the Phaser
+      // TextureSource keeps resolution=1. Without this correction name labels
+      // become huge dark panels instead of crisp text above NPCs.
+      const resolution=object instanceof Phaser.GameObjects.Text
+        ?object.resolution:(frame.source.resolution||1);
       // Atlas cutting coordinates belong in UVs, not in world-space geometry.
       // Only genuinely trimmed frames carry a local sprite-source offset.
       let left=-object.displayOriginX+(frame.trimmed?frame.x:0),top=-object.displayOriginY+(frame.trimmed?frame.y:0);
@@ -257,7 +269,7 @@ export class ThreePresentation {
     if(this.game.input.touch&&this.originalTouchEnabled!==undefined)this.game.input.touch.enabled=this.originalTouchEnabled;
     const canvas=this.renderer.domElement;canvas.removeEventListener('pointerdown',this.onPointer);canvas.removeEventListener('webglcontextlost',this.onContextLost);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
-    this.rasters.destroy();this.textures.destroy();this.renderer.dispose();canvas.remove();
+    this.architecture.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();canvas.remove();
     this.hits.length=0;this.pickable.length=0;this.transform.destroy();this.parentTransform.destroy();
   }
 }

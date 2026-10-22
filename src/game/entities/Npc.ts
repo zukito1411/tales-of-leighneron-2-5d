@@ -124,7 +124,9 @@ export class Npc extends DepthSortedSprite {
     this.setName(definition.name);
     this.nameLabel = scene.add.text(x, y + this.labelY, definition.name, {
       fontFamily: 'Georgia, serif', fontSize: '11px', color: '#f6edd7', stroke: '#17130e', strokeThickness: 3,
-      backgroundColor: '#201c16bb', padding: { x: 4, y: 2 },
+      // A black rectangle behind every angled 3D nameplate obscures scenery.
+      // Readability comes from the existing outlined lettering instead.
+      padding: { x: 4, y: 2 },
     }).setResolution(2).setOrigin(.5,1).setDepth(y + 80).setName(`npc-name:${definition.id}`);
     this.titleLabel = scene.add.text(x, y + this.labelY + 2, definition.title, {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#d2c3a5', stroke: '#17130e', strokeThickness: 2,

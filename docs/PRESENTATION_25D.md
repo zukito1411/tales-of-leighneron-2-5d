@@ -100,3 +100,29 @@ move the sprite mesh only for genuinely trimmed frames.
 This removes known sources of black gaps and black overlay slabs, but does not
 constitute a real-device visual test. The scenery is still sprite art rather
 than extruded architecture; a fully modeled 2.5D environment is separate work.
+
+## Oakmere architecture pass (real 3D structures)
+
+The presentation layer now creates retained Three.js building volumes for the
+existing authored cottages, inns, smithies and most compatible capital/elven
+buildings. Surveyed source-art footprints determine their ground positions.
+Buildings receive separate vertical wall meshes, painted front façades sourced
+from the approved artwork, pitched roof meshes textured with the same art,
+three-dimensional beams, stone foundations and real chimney geometry. The 2D
+building actor remains the owner of the original collision, save ID and
+streaming lifecycle; only its visual draw is replaced. Hollow ruins, gateways,
+interactive structures and incompatible props retain their original art until
+specialized models exist. This is not a wholesale conversion of the eight realms.
+
+The rendering path also uses Phaser Text's actual backing resolution for
+nameplates and removes giant opaque NPC label backdrops. Volume geometry
+resides only for visible/recently visible actors and is disposed on streaming
+retirement or presentation shutdown.
+
+### Actual visual verification still required
+
+A successful compiler/APK build does not verify the material UV sampling,
+roof placement, facade alignment, occlusion, input or device frame time.
+Inspect Oakmere in the Android build before accepting this as a finished
+Octopath-style conversion. Buildings retain the game's unique approved art:
+this implementation is *inspired by* HD-2D and does not copy Octopath assets.
