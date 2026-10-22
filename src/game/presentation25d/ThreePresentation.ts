@@ -136,7 +136,7 @@ export class ThreePresentation {
       // TextureSource keeps resolution=1. Without this correction name labels
       // become huge dark panels instead of crisp text above NPCs.
       const resolution=object instanceof Phaser.GameObjects.Text
-        ?object.resolution:(frame.source.resolution||1);
+        ?Math.max(1,frame.cutWidth/Math.max(1,object.width)):(frame.source.resolution||1);
       // Atlas cutting coordinates belong in UVs, not in world-space geometry.
       // Only genuinely trimmed frames carry a local sprite-source offset.
       let left=-object.displayOriginX+(frame.trimmed?frame.x:0),top=-object.displayOriginY+(frame.trimmed?frame.y:0);
