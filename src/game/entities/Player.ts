@@ -131,9 +131,9 @@ export class Player extends DepthSortedSprite {
     this.keys = scene.input.keyboard.addKeys({
       up: 'W', down: 'S', left: 'A', right: 'D', sprint: 'SHIFT', dash: 'Q', attack: 'F', jump:'SPACE',interact: 'E',
       skill1:'ONE',skill2:'TWO',skill3:'THREE',skill4:'FOUR',
-      healPotion:'FIVE',staminaPotion:'SIX',
+      healPotion:'FIVE',staminaPotion:'SIX',targetLock:'R',
     }) as typeof this.keys;
-    for (const action of ['dash', 'attack', 'jump','interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) {
+    for (const action of ['dash', 'attack', 'jump','interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion','targetLock'] as const) {
       this.keys[action].setEmitOnRepeat(false).on('down', () => this.pressed.add(action));
     }
   }
@@ -151,6 +151,8 @@ export class Player extends DepthSortedSprite {
       const touch=mobileInput.consume(action),pressed=this.consumeAction(action)||touch;
       if(pressed){state.setVitals(this.hp,this.stamina);state.usePotion(id);this.syncInventoryVitals();}
     }
+    const toggleKeyboard=this.consumeAction('targetLock'),toggleTouch=mobileInput.consume('targetLock');
+    if((toggleKeyboard||toggleTouch)&&this.hp>0&&scene.combatAllowed)scene.targeting.toggleLock();
     const castingAtFrameStart=this.skills.isCasting;
     this.skills.update(delta);
     // Even the completion frame belongs to the cast. Held inputs resume on
@@ -241,6 +243,8 @@ export class Player extends DepthSortedSprite {
     this.setDepth((this.scene as WorldScene).playerRenderDepth(this.y));
     if (this.attackVisual?.active) setDepthIfChanged(this.attackVisual,this.depth).setPosition(this.x,this.y);
 
+    const lockedTarget=scene.targeting.lockedTarget;
+    if(lockedTarget&&!movementLocked&&!dashing)this.lastDirection.set(lockedTarget.x-this.x,lockedTarget.y-this.y).normalize();
     const equippedArts=slottedActiveSkills(state.skillSlots);
     for (const action of ['skill1','skill2','skill3','skill4'] as const) {
       const touchPressed = mobileInput.consume(action);
@@ -389,7 +393,7 @@ export class Player extends DepthSortedSprite {
 
   discardActions() {
     this.pressed.clear();
-    for (const action of ['attack', 'dash','jump', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) mobileInput.consume(action);
+    for (const action of ['attack', 'dash','jump', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion','targetLock'] as const) mobileInput.consume(action);
   }
   private consumeAction(action: MobileAction) {
     const value = this.pressed.has(action);

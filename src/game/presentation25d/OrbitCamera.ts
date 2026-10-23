@@ -14,6 +14,7 @@ export class OrbitCamera {
   private readonly focus=new Vector3();private initialized=false;
   private readonly nextFocus=new Vector3();
   private readonly lookTarget=new Vector3();
+  private obstructionDistance=Infinity;private combatLocked=false;
   private wasLocked=false;private releasing=false;
   private readonly finePointer=window.matchMedia('(pointer: fine)');
   private readonly ray=new Raycaster();private readonly ndc=new Vector2();
@@ -24,7 +25,7 @@ export class OrbitCamera {
   readonly bounds={left:0,top:0,right:0,bottom:0};
   readonly focusGround={x:0,y:0};
   constructor(private readonly canvas:HTMLCanvasElement,parent:HTMLElement,private readonly pick:(event:PointerEvent)=>void,private readonly pause:()=>void){
-    this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · Esc to release';
+    this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · R lock · Esc to release';
     Object.assign(this.hint.style,{position:'absolute',left:'50%',top:'12px',transform:'translateX(-50%)',zIndex:'8',padding:'7px 12px',background:'#18201ee6',color:'#f2e6c7',border:'1px solid #8b7954',borderRadius:'5px',fontSize:'12px',cursor:'pointer'});
     this.hint.hidden=true;parent.append(this.hint);this.hint.addEventListener('click',this.capture);
     canvas.addEventListener('pointerdown',this.down);canvas.addEventListener('pointermove',this.touchMove);canvas.addEventListener('pointerup',this.up);canvas.addEventListener('pointercancel',this.up);
@@ -49,6 +50,7 @@ export class OrbitCamera {
     else if(event.button===2){event.preventDefault();mobileInput.press('dash');}
   };
   private rotate(dx:number,dy:number){
+    if(this.combatLocked)return;
     const scale=.0025*this.settings.sensitivity;
     this.targetYaw-=Math.max(-140,Math.min(140,dx))*scale;
     this.targetPitch=Math.max(-60*RAD,Math.min(75*RAD,this.targetPitch+dy*scale*(this.settings.invertY?-1:1)));
@@ -70,14 +72,23 @@ export class OrbitCamera {
     if(this.canvas.hasPointerCapture(event.pointerId))this.canvas.releasePointerCapture(event.pointerId);
   };
   private readonly wheel=(event:WheelEvent)=>{if(!this.enabled)return;event.preventDefault();this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
-  update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean){
+  update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
+    obstruction?:(from:Vector3,to:Vector3)=>number,lockedTarget?:{x:number;y:number}){
     if(this.enabled&&!enabled)this.release();this.enabled=enabled;
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
-    const step=1-Math.exp(-Math.min(80,Math.max(0,delta))/85);
+    this.combatLocked=enabled&&Boolean(lockedTarget);
+    if(this.combatLocked&&lockedTarget){
+      const desired=Math.atan2(target.x-lockedTarget.x,target.y-lockedTarget.y);
+      this.targetYaw=this.yaw+Math.atan2(Math.sin(desired-this.yaw),Math.cos(desired-this.yaw));
+      this.targetPitch=Math.max(20*RAD,Math.min(60*RAD,this.targetPitch));
+    }
+    const step=1-Math.exp(-Math.min(80,Math.max(0,delta))/(this.combatLocked?170:85));
     this.yaw+=(this.targetYaw-this.yaw)*step;this.pitch+=(this.targetPitch-this.pitch)*step;this.zoom+=(this.targetZoom-this.zoom)*step;
     // Keep angles bounded after many complete revolutions without a visible snap.
     if(Math.abs(this.yaw)>Math.PI*4){const turns=Math.trunc(this.yaw/(Math.PI*2))*Math.PI*2;this.yaw-=turns;this.targetYaw-=turns;}
     const ground=height(target.x,target.y),aimY=ground+32;
+    let focusX=target.x,focusZ=target.y;
+    if(this.combatLocked&&lockedTarget){const dx=lockedTarget.x-target.x,dz=lockedTarget.y-target.y,d=Math.max(1,Math.hypot(dx,dz)),bias=Math.min(.30,180/d);focusX+=dx*bias;focusZ+=dz*bias;}
     const follow=1-Math.exp(-Math.min(80,Math.max(0,delta))/55);
     if(!this.initialized||Math.hypot(this.focus.x-target.x,this.focus.z-target.y)>1200){this.focus.set(target.x,aimY,target.y);this.initialized=true;}
     else this.focus.lerp(this.nextFocus.set(target.x,aimY,target.y),follow);
@@ -91,7 +102,16 @@ export class OrbitCamera {
     // Terrain obstruction: shorten only our orbit, never move simulation feet.
     for(let i=1;i<=8;i++){const t=i/8,x=this.focus.x+(this.camera.position.x-this.focus.x)*t,z=this.focus.z+(this.camera.position.z-this.focus.z)*t;
       if(this.focus.y+(this.camera.position.y-this.focus.y)*t<height(x,z)+22){this.camera.position.lerp(this.focus,1-t+.08);break;}}
-    if(this.pitch>=8*RAD)this.camera.lookAt(this.focus);
+    const desiredDistance=this.camera.position.distanceTo(this.focus),limit=enabled?(obstruction?.(this.focus,this.camera.position)??1):1;
+    // Keep the complete player pose in frame. Tight cases below this framing
+    // distance use the depth-tested cutaway instead of pushing into the head.
+    const safe=Math.max(180,desiredDistance*limit);
+    // Retract immediately before entering geometry; only outward recovery is
+    // damped. This avoids oscillation at wall edges and crossing a near plane.
+    if(!Number.isFinite(this.obstructionDistance)||safe<this.obstructionDistance)this.obstructionDistance=safe;
+    else this.obstructionDistance+=(safe-this.obstructionDistance)*(1-Math.exp(-Math.min(80,Math.max(0,delta))/240));
+    if(desiredDistance>0)this.camera.position.lerp(this.focus,1-Math.min(1,this.obstructionDistance/desiredDistance));
+    if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
     else{
       this.lookTarget.copy(this.camera.position).add(this.nextFocus.set(-Math.sin(this.yaw)*Math.cos(this.pitch),-Math.sin(this.pitch),-Math.cos(this.yaw)*Math.cos(this.pitch)));
       this.camera.lookAt(this.lookTarget);

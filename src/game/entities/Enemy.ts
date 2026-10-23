@@ -129,6 +129,7 @@ export class Enemy extends DepthSortedSprite {
   private wolfFlankSlot: number | null = null;
   private wolfHuntBearing = 0;
   get canBeTargeted(){return !this.dragonCombat?.airborne;}
+  get presentationLockVisual():Phaser.GameObjects.Sprite{return this.dragonCombat?.visual??(this.leapVisual?.active?this.leapVisual:this);}
   get movementSpeed(){return this.definition.moveSpeed*this.weaponStatus.movementMultiplier;}
   get attackSpeedMultiplier(){return this.weaponStatus.attackSpeedMultiplier;}
   /** Multiply a light status wash into the species tint, preserving its art. */
@@ -1051,7 +1052,7 @@ export class Enemy extends DepthSortedSprite {
     // Reject actors outside the camera before costly targeting LOS queries.
     // Visibility and eligibility stay identical, only their order changes.
     const eligible=!paused&&worldPointInView(scene,this.x,this.y,Math.max(30,(this.definition.bodyRadius??12)*2),48)
-      &&scene.targeting.eligible(this);
+      &&scene.targeting.eligible(this,scene.targeting.lockedTarget===this?900:680);
     if(eligible){
       const story=useGameStore.getState();
       if(!story.cinematic&&(!Object.hasOwn(story.journal.creatures,this.definition.id)
@@ -1087,7 +1088,7 @@ export class Enemy extends DepthSortedSprite {
       }
     }else this.targetIndicator.setVisible(false);
     this.targetRing.setVisible(selected);
-    const showHealth=visible&&eligible;
+    const showHealth=(visible||scene.targeting.lockedTarget===this)&&eligible;
     this.healthBar.setVisible(showHealth);
     if(showHealth)setDepthIfChanged(this.healthBar,depth+85).setPosition(this.x,top);
     // Phaser Text.setText can invalidate its backing canvas, even when the

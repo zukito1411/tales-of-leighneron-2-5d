@@ -212,3 +212,15 @@
   .dialogue-panel--scroll-layout .dialogue-toolbar {padding-bottom:2px;}
   .dialogue-panel--scroll-layout .dialogue-actions {padding-top:4px;}
 }
+
+/* Reserved thumb lane between Jump and Interact. Background stays translucent. */
+.mobile-controls .target-lock {left:91px;bottom:126px;width:46px;height:46px;min-width:46px;min-height:46px;opacity:.66;background:rgba(26,29,27,.45);border-color:#dac899;box-shadow:0 1px 5px #0008;}
+.target-lock svg,.target-lock-desktop svg {width:25px;height:25px;stroke:currentColor;stroke-width:1.7;}
+.mobile-controls .target-lock.is-locked {opacity:.88;color:#ffdf87;border-color:#ffdf87;background:rgba(75,49,22,.55);}
+.mobile-controls .target-lock small {font-size:8px;}
+.mobile-controls[data-at-home=true] .target-lock {display:none;}
+.target-lock-desktop {position:absolute;right:max(22px,env(safe-area-inset-right));bottom:110px;z-index:7;display:flex;flex-direction:column;align-items:center;gap:3px;min-width:50px;min-height:52px;padding:5px;border:1px solid #c6b48799;border-radius:9px;background:#161c1a77;color:#f0dfb5;opacity:.72;touch-action:none;}
+.target-lock-desktop[aria-pressed=true]{color:#ffdf87;opacity:.95;}
+.target-lock-desktop small{font-size:10px;}
+@media(hover:none),(pointer:coarse){.target-lock-desktop{display:none;}}
+@media(max-width:700px) and (orientation:portrait){.mobile-controls .target-lock{left:auto;right:4px;bottom:190px;}}

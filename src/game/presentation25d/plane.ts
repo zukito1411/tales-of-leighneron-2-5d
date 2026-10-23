@@ -177,9 +177,22 @@ export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.Game
   const house=(owner.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
   if(house){
     const dx=x-owner.x;
-    out.x=owner.x+dx*Math.cos(owner.rotation);
+    let localX=dx,localZ=0;
+    if(house.profile.tiers){
+      const w=Math.abs(owner.displayWidth),h=Math.abs(owner.displayHeight);
+      const sourceX=(dx/w+owner.originX-house.left)/house.width;
+      const sourceY=((y-owner.y)/h+owner.originY-house.top)/house.height;
+      const tier=house.profile.tiers.find(t=>sourceY>=t.top&&sourceY<=t.bottom);
+      if(tier){
+        const radius=(tier.right-tier.left)*house.width*w/2;
+        const sine=Math.max(-1,Math.min(1,(sourceX-(tier.left+tier.right)/2)/((tier.right-tier.left)*.46)));
+        localX=(house.left+(tier.left+tier.right)/2*house.width-owner.originX)*w+sine*radius;
+        localZ=-house.depth*w/2+Math.sqrt(Math.max(0,1-sine*sine))*radius;
+      }
+    }
+    out.x=owner.x+localX*Math.cos(owner.rotation)-localZ*Math.sin(owner.rotation);
     out.y=worldHeight(scene,owner.x,owner.y)+owner.y-y;
-    out.z=owner.y+dx*Math.sin(owner.rotation);
+    out.z=owner.y+localX*Math.sin(owner.rotation)+localZ*Math.cos(owner.rotation);
   }else uprightPoint(x,y,owner.x,owner.y,out,scene);
   const elevation='presentationElevation' in owner&&typeof owner.presentationElevation==='number'?owner.presentationElevation:0;
   out.y+=elevation;

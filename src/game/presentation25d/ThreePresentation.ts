@@ -4,6 +4,7 @@ import {GpuTimer} from './GpuTimer';
 import {ShaderWarmup} from './ShaderWarmup';
 import {staticSpatialIndex} from './StaticSpatialIndex';
 import {StreamVisibility} from './StreamVisibility';
+import {cameraObstacles} from './CameraObstacles';
 import {bindResourcePreparation,clearResourcePreparation} from './resourcePreparation';
 import Phaser from 'phaser';
 import {
@@ -37,7 +38,7 @@ import {renderDensity} from '../systems/renderSizing';
 import {nightStrength} from '../../data/environmentLights';
 import {TELEGRAPH_PRESENTATION,type TelegraphPresentation} from '../systems/AttackTelegraph';
 import {useGameStore} from '../../store/gameStore';
-import {PRESENTATION_HINT,uprightPoint,bindPresentationView,clearPresentationView,type PresentationView,type PresentationHint,type PresentationPlane} from './plane';
+import {PRESENTATION_HINT,uprightPoint,presentationAttachmentWorld,bindPresentationView,clearPresentationView,type PresentationView,type PresentationHint,type PresentationPlane} from './plane';
 import {GAME_DISPOSING} from '../systems/gameLifetime';
 
 type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameObjects.Text;
@@ -57,6 +58,7 @@ interface PresentationScene extends Phaser.Scene {
   readonly inInterior?:boolean;
   readonly presentationHeightAt?:(x:number,y:number)=>number;
   readonly presentationControlsEnabled?:boolean;
+  readonly presentationLockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
   readonly presentationPause?:()=>void;
   readonly presentationShadows?:GroundShadowSystem;
   readonly presentationWeather?:WeatherSystem;
@@ -111,6 +113,8 @@ export class ThreePresentation {
   private readonly p0=new Vector3();private readonly p1=new Vector3();private readonly p2=new Vector3();
   private readonly projected=new Vector3();
   private readonly subject=new Vector3();
+  private readonly protectionPoint=new Vector3();
+  private readonly cutaway={cutawayViewport:{value:new Vector2(1,1)},cutawaySubject:{value:new Vector4()},cutawayTarget:{value:new Vector4()}};
   private readonly projectedBounds={left:0,right:0,top:0,bottom:0,depth:0};
   private readonly localRect:LocalRect={left:0,top:0,width:0,height:0};
   private readonly atlasUV=new Float64Array(4);
@@ -204,7 +208,9 @@ export class ThreePresentation {
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
-    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true);
+    const obstacles=cameraObstacles(scene);obstacles.heightAt=this.heightAt;
+    const lockedTarget=presentation.presentationLockedTarget;
+    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,obstacles.limit,lockedTarget);
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
@@ -215,6 +221,11 @@ export class ThreePresentation {
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
     this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y).project(this.orbit.camera);
+    this.cutaway.cutawayViewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
+    if(presentation.presentationControlsEnabled)this.updateCutaway(this.cutaway.cutawaySubject.value,focus,90);
+    else this.cutaway.cutawaySubject.value.w=0;
+    if(lockedTarget)this.updateCutaway(this.cutaway.cutawayTarget.value,lockedTarget,Math.max(65,Math.min(420,lockedTarget.displayHeight*.75)),lockedTarget.presentationElevation??0);
+    else this.cutaway.cutawayTarget.value.w=0;
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
@@ -253,7 +264,7 @@ export class ThreePresentation {
     this.postFX.setNight(mergeNight?nightComposition.mask:null,nightComposition.darkness);
     this.postFX.render(this.renderer,{world:this.world,camera:this.orbit.camera,background:this.background,backgroundCamera:this.screenCamera,
       width:this.renderer.domElement.width,height:this.renderer.domElement.height,density:density*this.renderScale,focus:presentation.presentationFocus,
-      focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
+      lockedTarget,lockedGroundHeight:lockedTarget?this.heightAt(lockedTarget.x,lockedTarget.y):0,focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
       night,interior:this.interior,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
       depthNeeded:this.gpuWeather.needsDepth||this.gpuNight.active(night,this.interior),weather:weather?.presentation,mist:this.gpuWeather.fog});
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
@@ -272,6 +283,16 @@ export class ThreePresentation {
       work.charge('elevation',elevationStart);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
+  }
+
+  private updateCutaway(out:Vector4,target:{x:number;y:number},height:number,elevation=0){
+    const camera=this.orbit.camera;
+    this.protectionPoint.set(target.x,this.heightAt(target.x,target.y)+elevation+height*.45,target.y).applyMatrix4(camera.matrixWorldInverse);
+    const depth=-this.protectionPoint.z;
+    if(depth<=camera.near){out.w=0;return;}
+    const radius=Math.max(42/Math.max(1,this.height),Math.min(.65,height/(2*depth*Math.tan(camera.fov*Math.PI/360))*.8));
+    this.protectionPoint.set(target.x,this.heightAt(target.x,target.y)+elevation+height*.45,target.y).project(camera);
+    out.set((this.protectionPoint.x+1)/2,(this.protectionPoint.y+1)/2,depth,radius);
   }
 
   private syncDiagnosticsPanel(){
@@ -354,7 +375,7 @@ export class ThreePresentation {
     const hint:PresentationHint|undefined=explicit??inherited??(emissionOwner?{plane:'upright',anchor:emissionOwner}:undefined);
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
-    const houseVolume=Boolean(house)&&!emissionOwner&&!hint?.overlay;
+    const houseVolume=Boolean(house)&&(!emissionOwner||Boolean(house?.profile.tiers))&&!hint?.overlay;
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
@@ -468,6 +489,11 @@ export class ThreePresentation {
       }
       else if(plane==='ground')out.set(px,lift,py);
       else if(house&&hint?.overlay){
+        if(house.profile.tiers&&hint.anchor instanceof Phaser.GameObjects.Sprite){
+          presentationAttachmentWorld(object.scene,hint.anchor,this.transform.tx,this.transform.ty,out);
+          out.x+=x*houseScaleX*this.yawCos;out.y-=y*houseScaleY;out.z-=x*houseScaleX*this.yawSin;
+          return;
+        }
         const dx=this.transform.tx-anchorX,angle=hint.anchor?.rotation??0;
         out.set(anchorX+dx*Math.cos(angle)+x*houseScaleX*this.yawCos,
           anchorHeight+anchorY-this.transform.ty-y*houseScaleY+ownerElevation,
@@ -517,7 +543,7 @@ export class ThreePresentation {
     if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',volumeDepth))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
-    if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)
+    if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!wallDepth&&(!hint?.anchor||hint.wall)
       &&object.getData('presentation25dPlayerVisual')!==true
       &&!(object instanceof Phaser.GameObjects.Text)
       &&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
@@ -542,7 +568,7 @@ export class ThreePresentation {
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
     const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -657,10 +683,19 @@ export class ThreePresentation {
       const batch=hit.object.userData.batch as SpriteBatch|undefined;
       const entry=(hit.instanceId===undefined?undefined:batch?.objects[hit.instanceId]) as {object:DrawingObject;rect:LocalRect}|undefined;
       const object=entry?.object;
+      const surface=hit.object instanceof Mesh?hit.object.geometry.getAttribute('surfaceRect'):undefined;
+      const solidSurface=surface&&hit.face&&surface.getZ(hit.face.a)!==0;
+      if(hit.object.userData.presentationOccluder){
+        this.protectionPoint.copy(hit.point).applyMatrix4(this.orbit.camera.matrixWorldInverse);
+        const depth=-this.protectionPoint.z,u=(this.pointer.x+1)/2,v=(this.pointer.y+1)/2;
+        const revealed=[this.cutaway.cutawaySubject.value,this.cutaway.cutawayTarget.value].some(p=>p.w>0&&depth<p.z-6
+          &&Math.hypot((u-p.x)*this.width/this.height*1.5,v-p.y)<p.w*.66);
+        if(revealed)continue;
+      }
       // Picking a transparent corner of the original house artwork must not
       // block selection. This reads one prepared canvas texel on clicks only,
       // never the WebGL framebuffer or an image scan in the frame loop.
-      if(hit.object.userData.presentationOccluder&&hit.uv
+      if(hit.object.userData.presentationOccluder&&!solidSurface&&hit.uv
         &&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite)){
         const frame=object.frame,canvas=frame.source.image;
         if(canvas instanceof HTMLCanvasElement){

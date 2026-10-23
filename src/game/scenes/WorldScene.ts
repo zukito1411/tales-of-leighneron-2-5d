@@ -156,6 +156,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active
       ?this.player:this.cameras.main.midPoint;
   }
+  private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
+  get presentationLockedTarget(){
+    const enemy=this.presentationControlsEnabled?this.targeting?.lockedTarget:null;if(!enemy)return undefined;
+    const visual=enemy.presentationLockVisual,out=this.lockPresentation;
+    out.x=enemy.x;out.y=enemy.y;out.displayWidth=Math.max(enemy.displayWidth,visual.displayWidth);
+    out.displayHeight=Math.max(enemy.displayHeight,visual.displayHeight);out.presentationElevation=Math.max(0,enemy.y-visual.y);
+    return out;
+  }
   readonly presentationHeightAt=(x:number,y:number)=>this.worldGenerator?.getElevationAt(x,y)??0;
   get presentationShadows(){return this.groundShadows;}
   get presentationWeather(){return this.weather;}
@@ -197,7 +205,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   registerDungeonEntrance(image:Phaser.GameObjects.Image,tower=false){
     this.physics.add.existing(image,true);this.buildings.add(image);
     const body=image.body as Phaser.Physics.Arcade.StaticBody;
-    if(tower){body.setSize(240,140);body.position.set(image.x-120,image.y-200);body.center.set(body.x+120,body.y+70);}
+    if(tower){
+      const radius=120;body.setCircle(radius);
+      this.physics.world.remove(body);
+      body.position.set(image.x-radius,image.y-124-radius);body.updateCenter();
+      this.physics.world.add(body);
+    }
     else{body.setSize(150,60);body.position.set(image.x-75,image.y-image.displayHeight+35);body.center.set(body.x+75,body.y+30);}
   }
   createDungeonEnemy(d:DungeonDefinition,slot:number,p:Vec2,enemyId=d.enemies[slot]){

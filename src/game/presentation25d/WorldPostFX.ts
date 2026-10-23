@@ -20,10 +20,21 @@ uniform float focusRange;
 uniform float focusFalloff;
 uniform vec2 focusUV;
 uniform float aspect;
+uniform vec2 lockUV;
+uniform vec2 lockRadius;
+uniform float lockDepth;
+uniform float lockDepthRange;
+uniform float lockEnabled;
 varying vec2 vUv;
 float eyeDepth(vec2 uv){
   float depth=texture2D(sceneDepth,uv).r;
   return clipRange.x*clipRange.y/(clipRange.y-depth*(clipRange.y-clipRange.x));
+}
+float lockedProtection(vec2 uv,float depth){
+  if(lockEnabled<.5)return 0.0;
+  vec2 d=abs((uv-lockUV)/max(lockRadius,vec2(.001)));
+  float extent=max(d.x,d.y);
+  return (1.0-smoothstep(1.0,1.16,extent))*(1.0-smoothstep(lockDepthRange*.7,lockDepthRange,abs(depth-lockDepth)));
 }
 float circleOfConfusion(vec2 uv,float depth){
   // Empty background pixels do not belong to a distant wall or landscape.
@@ -33,7 +44,7 @@ float circleOfConfusion(vec2 uv,float depth){
     :0.8*smoothstep(focusRange*1.25,focusRange*1.25+focusFalloff*1.4,-delta);
   // Protect the playable area around the subject, including nearby warnings.
   float distanceFromSubject=length((uv-focusUV)*vec2(aspect,1.0));
-  return amount*smoothstep(0.17,0.38,distanceFromSubject);
+  return amount*smoothstep(0.17,0.38,distanceFromSubject)*(1.0-lockedProtection(uv,depth));
 }
 `;
 const blurShader=`
@@ -83,6 +94,7 @@ void main(){
   vec3 original=texture2D(sourceColor,vUv).rgb;
   float rawDepth=texture2D(sceneDepth,vUv).r;
   float depth=clipRange.x*clipRange.y/(clipRange.y-rawDepth*(clipRange.y-clipRange.x));
+  float protection=lockedProtection(vUv,depth);
   float blur=dofEnabled*circleOfConfusion(vUv,depth);
   vec3 color=original;
   if(gradingEnabled>0.5){
@@ -97,7 +109,7 @@ void main(){
   if(dofEnabled>0.5)color=mix(color,texture2D(blurredColor,vUv).rgb,blur*0.94);
   float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
-  color=mix(color,hazeColor,distanceHaze*hazeStrength);
+  color=mix(color,hazeColor,distanceHaze*hazeStrength*(1.0-protection));
   float surfaceFade=0.0;
   if(depth<clipRange.y-1.0){
     vec4 p=inverseVP*vec4(vUv*2.0-1.0,rawDepth*2.0-1.0,1.0);
@@ -108,12 +120,12 @@ void main(){
       float density=texture2D(mistArtwork,fract(ground*.0012+vec2(weatherTime*.003,-weatherTime*.001))).a;
       density+=texture2D(mistArtwork,fract(ground*.0007-vec2(weatherTime*.0015,weatherTime*.0007))).a*.65;
       float distant=smoothstep(80.0,950.0,depth);
-      color=mix(color,mistColor,clamp(mistAmount*(.12+density*.38)*distant*surfaceFade,0.0,.62));
+      color=mix(color,mistColor,clamp(mistAmount*(.12+density*.38)*distant*surfaceFade*(1.0-protection),0.0,.62));
     }
   }
   // Bounded radial depth-mask integration in the existing colour pass.
   // No extra world render, readback, allocation or fullscreen raymarch pass.
-  if(sunShafts>.001&&texture2D(sceneDepth,sunUV).r>.999999){
+  if(sunShafts>.001){
     vec2 toward=sunUV-vUv;
     float illumination=0.0,total=0.0;
     for(int i=0;i<8;i++){
@@ -121,7 +133,8 @@ void main(){
       float t=(float(i)+.5)/shaftSamples;
       vec2 q=vUv+toward*t;
       float weight=1.0-t*.45;
-      illumination+=step(.999999,texture2D(sceneDepth,q).r)*weight;total+=weight;
+      if(q.x>=0.0&&q.x<=1.0&&q.y>=0.0&&q.y<=1.0)illumination+=step(.999999,texture2D(sceneDepth,q).r)*weight;
+      total+=weight;
     }
     float spread=exp(-length(toward*vec2(aspect,1.0))*1.8);
     color+=vec3(1.0,.86,.62)*sunShafts*(illumination/max(.001,total))*(.035+.075*spread);
@@ -149,6 +162,7 @@ interface WorldFrame {
   width:number;height:number;density:number;focus:Readonly<{x:number;y:number}>|undefined;
   night:number;interior:boolean;focusHeight:number;sky?:GpuSky;depthNeeded:boolean;
   weather?:WeatherPresentation;mist?:Texture;
+  lockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};lockedGroundHeight?:number;
 }
 interface Targets {world:WebGLRenderTarget;horizontal?:WebGLRenderTarget;vertical?:WebGLRenderTarget}
 
@@ -168,6 +182,7 @@ export class WorldPostFX {
     sceneDepth:{value:null as Texture|null},clipRange:{value:new Vector2(.1,20000)},
     focusDistance:{value:6000},focusRange:{value:150},focusFalloff:{value:300},
     focusUV:{value:new Vector2(.5,.5)},aspect:{value:1},
+    lockUV:{value:new Vector2()},lockRadius:{value:new Vector2(.1,.1)},lockDepth:{value:0},lockDepthRange:{value:100},lockEnabled:{value:0},
   };
   private readonly blur=new ShaderMaterial({
     uniforms:{...this.common,sourceColor:{value:null as Texture|null},direction:{value:new Vector2()}},
@@ -235,6 +250,20 @@ export class WorldPostFX {
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
     this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
     this.common.aspect.value=frame.width/frame.height;
+    const lock=frame.lockedTarget;this.common.lockEnabled.value=0;
+    if(lock){
+      const h=Math.max(60,Math.abs(lock.displayHeight)),w=Math.max(50,Math.abs(lock.displayWidth));
+      const y=(frame.lockedGroundHeight??0)+(lock.presentationElevation??0)+h*.45;
+      this.focusPoint.set(lock.x,y,lock.y).applyMatrix4(frame.camera.matrixWorldInverse);
+      const depth=-this.focusPoint.z;
+      if(depth>frame.camera.near){
+        const span=2*depth*Math.tan(frame.camera.fov*Math.PI/360);
+        this.common.lockDepth.value=depth;this.common.lockDepthRange.value=Math.max(45,h*.65+w*.2);
+        this.common.lockRadius.value.set(w*.60/(span*frame.camera.aspect)+8/cssWidth,h*.60/span+8/cssHeight);
+        this.focusPoint.set(lock.x,y,lock.y).project(frame.camera);
+        this.common.lockUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);this.common.lockEnabled.value=1;
+      }
+    }
     this.composite.uniforms.sourceColor.value=targets.world.texture;
     this.composite.uniforms.blurredColor.value=targets.vertical?.texture??targets.world.texture;
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
@@ -251,9 +280,9 @@ export class WorldPostFX {
       if(this.sunPoint.z<-.01){
         this.sunPoint.set(direction.x,direction.y,direction.z).multiplyScalar(frame.camera.far*.5).add(frame.camera.position).project(frame.camera);
         const x=(this.sunPoint.x+1)/2,y=(this.sunPoint.y+1)/2;
-        if(x>.02&&x<.98&&y>.02&&y<.98){
+        if(x>-.25&&x<1.25&&y>-.25&&y<1.25){
           shafts.sunUV.value.set(x,y);
-          shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.4);
+          shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.4)*Math.max(0,1-Math.max(0,-x,x-1,-y,y-1)/.25);
         }
       }
     }

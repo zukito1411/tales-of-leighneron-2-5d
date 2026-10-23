@@ -140,6 +140,15 @@ jobs:
           geometry. Town curtains follow their surveyed seams with masonry tops
           and battlements, while gate openings remain open through the mesh.
           Original source atlases, view streaming and shared instancing are retained.
+          Tower walls, ledges, crowns and roofs now use circular geometry with
+          the existing artwork wrapped around them, including lit windows.
+          Contract boards have thin fixed-facing frames, backs and posts.
+          The orbit camera pulls forward around buildings and uses a local
+          cutaway to keep the player and locked enemy visible in tight spaces.
+          Press R or tap the translucent Lock button to lock/unlock a visible
+          enemy. Locks follow combat facing, protect the enemy from focus blur,
+          and release beyond range or after sustained loss of sight.
+          Sun shafts now remain visible near screen edges and partial cover.
           Camera-frustum streaming now replaces the fixed walking neighborhood.
           Movement-ahead preloads, GPU preparation and delayed retirement run together.
           The full sky, sun, moon and stars remain in their separate sky pass.

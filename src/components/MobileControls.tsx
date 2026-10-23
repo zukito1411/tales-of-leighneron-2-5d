@@ -13,6 +13,7 @@ export function MobileControls() {
   const attackPointer=useRef<number|null>(null);
   const sprintPointer = useRef<{id:number;startedAt:number;timer:number}|null>(null);
   const panel = useGameStore(s => s.panel);
+  const targetLock=useGameStore(s=>s.targetLock);
   const housingEditing=useGameStore(s=>s.housingEditing);
   const atHome=useGameStore(s=>isPlayerHome(s.housingContext));
   const dialogue = useGameStore(s => s.dialogue);
@@ -75,7 +76,15 @@ export function MobileControls() {
     if (dashOnTap && performance.now() - press.startedAt < 180) mobileInput.press('dash');
   };
 
-  return (
+  const lockButton=(desktop=false)=><button type="button" className={desktop?'target-lock-desktop':`touch-button target-lock${targetLock?' is-locked':''}`}
+    aria-label={targetLock?`Unlock ${targetLock.name}`:'Lock target'} aria-pressed={Boolean(targetLock)} title={targetLock?`Unlock ${targetLock.name} · R`:'Lock visible enemy · R'}
+    onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();mobileInput.press('targetLock');}}}
+    onPointerDown={event=>{event.stopPropagation();mobileInput.press('targetLock');}}>
+    <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="8"/><path d="M16 2v7m0 14v7M2 16h7m14 0h7"/><circle cx="16" cy="16" r="2"/></svg>
+    <small>{targetLock?'Unlock':'Lock'}{desktop?' · R':''}</small>
+  </button>;
+  return <>
+    {!blocked&&lockButton(true)}
     <div className="mobile-controls" data-at-home={atHome} aria-label="Touch controls" style={blocked ? { display: 'none' } : undefined}>
       <div
         ref={joystickRef}
@@ -98,6 +107,7 @@ export function MobileControls() {
       </div>
 
       <div className="touch-actions">
+        {lockButton()}
         <button type="button" className="touch-button jump" aria-label="Jump" onPointerDown={()=>mobileInput.press('jump')}><span className="touch-glyph">↑</span><small>Jump</small></button>
         <div className="touch-potions" aria-label="Potion shortcuts">
           {(['healing-potion','stamina-potion'] as PotionId[]).map(id=>{
@@ -160,5 +170,5 @@ export function MobileControls() {
         </button>
       </div>
     </div>
-  );
+  </>;
 }

@@ -8,11 +8,16 @@ import {presentationView,worldPointInView} from '../presentation25d/plane';
 export class TargetingSystem {
   selected:Enemy|null=null;
   private manual:Enemy|null=null;
+  private locked:Enemy|null=null;
+  private sightCheckAt=0;private lastClearAt=0;
+  get lockedTarget(){const e=this.locked;return e?.active&&e.visible&&e.isAlive&&e.canBeTargeted?e:null;}
+  static readonly acquireRange=720;
+  static readonly breakRange=900;
   private engaged:Enemy|null=null;
   // Reuse selection candidates, avoiding per-frame allocation churn.
   private readonly nearestCandidates:Array<{enemy:Enemy;distance2:number}>=[];
 
-  constructor(private readonly scene:WorldScene){}
+  constructor(private readonly scene:WorldScene){scene.events.once('shutdown',()=>this.clear());}
   eligible(enemy:Enemy,range=680) {
     const player=this.scene.player;
     const dx=enemy.x-player.x,dy=enemy.y-player.y;
@@ -21,6 +26,8 @@ export class TargetingSystem {
       && this.scene.canSeeEnemy(enemy)&&this.scene.hasClearPath(player.x,player.y,enemy.x,enemy.y);
   }
   nearest(range:number) {
+    // Locking never increases a weapon/art's range or bypasses cover.
+    if(this.lockedTarget)return this.eligible(this.lockedTarget,range)?this.lockedTarget:null;
     const player=this.scene.player,range2=range*range;
     const candidates=this.nearestCandidates;
     let count=0;
@@ -44,19 +51,46 @@ export class TargetingSystem {
       if(this.scene.canSeeEnemy(enemy)&&this.scene.hasClearPath(player.x,player.y,enemy.x,enemy.y))return enemy;
     return null;
   }
-  select(enemy:Enemy){if(this.eligible(enemy)){this.manual=enemy;this.selected=enemy;this.publishBoss(true);}}
+  select(enemy:Enemy){
+    if(!this.eligible(enemy,TargetingSystem.acquireRange))return;
+    this.locked=this.manual=this.selected=enemy;this.lastClearAt=this.scene.time.now;this.sightCheckAt=0;
+    this.publishLock();this.publishBoss(true);
+  }
+  toggleLock(){
+    if(this.locked){this.locked=null;this.manual=null;this.publishLock();this.publishBoss();return;}
+    const selected=this.selected;
+    const enemy=selected&&this.eligible(selected,TargetingSystem.acquireRange)
+      &&worldPointInView(this.scene,selected.x,selected.y,40,48)?selected:this.nearest(TargetingSystem.acquireRange);
+    if(enemy)this.select(enemy);else this.scene.notify('No visible enemy in lock range.');
+  }
+  private publishLock(){
+    const enemy=this.lockedTarget,next=enemy?{id:enemy.instanceId,name:enemy.definition.name}:null;
+    const previous=useGameStore.getState().targetLock;
+    if(previous?.id!==next?.id||previous?.name!==next?.name)useGameStore.setState({targetLock:next});
+  }
   /** Nearest-enemy assistance is not a request to open a boss health bar.
    * A deliberate selection or an actual player hit confirms combat intent. */
   engage(enemy:Enemy){if(this.selected===enemy){this.engaged=enemy;this.publishBoss();}}
   update(){
+    const locked=this.locked,now=this.scene.time.now;
+    if(locked){
+      const p=this.scene.player;
+      let valid=this.lockedTarget!==null&&p.hp>0&&this.scene.combatAllowed
+        &&Math.hypot(locked.x-p.x,locked.y-p.y)<=TargetingSystem.breakRange;
+      if(valid&&now>=this.sightCheckAt){
+        this.sightCheckAt=now+100;
+        if(this.scene.canSeeEnemy(locked)&&this.scene.hasClearPath(p.x,p.y,locked.x,locked.y))this.lastClearAt=now;
+        else if(now-this.lastClearAt>850)valid=false;
+      }
+      if(valid){this.selected=locked;this.publishBoss(true);return;}
+      this.locked=null;this.manual=null;this.publishLock();
+    }
     const manual=this.manual,manualEligible=manual!==null&&this.eligible(manual);
     if(!manualEligible)this.manual=null;
     if(this.engaged&&(this.engaged===manual?!manualEligible:!this.eligible(this.engaged)))this.engaged=null;
-    // Both the manual and nearest paths validated this selection already.
-    // Reuse that result within this call, never across movement/physics ticks.
     this.selected=this.manual??this.nearest(680);this.publishBoss(true);
   }
-  clear(){this.manual=null;this.engaged=null;this.selected=null;this.publishBoss();}
+  clear(){this.locked=null;this.manual=null;this.engaged=null;this.selected=null;this.publishLock();this.publishBoss();}
   private publishBoss(selectionChecked=false){
     const enemy=this.selected;
     const boss=enemy&&(enemy.definition.boss||enemy.isBossEncounter)&&(enemy===this.manual||enemy===this.engaged)

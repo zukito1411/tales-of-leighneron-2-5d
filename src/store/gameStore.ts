@@ -156,6 +156,7 @@ export interface GameState {
   quests: Record<string, QuestRuntimeState>;
   defeatedBosses: string[];
   bossEncounter: BossEncounter | null;
+  targetLock:{id:string;name:string}|null;
   worldContent: ContentWorldState;
   unlockedTownShrines:string[];
   travelOriginTownId:string | null;
@@ -250,6 +251,7 @@ const baseState = () => ({
   quests: initialQuestState(),
   defeatedBosses: [] as string[],
   bossEncounter: null as BossEncounter | null,
+  targetLock:null as GameState['targetLock'],
   worldContent: { states: {}, spawns: {}, nextSpawnSequence: 0 } as ContentWorldState,
   unlockedTownShrines:[] as string[],
   travelOriginTownId:null as string | null,

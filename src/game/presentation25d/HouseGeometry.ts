@@ -8,11 +8,11 @@ interface Tier {left:number;right:number;top:number;bottom:number;patch?:Patch}
 interface HouseProfile {
   id:string;roof:readonly Point[];wall:Patch;tiles:Patch;depth:number;
   opening?:readonly Point[];tiers?:readonly Tier[];hip?:{left:number;right:number;eave:number;peak:number};
-  curtain?:boolean;
+  curtain?:boolean;board?:boolean;
 }
 export interface WallSegment {dx:number;dy:number}
 export interface HouseShape {
-  profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;
+  profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;ground?:number;
   segment?:WallSegment&{height:number;thickness:number};
 }
 // Visual depth is an authored proportion of visible width. Collision strips
@@ -80,6 +80,8 @@ const profiles:Partial<Record<ArtTextureKey,Readonly<Record<number,HouseProfile>
     8:house('elven-estate',[[.07,.59],[.24,.36],[.38,.16],[.61,.16],[.77,.37],[.94,.59]],[.27,.58,.34,.71],[.29,.30,.39,.42]),
     9:house('elven-palace',[[.05,.65],[.14,.26],[.23,.64],[.36,.59],[.49,.12],[.69,.60],[.81,.64],[.89,.25],[.98,.65]],[.43,.69,.48,.81],[.46,.37,.53,.46],.50),
   },
+  others:{11:{...house('contract-board',[[.07,.21],[.16,.03],[.82,.03],[.94,.22]],[.17,.71,.23,.80],[.34,.13,.47,.20],.035),board:true}},
+  native_civic_bare:{11:{...house('bare-contract-board',[[.04,.21],[.14,.03],[.85,.03],[.97,.22]],[.14,.70,.20,.80],[.33,.13,.46,.20],.035),board:true}},
   royal_walls:{
     0:curtain('rising-curtain',[.32,.46,.49,.63],[.30,.32,.44,.38]),
     1:curtain('falling-curtain',[.37,.45,.54,.61],[.41,.30,.54,.37]),
@@ -110,8 +112,12 @@ export function towerOfMightShape():HouseShape{
     {left:.25,right:.77,top:.25,bottom:.28},
     {left:.23,right:.79,top:.13,bottom:.17},
   ]);
-  return {profile,left:0,top:0,width:1,height:1,depth:.50};
+  return {profile,left:0,top:0,width:1,height:1,depth:towerDiameter(profile),ground:1};
 }
+
+/** Diameter in visible-source units. All tier radii use the same world X/Z
+ * scale, so changing source/frame aspect cannot turn a tower into an ellipse. */
+export function towerDiameter(profile:HouseProfile){return Math.max(...(profile.tiers??[]).map(t=>t.right-t.left),profile.hip?profile.hip.right-profile.hip.left:0);}
 
 export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,index:number,segment?:WallSegment):HouseShape|undefined {
   const profile=profiles[texture]?.[index];if(!profile)return;
@@ -121,7 +127,7 @@ export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,ind
   const density=ART_BY_KEY[texture].density;
   return {profile,left:bounds.left*density/frame.cutWidth,top:bounds.top*density/frame.cutHeight,
     width:bounds.width*density/frame.cutWidth,height:bounds.height*density/frame.cutHeight,
-    depth:profile.curtain&&segment?1:bounds.width*density*profile.depth/frame.cutWidth,
+    depth:profile.curtain&&segment?1:bounds.width*density*(profile.tiers?towerDiameter(profile):profile.depth)/frame.cutWidth,
     ...(profile.curtain&&segment?{segment:{...segment,height:0,thickness:0}}:{})};
 }
 
@@ -129,16 +135,16 @@ type Vertex=readonly [number,number,number];
 /** Shared low-poly meshes use only the already prepared source atlas. Opaque
  * material patches repeat at their original texel scale, rather than stretching
  * a tiny stripe over an entire roof/wall. Geometry is built once per active batch. */
-export function createHouseGeometry(shape:HouseShape){
+export function createHouseGeometry(shape:HouseShape,inflate=0){
   const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],surfaceUVs:number[]=[];
   const {profile,left,top,width,height,depth}=shape;
   const point=(x:number,y:number,z:number):Vertex=>[left+x*width-.5,.5-top-y*height,z];
   const uv=(x:number,y:number):Point=>[left+x*width,1-top-y*height];
-  const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch)=>{
+  const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch,painted=false)=>{
     positions.push(...a,...b,...c);
-    if(patch){const center=uv((patch[0]+patch[2])/2,(patch[1]+patch[3])/2);uvs.push(...center,...center,...center);}
+    if(patch&&!painted){const center=uv((patch[0]+patch[2])/2,(patch[1]+patch[3])/2);uvs.push(...center,...center,...center);}
     else uvs.push(...ta,...tb,...tc);
-    const rect=patch?[left+patch[0]*width,1-top-patch[3]*height,(patch[2]-patch[0])*width,(patch[3]-patch[1])*height]:[0,0,0,0];
+    const rect=patch?[left+patch[0]*width,1-top-patch[3]*height,(patch[2]-patch[0])*width*(painted?-1:1),(patch[3]-patch[1])*height]:[0,0,0,0];
     surfaces.push(...rect,...rect,...rect);surfaceUVs.push(...ta,...tb,...tc);
   };
   const segment=shape.segment,span=segment?Math.max(1,Math.hypot(segment.dx,segment.dy)):1;
@@ -166,16 +172,24 @@ export function createHouseGeometry(shape:HouseShape){
     }
     polygon(path,back,profile.wall);
   };
+  const ROUND_SEGMENTS=32,centerZ=-depth/2;
+  const foundationBottom=Math.max(...(profile.tiers??[]).map(t=>t.bottom),0);
+  const circularPoint=(tier:Tier,angle:number,y:number):Vertex=>{
+    const radius=(tier.right-tier.left)*width/2+inflate;
+    return [left+(tier.left+tier.right)*width/2-.5+Math.sin(angle)*radius,.5-top-y*height,centerZ+Math.cos(angle)*radius];
+  };
+  const circularUV=(tier:Tier,angle:number,y:number):Point=>uv((tier.left+tier.right)/2+Math.sin(angle)*(tier.right-tier.left)*.46,y);
   const prism=(tier:Tier)=>{
-    const {left:l,right:r,top:t,bottom:b}=tier,w=r-l,bevel=w*.18;
-    const ring:readonly Point[]=[[l+bevel,-.002],[r-bevel,-.002],[r,-depth*.20],[r,-depth*.80],
-      [r-bevel,-depth],[l+bevel,-depth],[l,-depth*.80],[l,-depth*.20]];
-    const patch=tier.patch??profile.wall;
-    for(let i=0;i<ring.length;i++){
-      const a=ring[i],c=ring[(i+1)%ring.length];
-      quad(point(a[0],b,a[1]),point(c[0],b,c[1]),point(a[0],t,a[1]),point(c[0],t,c[1]),patch);
-      // Close the upper gallery/foundation ledge, including the rear half.
-      tri(point((l+r)/2,t,-depth/2),point(a[0],t,a[1]),point(c[0],t,c[1]),[.5,.5],[0,0],[1,1],patch);
+    const patch=tier.patch??profile.wall,center:Vertex=[left+(tier.left+tier.right)*width/2-.5,.5-top-tier.top*height,centerZ];
+    for(let i=0;i<ROUND_SEGMENTS;i++){
+      const a=i/ROUND_SEGMENTS*Math.PI*2,b=(i+1)/ROUND_SEGMENTS*Math.PI*2;
+      const bottom=tier.bottom===foundationBottom?Math.max(tier.bottom,shape.ground??tier.bottom):tier.bottom;
+      const ab=circularPoint(tier,a,bottom),bb=circularPoint(tier,b,bottom),at=circularPoint(tier,a,tier.top),bt=circularPoint(tier,b,tier.top);
+      // Reuse the authored facade on both halves of the actual cylinder.
+      // The stone/timber fallback closes any transparent foliage/window edge.
+      const ua=circularUV(tier,a,tier.bottom),ub=circularUV(tier,b,tier.bottom),va=circularUV(tier,a,tier.top),vb=circularUV(tier,b,tier.top);
+      tri(ab,bb,at,ua,ub,va,patch,true);tri(bb,bt,at,ub,vb,va,patch,true);
+      tri(center,at,bt,[.5,.5],[Math.sin(a)*2,Math.cos(a)*2],[Math.sin(b)*2,Math.cos(b)*2],patch);
     }
   };
   if(profile.curtain&&shape.segment){
@@ -191,26 +205,32 @@ export function createHouseGeometry(shape:HouseShape){
     for(let i=0;i<count;i++)box(-.5+i*step,-.5+i*step+step*.57,.30,.5);
   }else{
     // Complete authored front, including windows, doors, flags and fine trim.
-    tri([-.5,-.5,0],[.5,-.5,0],[-.5,.5,0],[0,0],[1,0],[0,1]);
-    tri([.5,-.5,0],[.5,.5,0],[-.5,.5,0],[1,0],[1,1],[0,1]);
+    if(!profile.tiers){
+      tri([-.5,-.5,0],[.5,-.5,0],[-.5,.5,0],[0,0],[1,0],[0,1]);
+      tri([.5,-.5,0],[.5,.5,0],[-.5,.5,0],[1,0],[1,1],[0,1]);
+    }
     if(profile.tiers){
       for(const tier of profile.tiers)prism(tier);
       const hip=profile.hip;
       if(hip){
-        const tip=point((hip.left+hip.right)/2,hip.peak,-depth/2);
-        const corners=[point(hip.left,hip.eave,0),point(hip.right,hip.eave,0),
-          point(hip.right,hip.eave,-depth),point(hip.left,hip.eave,-depth)];
-        for(let i=0;i<4;i++){
-          const a=corners[i],b=corners[(i+1)%4],p=profile.tiles;
-          tri(a,b,tip,[0,0],[distance(a,b)/((p[2]-p[0])*width),0],
-            [distance(a,b)/((p[2]-p[0])*width)/2,distance(a,tip)/((p[3]-p[1])*height)],p);
+        const tier={left:hip.left,right:hip.right,top:hip.eave,bottom:hip.eave};
+        const tip:Vertex=[left+(hip.left+hip.right)*width/2-.5,.5-top-hip.peak*height,centerZ];
+        for(let i=0;i<ROUND_SEGMENTS;i++){
+          const a=i/ROUND_SEGMENTS*Math.PI*2,b=(i+1)/ROUND_SEGMENTS*Math.PI*2;
+          tri(circularPoint(tier,a,hip.eave),circularPoint(tier,b,hip.eave),tip,
+            circularUV(tier,a,hip.eave),circularUV(tier,b,hip.eave),uv((hip.left+hip.right)/2,hip.peak),profile.tiles,true);
         }
+        // Only the original flag/finial remains a slim, fixed surface above
+        // the cone. The tower body and roof are never a rectangular card.
+        const l=.35,r=.90,y=hip.peak,z=centerZ;
+        tri(point(l,y,z),point(r,y,z),point(l,0,z),uv(l,y),uv(r,y),uv(l,0));
+        tri(point(r,y,z),point(r,0,z),point(l,0,z),uv(r,y),uv(r,0),uv(l,0));
       }else{
         const crown=profile.tiers.reduce((a,b)=>b.top<a.top?b:a),w=crown.right-crown.left;
-        const rim:readonly Point[]=[[crown.left+w*.20,-depth*.04],[crown.right-w*.20,-depth*.04],
-          [crown.right-w*.06,-depth*.25],[crown.right-w*.06,-depth*.75],
-          [crown.right-w*.20,-depth*.96],[crown.left+w*.20,-depth*.96],
-          [crown.left+w*.06,-depth*.75],[crown.left+w*.06,-depth*.25]];
+        const rim:Point[]=Array.from({length:12},(_,i)=>{
+          const angle=i/12*Math.PI*2;
+          return [(crown.left+crown.right)/2+Math.sin(angle)*w*.43,centerZ+Math.cos(angle)*w*width*.43];
+        });
         for(const [x,z] of rim){
           const l=x-w*.065,r=x+w*.065,f=z+depth*.055,b=z-depth*.055,t=crown.top-.075,y=crown.top;
           quad(point(l,y,f),point(r,y,f),point(l,t,f),point(r,t,f),profile.wall);
@@ -220,6 +240,13 @@ export function createHouseGeometry(shape:HouseShape){
           quad(point(l,t,f),point(r,t,f),point(l,t,b),point(r,t,b),profile.tiles);
         }
       }
+    }else if(profile.board){
+      // Roof, notice panel and two independent posts; the gap below the
+      // board stays open. The back uses wood, never mirrored paper notices.
+      extrude([[.09,.23],[.91,.23],[.91,.77],[.09,.77]],-depth);
+      extrude([[.13,.72],[.22,.72],[.22,.97],[.13,.97]],-depth);
+      extrude([[.79,.72],[.88,.72],[.88,.97],[.79,.97]],-depth);
+      const roof=profile.roof;extrude([...roof,[roof[roof.length-1][0],.25],[roof[0][0],.25]],-depth,roof.length-1);
     }else{
       const roof=profile.roof,first=roof[0],last=roof[roof.length-1],base=Math.max(.96,...(profile.opening??[]).map(p=>p[1]));
       const path:Point[]=[...roof,[last[0],base],...(profile.opening??[]),[first[0],base]];
