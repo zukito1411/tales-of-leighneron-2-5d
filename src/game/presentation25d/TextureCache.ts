@@ -1,13 +1,14 @@
 import Phaser from 'phaser';
-import {LinearFilter,SRGBColorSpace,Texture,type WebGLRenderer} from 'three';
+import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLRenderer} from 'three';
 import type {FrameWorkBudget} from './FrameWorkBudget';
 
 interface Entry {texture:Texture;lastUsed:number;bytes:number;uploadedVersion:number;restore:()=>void}
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
 const IDLE_FRAMES=300;
+const RESIDENCY_GRACE=120;
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
-const MAX_RESIDENT_BYTES=(MOBILE?80:160)*1024*1024;
+const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
@@ -25,7 +26,12 @@ export class TextureCache {
       this.coldCreates++;
       const texture=new Texture(source.image);
       texture.colorSpace=SRGBColorSpace;texture.minFilter=texture.magFilter=LinearFilter;
-      texture.generateMipmaps=false;texture.needsUpdate=true;
+      // Only standalone painted ground uses mipmaps. Atlas sprites retain
+      // their existing filtering, so neighboring animation cells never bleed.
+      const ground=source.texture.key.startsWith('chunk:')||source.texture.key==='shared-ocean-chunk';
+      texture.generateMipmaps=ground;
+      if(ground){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=4;}
+      texture.needsUpdate=true;
       texture.onUpdate=()=>{const current=this.entries.get(source);if(current){current.uploadedVersion=texture.version;this.pending.delete(source);}};
       const original=source.update;
       const update:typeof original=function(){const result=original.call(source);texture.needsUpdate=true;return result;};
@@ -43,7 +49,7 @@ export class TextureCache {
       this.entries.set(source,entry);
     }
     if(entry.texture.image!==source.image){entry.texture.image=source.image;entry.texture.needsUpdate=true;}
-    const bytes=Math.max(1,source.width)*Math.max(1,source.height)*4;
+    const bytes=Math.ceil(Math.max(1,source.width)*Math.max(1,source.height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
     entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
@@ -73,17 +79,17 @@ export class TextureCache {
     // retire an entire biome's textures; disposing all of them at once causes
     // a second spike after the original upload.
     for(const [source,entry] of this.entries){
-      if(entry.lastUsed<frame-2)idle++;
+      if(entry.lastUsed<frame-RESIDENCY_GRACE)idle++;
       if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
         this.release(source,entry);retired++;
-        if(entry.lastUsed<frame-2)idle--;
+        if(entry.lastUsed<frame-RESIDENCY_GRACE)idle--;
       }
     }
     if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
     // Evict only idle resources, oldest first; never drop visible assets.
     while((this.bytes>MAX_RESIDENT_BYTES||idle>MAX_IDLE_ENTRIES)&&retired<2){
       let oldest:Entry|undefined,oldestSource:Phaser.Textures.TextureSource|undefined;
-      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-2&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
+      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-RESIDENCY_GRACE&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
       this.release(oldestSource,oldest);retired++;idle--;
     }

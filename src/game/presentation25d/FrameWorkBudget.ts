@@ -1,6 +1,6 @@
 import type Phaser from 'phaser';
 
-export type WorkKind='terrain'|'actors'|'elevation'|'upload'|'retire';
+export type WorkKind='terrain'|'actors'|'elevation'|'upload'|'retire'|'geography';
 /** One allowance shared by scene streaming and presentation. Atomic jobs may
  * overrun it, but that cost prevents additional background work this frame. */
 export class FrameWorkBudget {

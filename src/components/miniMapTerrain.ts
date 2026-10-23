@@ -1,24 +1,22 @@
 import {WorldGenerator} from '../game/systems/WorldGenerator';
-import type {TerrainKind} from '../game/types';
 import {WORLD_HEIGHT,WORLD_WIDTH} from '../data/world';
+import {GeographyWorker} from '../game/systems/GeographyWorker';
+import {MINI_TERRAIN_COLORS as COLORS,type GeographyReply} from '../game/systems/GeographyProtocol';
 
-const COLORS:Record<TerrainKind,string>={
-  grass:'#617849',forest:'#324e37',dirt:'#ab8b60',stone:'#96908a',snow:'#d1ddd9',
-  ash:'#66544e',sand:'#c3ac78',water:'#294d63',farmland:'#918449',
-  marsh:'#657363',lava:'#b85835',ice:'#9fc8df',
-};
 export const MINI_TERRAIN_EXTENT=1100*8/3;
 type Tile={x:number;y:number;canvas:HTMLCanvasElement};
 type Job={key:string;tile:Tile;ctx:CanvasRenderingContext2D;next:number};
 
-/** Four exact tiles; only one unfinished canvas. Predict the closest boundaries
- * and sample them in small animation-frame slices, never during React render. */
+/** Four exact tiles, one unfinished canvas, shared worker geography. Unsupported
+ * workers use short idle slices instead of a separate 2ms animation-frame job. */
 export class MiniMapTerrain {
   private readonly world=new WorldGenerator();
   private readonly tiles=new Map<string,Tile>();
   private wanted:Array<{key:string;x:number;y:number}>=[];
   private job:Job|null=null;
   private frame:number|null=null;
+  private idle=false;private requested=false;
+  private readonly geography=new GeographyWorker(reply=>this.receiveGeography(reply));
   private disposed=false;
   constructor(private readonly onReady:()=>void=()=>{}){}
 
@@ -63,27 +61,43 @@ export class MiniMapTerrain {
     if(job.key===this.wanted[0]?.key)this.onReady();
   }
   private schedule(){
-    if(!this.disposed&&this.frame===null&&this.wanted.some(p=>!this.tiles.has(p.key)))
-      this.frame=requestAnimationFrame(this.prepare);
+    if(this.disposed||!this.wanted.some(p=>!this.tiles.has(p.key)))return;
+    if(this.geography.available){
+      if(!this.job){const next=this.wanted.find(p=>!this.tiles.has(p.key));if(!next)return;this.job=this.start(next.key,next.x,next.y);}
+      if(!this.job||this.requested)return;
+      this.requested=this.geography.request({kind:'minimap',x:this.job.tile.x,y:this.job.tile.y,extent:MINI_TERRAIN_EXTENT,pixels:256});return;
+    }
+    if(this.frame!==null)return;
+    this.idle=typeof requestIdleCallback==='function';
+    this.frame=this.idle?requestIdleCallback(deadline=>this.prepare(deadline),{timeout:250}):requestAnimationFrame(()=>this.prepare());
   }
-  private readonly prepare=()=>{
+  private readonly prepare=(idle?:IdleDeadline)=>{
     this.frame=null;if(this.disposed)return;
+    if(idle&&!idle.didTimeout&&idle.timeRemaining()<.5){this.schedule();return;}
     if(!this.job){
       const next=this.wanted.find(p=>!this.tiles.has(p.key));if(!next)return;
       this.job=this.start(next.key,next.x,next.y);if(!this.job)return;
     }
-    const end=performance.now()+2;
-    for(let count=0;count<96&&this.job.next<48*48;count++){
+    const end=performance.now()+.35;
+    for(let count=0;count<24&&this.job.next<48*48;count++){
       this.sample(this.job);
       if(performance.now()>=end)break;
     }
     if(this.job.next===48*48)this.commit();
     this.schedule();
   };
-  private discardJob(){if(this.job)this.job.tile.canvas.width=this.job.tile.canvas.height=1;this.job=null;}
-  pause(){if(this.frame!==null)cancelAnimationFrame(this.frame);this.frame=null;this.wanted=[];this.discardJob();}
+  private receiveGeography(reply:GeographyReply|null){
+    this.requested=false;
+    if(reply&&'bitmap' in reply){
+      try{if(!this.disposed&&this.job){this.job.ctx.drawImage(reply.bitmap,0,0);this.commit();}}
+      finally{reply.bitmap.close();}
+    }
+    this.schedule();
+  }
+  private discardJob(){this.geography.cancel();this.requested=false;if(this.job)this.job.tile.canvas.width=this.job.tile.canvas.height=1;this.job=null;}
+  pause(){if(this.frame!==null){if(this.idle)cancelIdleCallback(this.frame);else cancelAnimationFrame(this.frame);}this.frame=null;this.wanted=[];this.discardJob();}
   destroy(){
-    this.disposed=true;this.pause();
+    this.disposed=true;this.pause();this.geography.destroy();
     for(const tile of this.tiles.values())tile.canvas.width=tile.canvas.height=1;
     this.tiles.clear();
   }

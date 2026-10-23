@@ -9,8 +9,8 @@ export function GraphicsQualityControl() {
       const next = e.target.value as EffectsQuality;
       setQuality(next); setEffectsQuality(next);
     }} aria-label="Visual effects quality">
-      <option value="low">Low / mobile</option>
-      <option value="normal">Normal</option>
+      <option value="low">Low</option>
+      <option value="normal">Normal / full terrain detail</option>
     </select>
   </label>;
 }

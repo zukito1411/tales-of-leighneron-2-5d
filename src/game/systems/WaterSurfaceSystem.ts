@@ -1,16 +1,20 @@
 import Phaser from 'phaser';
 import type {WorldGenerator} from './WorldGenerator';
 import {overlayViewport,groundEffectViewport} from './renderSizing';
-import {onGround} from '../presentation25d/plane';
+import {onGround,presentationView} from '../presentation25d/plane';
 import {getGraphicEffects} from './graphicsEffects';
+import {GeographyWorker} from './GeographyWorker';
+import {WATER_CELL_SIZE,WATER_FIELD_SIZE,WATER_FIELD_PIXELS,WATER_FIELD_STEP,type GeographyRequest,type GeographyReply} from './GeographyProtocol';
+import {WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
+import {frameWork} from '../presentation25d/FrameWorkBudget';
 
 interface WaterCell {x:number;y:number;edges:Array<[number,number]>}
 export interface WaterPresentation {mask:HTMLCanvasElement;version:number;x:number;y:number;width:number;height:number;elapsed:number;openSea:boolean;enabled:boolean}
 const OVERSCAN=96;
 const WATER_CACHE_LIMIT=16384;
 const NEIGHBORS=[[32,0],[-32,0],[0,32],[0,-32]] as const;
-/** Small viewport-only animated water. The terrain predicate masks bridges,
- * banks and solid ice. World-anchored swells and bank foam share the mask. */
+/** GPU water uses a buffered, world-aligned worker mask. The exact terrain
+ * predicate retains bridges, banks and ice; the canvas adapter stays supported. */
 export class WaterSurfaceSystem {
   private readonly texture:Phaser.Textures.CanvasTexture;
   private readonly overlay:Phaser.GameObjects.Image;
@@ -22,10 +26,14 @@ export class WaterSurfaceSystem {
   private firstPaint=true;
   private base={x:Infinity,y:Infinity,zoom:0,zoomY:0};
   private destroyed=false;
+  private readonly geography:GeographyWorker|undefined;
+  private gpuHasWater=false;private gpuRequested=false;
+  private gpuJob:{request:GeographyRequest;canvas?:HTMLCanvasElement;next:number;water:boolean}|undefined;
   private readonly reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(private readonly scene:Phaser.Scene,private readonly world:WorldGenerator){
     const viewport=overlayViewport(scene);
     const gpu=scene.game.registry.get('presentation')==='three-2.5d';
+    if(gpu)this.geography=new GeographyWorker(reply=>this.receiveGeography(reply));
     this.texture=scene.textures.createCanvas('moving-water',gpu?1:viewport.width+OVERSCAN*2,gpu?1:viewport.height+OVERSCAN*2)!;
     this.overlay=scene.add.image(0,0,'moving-water').setOrigin(0).setDepth(-990).setName('river-and-sea-surface');
     this.ocean=onGround(scene.add.tileSprite(0,0,1,1,'water-foam',0).setOrigin(0).setDepth(-990).setAlpha(.18).setTileScale(.7,.45).setVisible(false).setName('ocean-foam-surface'),.01);
@@ -38,8 +46,9 @@ export class WaterSurfaceSystem {
     this.waterCells.set(key,water);return water;
   }
   update(delta:number){
-    if(!getGraphicEffects().waterMotion){this.presentation.enabled=false;this.overlay.setVisible(false);this.ocean.setVisible(false);this.base.zoom=0;this.drawMs=100;return;}
+    if(!getGraphicEffects().waterMotion){this.presentation.enabled=false;this.overlay.setVisible(false);this.ocean.setVisible(false);this.base.zoom=0;this.drawMs=100;this.cancelGpuJob();return;}
     if(!this.reducedMotion.matches)this.elapsed+=Math.min(delta,100);
+    if(this.geography){this.updateGpuWater();return;}
     this.drawMs+=delta;
     const viewport=groundEffectViewport(this.scene),z=viewport.zoom,zy=viewport.zoomY,view=viewport.view;
     const w=viewport.width+OVERSCAN*2,h=viewport.height+OVERSCAN*2;
@@ -104,7 +113,62 @@ export class WaterSurfaceSystem {
     }
     ctx.globalCompositeOperation='destination-in';ctx.drawImage(this.mask,0,0);ctx.globalCompositeOperation='source-over';this.texture.refresh();
   }
-  destroy(){if(this.destroyed)return;this.destroyed=true;this.overlay.destroy();this.ocean.destroy();this.scene.textures.remove('moving-water');this.mask.width=this.mask.height=1;this.cells=[];this.waterCells.clear();}
+  private updateGpuWater(){
+    const state=this.presentation,openSea=Boolean(this.scene.registry.get('openSeaView'));
+    state.elapsed=this.elapsed;state.openSea=openSea;state.enabled=openSea||this.gpuHasWater;
+    this.overlay.setVisible(false);this.ocean.setVisible(false);
+    if(openSea){this.cancelGpuJob();return;}
+    const focus=presentationView(this.scene)?.focusGround??this.scene.cameras.main.midPoint;
+    const covers=(request:{x:number;y:number;extent:number})=>Math.abs(focus.x-request.x-request.extent/2)<=WATER_FIELD_STEP
+      &&Math.abs(focus.y-request.y-request.extent/2)<=WATER_FIELD_STEP;
+    if(this.gpuJob&&!covers(this.gpuJob.request))this.cancelGpuJob();
+    if(!this.gpuJob&&(state.width===0||!covers({x:state.x,y:state.y,extent:state.width}))){
+      const x=Math.round(focus.x/WATER_FIELD_STEP)*WATER_FIELD_STEP-WATER_FIELD_SIZE/2;
+      const y=Math.round(focus.y/WATER_FIELD_STEP)*WATER_FIELD_STEP-WATER_FIELD_SIZE/2;
+      this.gpuJob={request:{kind:'water',x,y,extent:WATER_FIELD_SIZE,pixels:WATER_FIELD_PIXELS},next:0,water:false};
+    }
+    const job=this.gpuJob;if(!job)return;
+    if(this.geography?.available){
+      if(!this.gpuRequested)this.gpuRequested=this.geography.request(job.request);
+      return;
+    }
+    // Unsupported workers retain exact 32-unit shoreline cells, but never
+    // scan the entire moving viewport in one frame. Keep the old complete mask.
+    const work=frameWork(this.scene.game),allowance=work.remaining('geography',.3);if(allowance<=0)return;
+    const start=performance.now();
+    job.canvas??=Object.assign(document.createElement('canvas'),{width:WATER_FIELD_PIXELS,height:WATER_FIELD_PIXELS});
+    const ctx=job.canvas.getContext('2d')!;ctx.fillStyle='#fff';
+    const count=WATER_FIELD_SIZE/WATER_CELL_SIZE,pixel=WATER_FIELD_PIXELS/count;
+    do{
+      const col=job.next%count,row=Math.floor(job.next/count);
+      const x=job.request.x+(col+.5)*WATER_CELL_SIZE,y=job.request.y+(row+.5)*WATER_CELL_SIZE;
+      if(x<0||y<0||x>=WORLD_WIDTH||y>=WORLD_HEIGHT||this.world.getTerrainAt(x,y)==='water'){
+        ctx.fillRect(col*pixel,row*pixel,pixel,pixel);job.water=true;
+      }
+      job.next++;
+    }while(job.next<count**2&&performance.now()-start<allowance);
+    if(job.next===count**2){this.publishGpuMask(job.canvas,job.request,job.water);this.cancelGpuJob();}
+    work.charge('geography',start);
+  }
+  private receiveGeography(reply:GeographyReply|null){
+    this.gpuRequested=false;
+    if(!reply)return; // The next update resumes the bounded fallback.
+    if('error' in reply)return;
+    try{if(!this.destroyed&&this.gpuJob)this.publishGpuMask(reply.bitmap,this.gpuJob.request,reply.hasWater);}
+    finally{reply.bitmap.close();this.cancelGpuJob();}
+  }
+  private publishGpuMask(image:CanvasImageSource,request:GeographyRequest,water:boolean){
+    if(this.mask.width!==request.pixels)this.mask.width=this.mask.height=request.pixels;
+    const ctx=this.mask.getContext('2d')!;ctx.clearRect(0,0,request.pixels,request.pixels);ctx.drawImage(image,0,0);
+    Object.assign(this.presentation,{x:request.x,y:request.y,width:request.extent,height:request.extent,enabled:water});
+    this.gpuHasWater=water;this.presentation.version++;
+  }
+  private cancelGpuJob(){
+    if(!this.gpuJob)return;
+    this.geography?.cancel();if(this.gpuJob.canvas)this.gpuJob.canvas.width=this.gpuJob.canvas.height=1;
+    this.gpuJob=undefined;this.gpuRequested=false;
+  }
+  destroy(){if(this.destroyed)return;this.destroyed=true;this.cancelGpuJob();this.geography?.destroy();this.overlay.destroy();this.ocean.destroy();this.scene.textures.remove('moving-water');this.mask.width=this.mask.height=1;this.cells=[];this.waterCells.clear();}
 }
 
 // LEIGHNERON_MOBILE_GRAPHICS_NPC_FIX_V1

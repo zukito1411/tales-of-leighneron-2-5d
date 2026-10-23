@@ -140,7 +140,7 @@ export class ThreePresentation {
     this.native=game.renderer;this.originalRender=this.native.render;this.rasters=new RasterCache(this.native);
     // On tile-based mobile GPUs default framebuffer MSAA can duplicate
     // bandwidth costs on top of the world/depth postprocessing targets.
-    // Low is already the mobile default; Normal preserves AA on desktop.
+    // Normal preserves detail on both platforms; Low remains an explicit choice.
     this.renderer=new WebGLRenderer({alpha:false,antialias:getEffectsQuality()!=='low',powerPreference:'high-performance'});
     const context=this.renderer.getContext();if(!('beginQuery' in context))throw new Error('2.5D requires WebGL 2');
     this.gpuTimer=new GpuTimer(context);
@@ -187,13 +187,14 @@ export class ThreePresentation {
     const work=frameWork(this.game);
     this.gpuTimer.poll();
     if(this.frameDiagnostics&&this.timingFrame!==this.game.loop.frame){this.frameTiming.add(this.game.loop.rawDelta);this.timingFrame=this.game.loop.frame;}
-    this.gpuTimer.begin(this.frameDiagnostics&&this.frame%4===0);
+    const adaptive=getGraphicEffects().adaptiveResolution;
+    const sampleGpu=(this.frameDiagnostics||adaptive)&&this.frame%(this.frameDiagnostics?4:12)===0;
     this.textures.prepare(this.renderer,work);
     this.renderer.info.reset();
     this.native.emit(Phaser.Renderer.Events.RENDER,scene,camera);
     const width=this.game.scale.width,height=this.game.scale.height;
     const presentation=scene as PresentationScene,density=renderDensity(scene);
-    const scale=this.budget.scale(width,height,density,this.game.loop.rawDelta,getGraphicEffects().adaptiveResolution,presentation.presentationControlsEnabled===true);
+    const scale=this.budget.scale(width,height,density,this.game.loop.rawDelta,adaptive,presentation.presentationControlsEnabled===true,this.gpuTimer.milliseconds);
     if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
       this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
       this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
@@ -235,6 +236,7 @@ export class ThreePresentation {
     if(performance.now()-retireStart<retireMs)this.rasters.prune(this.frame);
     work.charge('retire',retireStart);
     const profCollect=this.frameDiagnostics?performance.now():0;
+    this.gpuTimer.begin(sampleGpu);
     this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
     this.syncCameraEffect(this.flash,camera.flashEffect.isRunning?camera.flashEffect:undefined);
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
@@ -257,6 +259,7 @@ export class ThreePresentation {
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
+    this.gpuTimer.end();
     camera.dirty=false;
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
     if(!this.stopped){
@@ -265,7 +268,6 @@ export class ThreePresentation {
       if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled&&presentation.presentationControlsEnabled===true,elevationMs);
       work.charge('elevation',elevationStart);
     }
-    this.gpuTimer.end();
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
   }
 

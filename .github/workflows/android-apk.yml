@@ -135,6 +135,10 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
+          Outdoor geography now runs in a shared worker with a buffered world water mask.
+          Streaming residency no longer triggers full-world autosaves. Normal quality
+          retains full terrain detail, ground mipmaps and anisotropic filtering;
+          adaptive resolution uses completed render timing rather than CPU stalls.
           Enemy attacks now use camera-relative facing from their committed world aim.
           Varkhul's fire stays attached to his mirrored mouth; held caster poses and
           projectile headings follow camera rotation without changing damage lanes.

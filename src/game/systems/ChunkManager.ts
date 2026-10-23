@@ -318,7 +318,7 @@ export class ChunkManager {
       .every(p=>this.world.getRegionAt(p.x,p.y)==='dead-sea');
     if(ocean){
       const key='shared-ocean-chunk';if(!this.scene.textures.exists(key)){
-        const pixels=this.mobileTerrain?1024:CHUNK_SIZE;
+        const pixels=this.mobileTerrain&&getEffectsQuality()==='low'?1024:CHUNK_SIZE;
         const texture=this.scene.textures.createCanvas(key,pixels,pixels)!;
         const ctx=texture.getContext();
         ctx.setTransform(pixels/CHUNK_SIZE,0,0,pixels/CHUNK_SIZE,0,0);
@@ -331,10 +331,9 @@ export class ChunkManager {
     const textureKey = `chunk:${chunkX}:${chunkY}`;
     const cacheKey=`${chunkX}:${chunkY}`;
     const cached=this.recentTerrain.delete(cacheKey);
-    // Mobile GPU upload pressure: one 1536x1536 RGBA chunk costs 9 MiB.
-    // Normal mobile quality paints into 1024px (~4 MiB); low uses 768px
-    // (~2.25 MiB), with identical logical world size and collision locations.
-    const pixels=this.mobileTerrain?(getEffectsQuality()==='low'?768:1024):CHUNK_SIZE;
+    // Normal retains all painted terrain detail on Android as on desktop.
+    // Explicit Low uses 1024px; world size and collision coordinates stay fixed.
+    const pixels=this.mobileTerrain&&getEffectsQuality()==='low'?1024:CHUNK_SIZE;
     const canvasTexture = cached
       ? this.scene.textures.get(textureKey) as Phaser.Textures.CanvasTexture
       : this.scene.textures.createCanvas(textureKey,pixels,pixels);
