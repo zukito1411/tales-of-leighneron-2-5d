@@ -223,6 +223,8 @@ export interface PropContentDefinition extends ContentBase {
   rotation?: number;
   anchor?: 'center' | 'bottom';
   centerCollider?: boolean;
+  /** Surveyed world-space wall run; presentation uses it without rotating the source art. */
+  wallSegment?: {dx:number;dy:number};
   streamRadiusChunks?:number;
   tint?: number;
   label?: string;

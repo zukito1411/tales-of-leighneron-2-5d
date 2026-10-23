@@ -135,6 +135,11 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
+          Houses now have deeper textured side/back walls and roof volumes.
+          Towers, shrines, chapels, castles and gatehouses use fixed 3D structure
+          geometry. Town curtains follow their surveyed seams with masonry tops
+          and battlements, while gate openings remain open through the mesh.
+          Original source atlases, view streaming and shared instancing are retained.
           Camera-frustum streaming now replaces the fixed walking neighborhood.
           Movement-ahead preloads, GPU preparation and delayed retirement run together.
           The full sky, sun, moon and stars remain in their separate sky pass.

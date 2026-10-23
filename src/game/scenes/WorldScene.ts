@@ -197,7 +197,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   registerDungeonEntrance(image:Phaser.GameObjects.Image,tower=false){
     this.physics.add.existing(image,true);this.buildings.add(image);
     const body=image.body as Phaser.Physics.Arcade.StaticBody;
-    if(tower){body.setSize(240,110);body.position.set(image.x-120,image.y-170);body.center.set(body.x+120,body.y+55);}
+    if(tower){body.setSize(240,140);body.position.set(image.x-120,image.y-200);body.center.set(body.x+120,body.y+70);}
     else{body.setSize(150,60);body.position.set(image.x-75,image.y-image.displayHeight+35);body.center.set(body.x+75,body.y+30);}
   }
   createDungeonEnemy(d:DungeonDefinition,slot:number,p:Vec2,enemyId=d.enemies[slot]){
@@ -1928,7 +1928,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         'encounter:'+definition.id.slice('story:signal-fire:'.length)+':complete']));
       if (definition.tint !== undefined) actor.setTint(definition.tint);
       this.presentWorldSprite(actor, texture, definition.frame, definition.scale, solid,treeBase,
-        definition.rotation,definition.anchor);
+        definition.rotation,definition.anchor,definition.wallSegment);
       if(texture==='pirate_flagship')this.flagshipArt.attach(actor);
       if (definition.label) {
         const caption = this.add.text(x, y + 14, definition.label, {
@@ -1972,10 +1972,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
   private presentWorldSprite(actor: Phaser.GameObjects.Sprite, texture: WorldPropTexture,
     frame: number, scale: number, solid = false, foundation?:{ width:number; height:number }, rotation = 0,
-    anchor:'center'|'bottom' = 'bottom') {
+    anchor:'center'|'bottom' = 'bottom',wallSegment?:{dx:number;dy:number}) {
     const origin=worldPropOrigin(texture,frame,anchor);
     actor.setOrigin(origin.x,origin.y).setScale(artScale(texture) * scale).setDepth(actor.y).setRotation(rotation);
-    this.worldSprites.register(actor,texture,frame,scale,solid,foundation,anchor==='center');
+    this.worldSprites.register(actor,texture,frame,scale,solid,foundation,anchor==='center',false,wallSegment);
     this.dayNight.register(actor,texture,frame,scale);
     this.treeSway.register(actor,texture,frame);
   }

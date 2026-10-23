@@ -368,7 +368,7 @@ export class InteriorSession {
             const image=this.drawArt('northWall',x,y,nominalWidth,DEPTH+y);
             const visiblePixels=(step+.5)/image.scaleX;
             image.setCrop((image.frame.realWidth-visiblePixels)/2,0,visiblePixels,image.frame.realHeight);
-            image.setData('presentation25d',{plane:'upright',anchor:{x:image.x,y:image.y},wall:{axis:north?'x':'y'}});
+            image.setData('presentation25d',{plane:'upright',anchor:{x:image.x,y:image.y},wall:{axis:north?'x':'y',thickness:.06}});
             // Keep the source panel's uniform scale and complete vertical extent.
             image.setName('interior-wall:'+side);
           }

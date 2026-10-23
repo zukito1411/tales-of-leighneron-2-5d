@@ -74,6 +74,13 @@ export class GpuShadows {
         // A nonzero normal retains a valid instance transform for shared geometry.
         this.matrix.set(xx,yx,house?-rightZ*width*sx:0,cx,0,0,house?0:1,.065,
           xz,yz,house?rightX*width*sx:0,cz,0,0,0,1);
+        if(house?.segment){
+          const segment=house.segment,span=Math.max(1,Math.hypot(segment.dx,segment.dy));
+          const ux=segment.dx/span,uz=segment.dy/span,h=segment.height,t=segment.thickness;
+          this.matrix.set(segment.dx,h*lightX,-uz*t,owner.x-uz*t/2+h*lightX/2,
+            0,0,.01,.065,
+            segment.dy,h*lightZ,ux*t,owner.y+ux*t/2+h*lightZ/2,0,0,0,1);
+        }
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
         this.repeat[0]=caster.projectionBottom??1;
@@ -91,7 +98,7 @@ export class GpuShadows {
     this.add(this.contactSource,actor,alpha,frame,false);
   }
   private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape){
-    const texture=this.textures.get(source,frame),key=texture.uuid+':'+Number(projected)+':'+(house?.profile.id??'');
+    const texture=this.textures.get(source,frame),key=texture.uuid+':'+Number(projected)+':'+(house?.profile.id??'')+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(this.world,texture,false,false,-9.94,[],true,false,false,true,false,this.elevation,false,this.atmosphere,true,false,house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);

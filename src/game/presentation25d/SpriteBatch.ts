@@ -35,7 +35,16 @@ varying vec4 tint;
 varying vec2 groundPosition;
 varying float sourceY;
 varying float shadowBottom;
+#ifdef STRUCTURE_SURFACES
+attribute vec4 surfaceRect;
+attribute vec2 surfaceUV;
+varying vec4 materialRect;
+varying vec2 materialUV;
+#endif
 void main(){
+#ifdef STRUCTURE_SURFACES
+  materialRect=surfaceRect;materialUV=surfaceUV;
+#endif
   localUV=uv;effectData=tileRepeat;
   sourceY=1.0-uv.y;
   shadowBottom=tileRepeat.x;
@@ -77,6 +86,10 @@ varying vec4 frameRect;
 varying vec2 atlasUV;
 varying vec4 tint;
 varying vec2 groundPosition;
+#ifdef STRUCTURE_SURFACES
+varying vec4 materialRect;
+varying vec2 materialUV;
+#endif
 uniform int clipCount;
 uniform vec4 clipRects[16];
 float warningDistance(vec2 p,float radius){
@@ -116,15 +129,28 @@ void main(){
     }
     if(!inside)discard;
   }
-  vec4 pixel=telegraph?warningPixel():texture2D(atlas,tiled?frameRect.xy+fract(repeatUV)*frameRect.zw:atlasUV);
+  vec2 sampleUV=tiled?frameRect.xy+fract(repeatUV)*frameRect.zw:atlasUV;
+#ifdef STRUCTURE_SURFACES
+  if(materialRect.z>0.0){
+    vec2 patchSize=abs(materialRect.zw*frameRect.zw);
+    vec2 inset=min(vec2(.25),atlasTexel*.75/max(patchSize,vec2(.000001)));
+    vec2 within=mix(inset,vec2(1.0)-inset,fract(materialUV));
+    sampleUV=frameRect.xy+(materialRect.xy+within*materialRect.zw)*frameRect.zw;
+  }
+#endif
+  vec4 pixel=telegraph?warningPixel():texture2D(atlas,sampleUV);
   if(shadow){
     vec2 lo=min(frameRect.xy,frameRect.xy+frameRect.zw),hi=max(frameRect.xy,frameRect.xy+frameRect.zw);
     vec2 t=atlasTexel*2.0;
-    pixel.a=pixel.a*0.4+(texture2D(atlas,clamp(atlasUV+vec2(t.x,0.0),lo,hi)).a
-      +texture2D(atlas,clamp(atlasUV-vec2(t.x,0.0),lo,hi)).a
-      +texture2D(atlas,clamp(atlasUV+vec2(0.0,t.y),lo,hi)).a
-      +texture2D(atlas,clamp(atlasUV-vec2(0.0,t.y),lo,hi)).a)*0.15;
-    if(shadowBottom<0.999)pixel.a*=1.0-smoothstep(max(0.0,shadowBottom-0.025),shadowBottom,sourceY);
+    pixel.a=pixel.a*0.4+(texture2D(atlas,clamp(sampleUV+vec2(t.x,0.0),lo,hi)).a
+      +texture2D(atlas,clamp(sampleUV-vec2(t.x,0.0),lo,hi)).a
+      +texture2D(atlas,clamp(sampleUV+vec2(0.0,t.y),lo,hi)).a
+      +texture2D(atlas,clamp(sampleUV-vec2(0.0,t.y),lo,hi)).a)*0.15;
+    if(shadowBottom<0.999
+#ifdef STRUCTURE_SURFACES
+      &&materialRect.z<=0.0
+#endif
+    )pixel.a*=1.0-smoothstep(max(0.0,shadowBottom-0.025),shadowBottom,sourceY);
   }
   if(!telegraph)pixel.rgb=fillTint?tint.rgb:pixel.rgb*tint.rgb;
   pixel.a*=tint.a;
@@ -160,7 +186,7 @@ export class SpriteBatch {
   constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2}){
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({uniforms:{billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,

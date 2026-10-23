@@ -1,7 +1,7 @@
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
-import {houseShape} from '../presentation25d/HouseGeometry';
+import {houseShape,type WallSegment} from '../presentation25d/HouseGeometry';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
@@ -29,7 +29,7 @@ export class WorldSpriteSystem {
   private readonly blend:PropGroundBlend|null;
   constructor(private readonly scene:Phaser.Scene,private readonly bodies:Phaser.Physics.Arcade.StaticGroup,
     private readonly shadows?:GroundShadowSystem,private readonly wildlife?:AmbientWildlifeSystem){this.blend=getGraphicEffects().groundBlend?new PropGroundBlend(scene):null;}
-  register(actor:WorldActor,texture:ArtTextureKey,frame:number,scale:number,solid:boolean,fallback?:{width:number;height:number},center=false,staged=false){
+  register(actor:WorldActor,texture:ArtTextureKey,frame:number,scale:number,solid:boolean,fallback?:{width:number;height:number},center=false,staged=false,wallSegment?:WallSegment){
     if(this.owned.has(actor))return;
     const sheet=ART_BY_KEY[texture],metadata=(actor.frame.customData??{}) as PreparedArt;
     const visible=metadata.visibleBounds??{left:0,top:0,width:sheet.frameWidth,height:sheet.frameHeight};
@@ -54,7 +54,8 @@ export class WorldSpriteSystem {
     const profile=worldSpriteProfile(texture,frame),owned:Phaser.GameObjects.Rectangle[]=[];
     const layers:Phaser.GameObjects.Image[]=[];
     onPlane(actor,profile?.floor||texture==='port_dock'||texture==='pirate_flagship'?'ground':'upright');
-    const house=houseShape(texture,actor.frame,frame);
+    const house=houseShape(texture,actor.frame,frame,wallSegment);
+    if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
@@ -116,6 +117,19 @@ export class WorldSpriteSystem {
           const bottom=center?actor.y+boundsHeight/2:point(.5,1).y;
           add(actor.x-boundsWidth/2,bottom-boundsHeight,actor.x+boundsWidth/2,bottom);
         }
+      }
+      if(house&&!house.segment&&!house.profile.opening?.length&&(solid||profile?.forceSolid)){
+        // A deeper rendered building also needs a ground footprint: otherwise
+        // the player could walk through its newly visible side/back. Keep the
+        // surveyed front stoops/props above, and add only the structural body.
+        const tiers=house.profile.tiers,roof=house.profile.roof;
+        const base=tiers?.reduce((a,b)=>b.bottom>a.bottom?b:a);
+        const l=base?.left??roof[0][0],r=base?.right??roof[roof.length-1][0];
+        const dx=(x:number)=>(visible.left+x*visible.width-sheet.frameWidth*actor.originX)*scale;
+        const depth=house.depth*actor.frame.cutWidth*Math.abs(actor.scaleX);
+        const footprint:GroundPoint[]=[[dx(l),-depth],[dx(r),-depth],[dx(r),-4],[dx(l),-4]]
+          .map(([x,y])=>[actor.x+x*cos-y*sin,actor.y+x*sin+y*cos] as GroundPoint);
+        for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
       }
     }
     if(actor instanceof Phaser.GameObjects.Image)markStaticPresentation(actor);

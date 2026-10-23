@@ -45,7 +45,7 @@ export function projectWorldPoint(scene:Phaser.Scene,x:number,height:number,y:nu
 export type PresentationPlane = 'ground' | 'upright' | 'screen';
 export interface PresentationHint {
   plane: PresentationPlane;
-  /** World-aligned house volume; other scenery retains cylindrical billboards. */
+  /** Fixed textured structure volume; vegetation/actors retain billboards. */
   house?:HouseShape;
   /** Keep attachments, names and health bars on their owner's foot plane. */
   anchor?: {x:number;y:number;depth?:number;rotation?:number;presentationElevation?:number};
@@ -56,7 +56,7 @@ export interface PresentationHint {
   /** Camera-depth separation for attached artwork sharing one body plane. */
   depthOffset?: number;
   /** A world-aligned vertical wall, rather than a camera-facing actor plane. */
-  wall?: {axis:'x'|'y'};
+  wall?: {axis:'x'|'y';thickness?:number};
   /** Projectile heading stays in simulation coordinates as the camera orbits. */
   worldDirection?:Readonly<{x:number;y:number}>;
   /** A grounded beam descends from an actor's painted mouth to its logical impact lane. */

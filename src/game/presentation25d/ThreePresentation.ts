@@ -16,7 +16,7 @@ import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
-import {createHouseGeometry} from './HouseGeometry';
+import {createHouseGeometry,createWallGeometry} from './HouseGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {RasterCache} from './RasterCache';
@@ -355,6 +355,8 @@ export class ThreePresentation {
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
     const houseVolume=Boolean(house)&&!emissionOwner&&!hint?.overlay;
+    const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
+    const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
       &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset
       &&!object.isCropped&&(plane==='ground'||plane==='upright'&&!object.input?.enabled);
@@ -500,12 +502,19 @@ export class ThreePresentation {
     // A true basis normal keeps facade/screen matrices invertible as well as
     // ground/billboard matrices. Raycasting must use the rendered transform.
     const nx=xy*yz-xz*yy,ny=xz*yx-xx*yz,nz=xx*yy-xy*yx,length=Math.hypot(nx,ny,nz)||1;
-    const normalScale=houseVolume?Math.hypot(xx,xy,xz):1;
+    const normalScale=volumeDepth>0?Math.hypot(xx,xy,xz):1;
     const facadeOffset=house&&emissionOwner ? .015 : 0;
     this.model.set(xx,yx,nx/length*normalScale,this.p0.x+(xx+yx)/2+offset*this.pitchCos*this.yawSin-facadeOffset*houseSin,
       xy,yy,ny/length*normalScale,this.p0.y+(xy+yy)/2+offset*this.pitchSin,
       xz,yz,nz/length*normalScale,this.p0.z+(xz+yz)/2+offset*this.pitchCos*this.yawCos+facadeOffset*houseCos,0,0,0,1);
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',houseVolume?house!.depth:0))return;
+    if(houseVolume&&house?.segment){
+      const segment=house.segment,span=Math.max(1,Math.hypot(segment.dx,segment.dy)),ux=segment.dx/span,uz=segment.dy/span;
+      const thickness=segment.thickness,h=segment.height;
+      this.model.set(segment.dx,0,-uz*thickness,anchorX-uz*thickness/2,
+        0,h,0,anchorHeight+h/2,
+        segment.dy,0,ux*thickness,anchorY+ux*thickness/2,0,0,0,1);
+    }
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',volumeDepth))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)
@@ -531,9 +540,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!):undefined,billboard,this.billboardRight);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;

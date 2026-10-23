@@ -117,6 +117,7 @@ for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defens
     const frame=Math.abs(b.y-a.y)<1?2:b.y<a.y?0:1,sourceSpan=frame===2?285:frame===0?94:90;
     const count=Math.max(1,Math.round((b.x-a.x)/(sourceSpan*fit*baseScale))),scale=(b.x-a.x)/count/sourceSpan/fit;
     for(let i=0;i<count;i++)SETTLEMENT_DEFENSE_PROPS.push({id:`defense:${town.id}:curtain:${edge}:${i}`,kind:'prop',texture:'royal_walls',frame,scale,solid:false,anchor:'center',tint:profile.wallTint,
+      wallSegment:{dx:(b.x-a.x)/count,dy:(b.y-a.y)/count},
       world:{x:a.x+(b.x-a.x)*(i+.5)/count,y:a.y+(b.y-a.y)*(i+.5)/count}});
   }
   for(const [i,point] of defense.vertices.entries()){
