@@ -244,11 +244,11 @@ export class SpriteBatch {
 
 /** Retain a small recent set across view-edge occlusion and animation gaps.
  * Destroying after two missed frames repeatedly recreates buffers/materials. */
-export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,frame:number,maxIdle=32){
+export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,frame:number,maxIdle=80){
   let idle=0;
   for(const [key,batch] of batches){
     if(batch.mesh.visible)continue;
-    if(frame-batch.lastUsed>90){batch.destroy();batches.delete(key);}
+    if(frame-batch.lastUsed>180){batch.destroy();batches.delete(key);}
     else idle++;
   }
   if(idle<=maxIdle)return;
