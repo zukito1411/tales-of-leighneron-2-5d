@@ -51,7 +51,8 @@ export class TextureCache {
     for(const [source,entry] of this.entries){
       if(entry.lastUsed<frame)idle++;
       if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
-        this.release(source,entry);retired++;idle--;
+        this.release(source,entry);retired++;
+        if(entry.lastUsed<frame)idle--;
       }
     }
     if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
