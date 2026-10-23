@@ -136,7 +136,9 @@ void main(){
     vec4 filtered=texture2D(blurredColor,vUv);
     if(dofEnabled>0.5)color=mix(color,filtered.rgb,blur*0.45);
     // Screen-like blending retains highlight detail rather than clipping it.
-    color+=vec3(1.0,.86,.65)*filtered.a*bloomStrength*(1.0-clamp(color,0.0,1.0))*(1.0-protection*.8);
+    float peak=max(filtered.r,max(filtered.g,filtered.b));
+    vec3 glowColor=mix(vec3(1.0,.94,.85),filtered.rgb/max(.001,peak),.75);
+    color+=glowColor*filtered.a*bloomStrength*(1.0-clamp(color,0.0,1.0))*(1.0-protection*.8);
   }
   float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
@@ -164,11 +166,12 @@ void main(){
       float t=(float(i)+.5)/shaftSamples;
       vec2 q=vUv+toward*t;
       float weight=1.0-t*.45;
-      if(q.x>=0.0&&q.x<=1.0&&q.y>=0.0&&q.y<=1.0)illumination+=step(.999999,texture2D(sceneDepth,q).r)*weight;
+      if(q.x>=0.0&&q.x<=1.0&&q.y>=0.0&&q.y<=1.0)illumination+=smoothstep(.99990,.999999,texture2D(sceneDepth,q).r)*weight;
       total+=weight;
     }
     float spread=exp(-length(toward*vec2(aspect,1.0))*1.8);
-    color+=vec3(1.0,.86,.62)*sunShafts*(illumination/max(.001,total))*(.035+.075*spread);
+    float belowSun=smoothstep(0.0,.12,sunUV.y-vUv.y);
+    color+=vec3(1.0,.94,.82)*sunShafts*(illumination/max(.001,total))*.085*spread*belowSun;
   }
   if(gradingEnabled>0.5){
     float light=clamp(dot(color,vec3(0.2126,0.7152,0.0722)),0.0,1.0);
@@ -280,8 +283,8 @@ export class WorldPostFX {
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
     this.common.focusDistance.value=-this.focusPoint.z;
     const depthSpan=this.common.focusDistance.value*.9;
-    this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(320,depthSpan*.65);
-    this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(900,depthSpan*1.2);
+    this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(200,depthSpan*.32);
+    this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(500,depthSpan*.70);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
     this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
     this.common.aspect.value=frame.width/frame.height;
@@ -304,7 +307,7 @@ export class WorldPostFX {
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
     this.composite.uniforms.dofEnabled.value=Number(blurEnabled);
     this.composite.uniforms.bloomStrength.value=bloomEnabled ? .12+frame.night*.04 : 0;
-    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .035+(frame.weather?.mist??0)*.09)*(1-frame.night*.45):0;
+    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .13+(frame.weather?.mist??0)*.12)*(1-frame.night*.45):0;
     this.composite.uniforms.hazeColor.value.copy(this.hazeDay).lerp(this.hazeNight,frame.night);
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
     this.composite.uniforms.gradingEnabled.value=Number(effects.cinematicColor);
@@ -317,7 +320,7 @@ export class WorldPostFX {
       if(this.sunPoint.z<-.01){
         this.sunPoint.set(direction.x,direction.y,direction.z).multiplyScalar(frame.camera.far*.5).add(frame.camera.position).project(frame.camera);
         const x=(this.sunPoint.x+1)/2,y=(this.sunPoint.y+1)/2;
-        if(x>-.65&&x<1.65&&y>-.65&&y<1.65){
+        if(x>-.65&&x<1.65&&y>.62&&y<1.65){
           shafts.sunUV.value.set(x,y);
           shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.15)*Math.max(0,1-Math.max(0,-x,x-1,-y,y-1)/.65);
         }

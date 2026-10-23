@@ -237,7 +237,7 @@ export class ThreePresentation {
     }else{
       light.structureLightDirection.value.copy(this.sky.sunlight).multiplyScalar(this.sky.sunlight.y<0?-1:1);
       light.structureFill.value.setRGB(.73+cover*.04,.76+cover*.03,.80+cover*.02);
-      light.structureKey.value.setRGB(.27-night*.15,.24-night*.10,.20-night*.03).multiplyScalar(1-cover*.7);
+      light.structureKey.value.setRGB(.27-night*.15,.24-night*.10,.20-night*.03).multiplyScalar((1-cover*.7)*Math.min(1,Math.abs(this.sky.sunlight.y)*5));
     }
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
     this.atmosphere.fogRange.value.set(this.interior?0:FOG_START,this.interior?0:VIEW_DISTANCE);

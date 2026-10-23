@@ -114,6 +114,35 @@ float cutaway(vec4 subject){
   vec2 d=(gl_FragCoord.xy/cutawayViewport-subject.xy)*vec2(cutawayViewport.x/cutawayViewport.y*1.5,1.0);
   return 1.0-smoothstep(.66,1.0,length(d)/subject.w);
 }
+#ifdef STRUCTURE_SURFACES
+float materialNoise(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+vec3 modelPigment(){
+  vec3 base=materialRect.xyz;float kind=-materialRect.w;
+  if(kind<1.5)return base;
+  vec2 p=materialUV;
+  float detail=1.0-smoothstep(.025,.14,max(length(dFdx(p)),length(dFdy(p))));
+  if(kind>6.5){
+    float rough=materialNoise(floor(p*18.0))*.65+materialNoise(floor(p*70.0))*.35-.5;
+    return base*(1.0+rough*detail*.16);
+  }
+  if(kind<2.5){
+    float grain=materialNoise(floor(p*vec2(120.0,8.0)))-.5;
+    float seam=abs(fract(p.x*7.0)-.5),aa=max(fwidth(p.x*7.0),.012);
+    float join=smoothstep(.48-aa,.5,seam);
+    return base*(1.0+detail*(grain*.075-join*.12));
+  }
+  if(kind<3.5||kind>5.5){
+    vec2 grid=p*vec2(kind>5.5?15.0:14.0,kind>5.5?22.0:18.0);
+    grid.x+=mod(floor(grid.y),2.0)*.5;
+    vec2 edge=min(fract(grid),1.0-fract(grid)),aa=max(fwidth(grid),vec2(.008));
+    float joint=1.0-smoothstep(.015,.035+min(aa.x,aa.y),min(edge.x,edge.y));
+    float tile=materialNoise(floor(grid))-.5;
+    return base*(1.0+detail*(tile*.12-joint*.18));
+  }
+  float grain=materialNoise(floor(p*(kind<4.5?160.0:60.0)))-.5;
+  return base*(1.0+grain*detail*.035);
+}
+#endif
 float warningDistance(vec2 p,float radius){
   float shape=frameRect.x;
   if(shape<.5)return length(p)-radius;
@@ -158,28 +187,41 @@ void main(){
   }
   vec2 sampleUV=tiled?frameRect.xy+fract(repeatUV)*frameRect.zw:atlasUV;
 #ifdef STRUCTURE_SURFACES
-  if(abs(materialRect.z)>0.0){
+  if(abs(materialRect.z)>0.0&&materialRect.w>0.0){
     vec2 patchSize=abs(materialRect.zw*frameRect.zw);
     vec2 inset=min(vec2(.25),atlasTexel*.75/max(patchSize,vec2(.000001)));
     vec2 within=mix(inset,vec2(1.0)-inset,fract(materialUV));
     sampleUV=frameRect.xy+(materialRect.xy+within*vec2(abs(materialRect.z),materialRect.w))*frameRect.zw;
   }
 #endif
-  vec4 pixel=telegraph?warningPixel():texture2D(atlas,sampleUV);
+  vec4 pixel;
 #ifdef STRUCTURE_SURFACES
-  if(materialRect.z<0.0){
+  // Negative height encodes a solid linear material (glass, metal, fabric).
+  // It shares the atlas draw and avoids sampling a whole painted facade.
+  if(materialRect.w<0.0)pixel=vec4(shadow||fillTint?tint.rgb:modelPigment(),1.0);
+  else
+#endif
+  pixel=telegraph?warningPixel():texture2D(atlas,sampleUV);
+#ifdef STRUCTURE_SURFACES
+  if(materialRect.z<0.0&&materialRect.w>0.0){
     vec4 painted=texture2D(atlas,atlasUV);
     if(fadeOnly&&!shadow)pixel=painted;
     else pixel.rgb=mix(pixel.rgb,painted.rgb,smoothstep(.10,.85,painted.a));
   }
 #endif
   if(shadow){
+#ifdef STRUCTURE_SURFACES
+    if(materialRect.w>=0.0){
+#endif
     vec2 lo=min(frameRect.xy,frameRect.xy+frameRect.zw),hi=max(frameRect.xy,frameRect.xy+frameRect.zw);
     vec2 t=atlasTexel*2.0;
     pixel.a=pixel.a*0.4+(texture2D(atlas,clamp(sampleUV+vec2(t.x,0.0),lo,hi)).a
       +texture2D(atlas,clamp(sampleUV-vec2(t.x,0.0),lo,hi)).a
       +texture2D(atlas,clamp(sampleUV+vec2(0.0,t.y),lo,hi)).a
       +texture2D(atlas,clamp(sampleUV-vec2(0.0,t.y),lo,hi)).a)*0.15;
+#ifdef STRUCTURE_SURFACES
+    }
+#endif
     if(shadowBottom<0.999
 #ifdef STRUCTURE_SURFACES
       &&materialRect.z==0.0

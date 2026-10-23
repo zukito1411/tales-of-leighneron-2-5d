@@ -1,4 +1,4 @@
-import {BufferGeometry,Float32BufferAttribute,ShapeUtils,Vector2} from 'three';
+import {ModelMesh,brass,glass,pigment,regionalFabric,regionalWood,masonry,roofMaterial,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 
@@ -142,188 +142,122 @@ export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,ind
     ...(profile.curtain&&segment?{segment:{...segment,height:0,thickness:0}}:{})};
 }
 
-type Vertex=readonly [number,number,number];
-/** Shared low-poly meshes use only the already prepared source atlas. Opaque
- * material patches repeat at their original texel scale, rather than stretching
- * a tiny stripe over an entire roof/wall. Geometry is built once per active batch. */
+/** Structural surfaces use material swatches and modeled joinery. A complete
+ * painted building is never placed across a facade or wrapped over a tower. */
 export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
-  const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],surfaceUVs:number[]=[],roundNormals:number[]=[];
   const {profile,left,top,width,height,depth}=shape;
-  const point=(x:number,y:number,z:number):Vertex=>[left+x*width-.5,.5-top-y*height,z];
-  const uv=(x:number,y:number):Point=>[left+x*width,1-top-y*height];
-  const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch,painted=false,normals?:readonly Vertex[])=>{
-    if(emission&&patch&&!painted)return;
-    if(normals)for(let i=0;i<3;i++)roundNormals.push(positions.length/3+i,...normals[i]);
-    positions.push(...a,...b,...c);
-    if(patch&&!painted){const center=uv((patch[0]+patch[2])/2,(patch[1]+patch[3])/2);uvs.push(...center,...center,...center);}
-    else uvs.push(...ta,...tb,...tc);
-    const rect=patch?[left+patch[0]*width,1-top-patch[3]*height,(patch[2]-patch[0])*width*(painted?-1:1),(patch[3]-patch[1])*height]:[0,0,0,0];
-    surfaces.push(...rect,...rect,...rect);surfaceUVs.push(...ta,...tb,...tc);
+  const m=new ModelMesh(shape,emission,width),wall:ModelMaterial=profile.id==='panel'?profile.wall:/timber-watchtower/.test(profile.id)?regionalWood(profile.id):/^cottage$|old-cottage|stable|smithy/.test(profile.id)?{color:pigment(0xb2a286),pattern:3}:masonry(profile.id),tiles:ModelMaterial=/^masonry-|^panel$/.test(profile.id)?wall:roofMaterial(profile.id);
+  const wood:ModelMaterial=regionalWood(profile.id);
+  const darkWood:ModelMaterial={color:pigment(0x4b3828),pattern:2};
+  const P=(x:number,y:number,z:number):V3=>[left+x*width-.5,.5-top-y*height,z];
+  const B=(l:number,r:number,t:number,b:number,z:number,back:number,mat:ModelMaterial=wall)=>{
+    const a=P(l,b,back),c=P(r,t,z);m.box(a[0],c[0],a[1],c[1],back,z,mat);
   };
-  const segment=shape.segment,span=segment?Math.max(1,Math.hypot(segment.dx,segment.dy)):1;
-  const distance=(a:Vertex,b:Vertex)=>Math.hypot(a[0]-b[0],(a[1]-b[1])*(segment?segment.height/span:1),(a[2]-b[2])*(segment?segment.thickness/span:1));
-  const quad=(a:Vertex,b:Vertex,c:Vertex,d:Vertex,patch:Patch)=>{
-    // Convert surface lengths into source-patch repeats, including the atlas
-    // frame's aspect. No subdivision, CPU painting or new texture upload.
-    const px=Math.max(.001,(patch[2]-patch[0])*(segment?1:width)),py=Math.max(.001,(patch[3]-patch[1])*(segment?height/width:height));
-    const rx=distance(a,b)/px,ry=distance(a,c)/py;
-    tri(a,b,c,[0,0],[rx,0],[0,ry],patch);tri(b,d,c,[rx,0],[rx,ry],[0,ry],patch);
+  const window=(cx:number,cy:number,cz:number,rx:number,rz:number,w:number,h:number)=>{
+    const nx=-rz,nz=rx;
+    const p=(x:number,y:number,out=0):V3=>[cx+rx*x+nx*out,cy+y,cz+rz*x+nz*out];
+    m.quad(p(-w/2,-h/2,.003),p(w/2,-h/2,.003),p(-w/2,h/2,.003),p(w/2,h/2,.003),glass);
+    for(const y of [-h/2,h/2])m.beam(p(-w/2-.007,y,.012),p(w/2+.007,y,.012),.008,wood);
+    for(const x of [-w/2,w/2])m.beam(p(x,-h/2,.012),p(x,h/2,.012),.008,wood);
+    m.beam(p(0,-h/2,.014),p(0,h/2,.014),.004,brass);
+    m.beam(p(-w/2,0,.014),p(w/2,0,.014),.004,brass);
   };
-  const polygon=(path:readonly Point[],z:number,patch:Patch)=>{
-    const vectors=path.map(p=>new Vector2(p[0],p[1]));
-    for(const face of ShapeUtils.triangulateShape(vectors,[])){
-      let [a,b,c]=face;const pa=point(...path[a],z),pb=point(...path[b],z),pc=point(...path[c],z);
-      if((pb[0]-pa[0])*(pc[1]-pa[1])-(pb[1]-pa[1])*(pc[0]-pa[0])>0)[b,c]=[c,b];
-      const repeat=(p:Point):Point=>[p[0]/(patch[2]-patch[0]),(1-p[1])/(patch[3]-patch[1])];
-      tri(point(...path[a],z),point(...path[b],z),point(...path[c],z),repeat(path[a]),repeat(path[b]),repeat(path[c]),patch);
-    }
+  const door=(cx:number,base:number,eave:number,z=0)=>{
+    const dh=Math.min(.28,(base-eave)*.88),l=cx-.082,r=cx+.082,head=base-dh;
+    B(l,r,head,base,z+.009,z-.005,darkWood);
+    for(let i=0;i<5;i++)B(l+i*(r-l)/5+.002,l+(i+1)*(r-l)/5-.002,head+.006,base-.004,z+.015,z+.009,wood);
+    for(const x of [l-.012,r+.012])B(x-.010,x+.010,head-.012,base,z+.028,z-.008,wall);
+    B(l-.022,r+.022,head-.022,head,z+.028,z-.008,wall);
+    for(const y of [head+dh*.22,base-dh*.22])B(l,r,y,y+.012,z+.025,z+.015,metalDoor);
+    const knob=P(r-.025,base-dh*.48,z+.030);m.beam(knob,[knob[0],knob[1],knob[2]+.013],.008,brass,8);
+    for(let i=0;i<2;i++)B(l-.04,r+.04,base-.025*(2-i),base,z+.045+i*.035,z,wall);
   };
-  const extrude=(path:readonly Point[],back:number,roofEdges=0)=>{
-    for(let i=0;i<path.length;i++){
-      const a=path[i],b=path[(i+1)%path.length];
-      quad(point(...a,0),point(...b,0),point(...a,back),point(...b,back),i<roofEdges?profile.tiles:profile.wall);
-    }
-    polygon(path,back,profile.wall);
-  };
-  const ROUND_SEGMENTS=32,centerZ=-depth/2;
-  const foundationBottom=Math.max(...(profile.tiers??[]).map(t=>t.bottom),0);
-  const circularPoint=(tier:Tier,angle:number,y:number):Vertex=>{
-    const radius=(tier.right-tier.left)*width/2+inflate;
-    return [left+(tier.left+tier.right)*width/2-.5+Math.sin(angle)*radius,.5-top-y*height,centerZ+Math.cos(angle)*radius];
-  };
-  const circularUV=(tier:Tier,angle:number,y:number):Point=>uv((tier.left+tier.right)/2+Math.sin(angle)*(tier.right-tier.left)*.46,y);
-  const prism=(tier:Tier)=>{
-    const patch=tier.patch??profile.wall,center:Vertex=[left+(tier.left+tier.right)*width/2-.5,.5-top-tier.top*height,centerZ];
-    for(let i=0;i<ROUND_SEGMENTS;i++){
-      const a=i/ROUND_SEGMENTS*Math.PI*2,b=(i+1)/ROUND_SEGMENTS*Math.PI*2;
-      const bottom=tier.bottom===foundationBottom?Math.max(tier.bottom,shape.ground??tier.bottom):tier.bottom;
-      const ab=circularPoint(tier,a,bottom),bb=circularPoint(tier,b,bottom),at=circularPoint(tier,a,tier.top),bt=circularPoint(tier,b,tier.top);
-      // Reuse the authored facade on both halves of the actual cylinder.
-      // The stone/timber fallback closes any transparent foliage/window edge.
-      const ua=circularUV(tier,a,tier.bottom),ub=circularUV(tier,b,tier.bottom),va=circularUV(tier,a,tier.top),vb=circularUV(tier,b,tier.top);
-      const na:Vertex=[Math.sin(a),0,Math.cos(a)],nb:Vertex=[Math.sin(b),0,Math.cos(b)];
-      tri(ab,bb,at,ua,ub,va,patch,true,[na,nb,na]);tri(bb,bt,at,ub,vb,va,patch,true,[nb,nb,na]);
-      tri(center,at,bt,[.5,.5],[Math.sin(a)*2,Math.cos(a)*2],[Math.sin(b)*2,Math.cos(b)*2],patch);
-    }
-  };
+  const metalDoor:ModelMaterial={color:pigment(0x45474a)};
   if(profile.curtain&&shape.segment){
-    const box=(l:number,r:number,b:number,t:number)=>{
-      quad([l,b,0],[r,b,0],[l,t,0],[r,t,0],profile.wall);
-      quad([r,b,-1],[l,b,-1],[r,t,-1],[l,t,-1],profile.wall);
-      quad([l,b,-1],[l,b,0],[l,t,-1],[l,t,0],profile.wall);
-      quad([r,b,0],[r,b,-1],[r,t,0],[r,t,-1],profile.wall);
-      quad([l,t,0],[r,t,0],[l,t,-1],[r,t,-1],profile.tiles);
-    };
+    const box=(l:number,r:number,b:number,t:number)=>m.box(l,r,b,t,-1,0,wall);
     box(-.5,.5,-.5,.30);
-    const count=profile.id==='horizontal-curtain'?7:3,step=1/count;
-    for(let i=0;i<count;i++)box(-.5+i*step,-.5+i*step+step*.57,.30,.5);
-  }else{
-    // Complete authored front, including windows, doors, flags and fine trim.
-    if(!profile.tiers){
-      tri([-.5,-.5,0],[.5,-.5,0],[-.5,.5,0],[0,0],[1,0],[0,1]);
-      tri([.5,-.5,0],[.5,.5,0],[-.5,.5,0],[1,0],[1,1],[0,1]);
-    }
-    if(profile.tiers){
-      for(const tier of profile.tiers)prism(tier);
-      const hip=profile.hip;
-      if(hip){
-        const tier={left:hip.left,right:hip.right,top:hip.eave,bottom:hip.eave};
-        const tip:Vertex=[left+(hip.left+hip.right)*width/2-.5,.5-top-hip.peak*height,centerZ];
-        for(let i=0;i<ROUND_SEGMENTS;i++){
-          const a=i/ROUND_SEGMENTS*Math.PI*2,b=(i+1)/ROUND_SEGMENTS*Math.PI*2;
-          tri(circularPoint(tier,a,hip.eave),circularPoint(tier,b,hip.eave),tip,
-            circularUV(tier,a,hip.eave),circularUV(tier,b,hip.eave),uv((hip.left+hip.right)/2,hip.peak),profile.tiles,true);
-        }
-        // Only the original flag/finial remains a slim, fixed surface above
-        // the cone. The tower body and roof are never a rectangular card.
-        const l=.35,r=.90,y=hip.peak,z=centerZ;
-        tri(point(l,y,z),point(r,y,z),point(l,0,z),uv(l,y),uv(r,y),uv(l,0));
-        tri(point(r,y,z),point(r,0,z),point(l,0,z),uv(r,y),uv(r,0),uv(l,0));
-      }else{
-        const crown=profile.tiers.reduce((a,b)=>b.top<a.top?b:a),w=crown.right-crown.left;
-        const rim:Point[]=Array.from({length:12},(_,i)=>{
-          const angle=i/12*Math.PI*2;
-          return [(crown.left+crown.right)/2+Math.sin(angle)*w*.43,centerZ+Math.cos(angle)*w*width*.43];
-        });
-        for(const [x,z] of rim){
-          const l=x-w*.065,r=x+w*.065,f=z+depth*.055,b=z-depth*.055,t=crown.top-.075,y=crown.top;
-          quad(point(l,y,f),point(r,y,f),point(l,t,f),point(r,t,f),profile.wall);
-          quad(point(r,y,b),point(l,y,b),point(r,t,b),point(l,t,b),profile.wall);
-          quad(point(l,y,b),point(l,y,f),point(l,t,b),point(l,t,f),profile.wall);
-          quad(point(r,y,f),point(r,y,b),point(r,t,f),point(r,t,b),profile.wall);
-          quad(point(l,t,f),point(r,t,f),point(l,t,b),point(r,t,b),profile.tiles);
+    const count=profile.id==='horizontal-curtain'?7:3;
+    for(let i=0;i<count;i++)box(-.5+i/count,-.5+(i+.57)/count,.30,.5);
+  }else if(profile.tiers){
+    const centerX=left+(Math.min(...profile.tiers.map(t=>t.left))+Math.max(...profile.tiers.map(t=>t.right)))*width/2-.5;
+    const centerZ=-depth/2,bottom=Math.max(...profile.tiers.map(t=>t.bottom));
+    for(const tier of profile.tiers){
+      const r=(tier.right-tier.left)*width/2+inflate,cx=left+(tier.left+tier.right)*width/2-.5;
+      const low=P(0,tier.bottom===bottom?Math.max(bottom,shape.ground??bottom):tier.bottom,0)[1],high=P(0,tier.top,0)[1];
+      m.cylinder(cx,centerZ,low,high,r,r,wall,32);
+      if(tier.bottom-tier.top>.25){
+        const rows=tier.bottom-tier.top>.5?2:1;
+        for(let row=0;row<rows;row++)for(let i=0;i<4;i++){
+          const a=i*Math.PI/2+Math.PI/4,y=low+(high-low)*(row+1)/(rows+1);
+          window(cx+Math.sin(a)*r,y,centerZ+Math.cos(a)*r,Math.cos(a),-Math.sin(a),Math.min(.11,r*.42),Math.min(.13,(high-low)*.30));
         }
       }
-    }else if(profile.board){
-      // Roof, notice panel and two independent posts; the gap below the
-      // board stays open. The back uses wood, never mirrored paper notices.
-      extrude([[.09,.23],[.91,.23],[.91,.77],[.09,.77]],-depth);
-      extrude([[.13,.72],[.22,.72],[.22,.97],[.13,.97]],-depth);
-      extrude([[.79,.72],[.88,.72],[.88,.97],[.79,.97]],-depth);
-      const roof=profile.roof;extrude([...roof,[roof[roof.length-1][0],.25],[roof[0][0],.25]],-depth,roof.length-1);
+    }
+    const hip=profile.hip;
+    if(hip){
+      const r=(hip.right-hip.left)*width/2,cy=P(0,hip.eave,0)[1],peak=P(0,hip.peak,0)[1];
+      m.cylinder(centerX,centerZ,cy,peak,r,0,tiles,32);
+      m.beam([centerX,peak,centerZ],[centerX,peak+.10,centerZ],.008,brass,8);
+      m.triangle([centerX,peak+.09,centerZ],[centerX+.12,peak+.06,centerZ],[centerX,peak+.035,centerZ],regionalFabric(profile.id));
     }else{
-      const roof=profile.roof,first=roof[0],last=roof[roof.length-1],base=Math.max(.96,shape.ground??.96,...(profile.opening??[]).map(p=>p[1]));
-      const path:Point[]=[...roof,[last[0],base],...(profile.opening??[]),[first[0],base]];
-      extrude(path,-depth,roof.length-1);
-      const window=houseWindows[profile.id];
-      if((window||/smithy|stable/.test(profile.id))&&!profile.opening?.length){
-        const eave=Math.max(first[1],last[1]),sill=eave+(base-eave)*.67,head=eave+(base-eave)*.22;
-        const frame=.018,proud=.006,sideSpan=depth/width;
-        const solidBox=(l:number,r:number,t:number,b:number,z:number,back:number,patch:Patch)=>{
-          quad(point(l,b,z),point(r,b,z),point(l,t,z),point(r,t,z),patch);
-          quad(point(r,b,back),point(l,b,back),point(r,t,back),point(l,t,back),patch);
-          quad(point(l,b,back),point(l,b,z),point(l,t,back),point(l,t,z),patch);
-          quad(point(r,b,z),point(r,b,back),point(r,t,z),point(r,t,back),patch);
-          quad(point(l,t,z),point(r,t,z),point(l,t,back),point(r,t,back),patch);
-        };
-        // Foundation courses, corner framing and an eave fascia give the
-        // formerly featureless elevations coherent depth and scale.
-        solidBox(first[0]-.008,last[0]+.008,base-.065,base,-.003,-depth-proud,profile.wall);
-        // Four corner posts, not a full-depth roof-textured slab covering each
-        // side wall. Keep the original plaster/masonry between the corners.
-        for(const x of [first[0],last[0]])for(const z of [0,-depth+.025])
-          solidBox(x-.014,x+.014,eave,base,z+proud,z-.025-proud,profile.wall);
-        solidBox(first[0]-.018,last[0]+.018,eave-.018,eave+.018,-.003,-depth-proud,profile.tiles);
-        const painted=(a:Vertex,b:Vertex,c:Vertex,d:Vertex)=>{
-          if(!window)return;
-          const [l,t,r,bottom]=window,aa=uv(l,bottom),bb=uv(r,bottom),cc=uv(l,t),dd=uv(r,t);
-          tri(a,b,c,aa,bb,cc,profile.wall,true);tri(b,d,c,bb,dd,cc,profile.wall,true);
-        };
-        const count=Math.max(1,Math.min(3,Math.round((last[0]-first[0])/.30)));
-        if(window)for(let i=0;i<count;i++){
-          const cx=first[0]+(last[0]-first[0])*(i+.5)/count,half=Math.min(.085,(last[0]-first[0])/count*.25),l=cx-half,r=cx+half;
-          painted(point(r,sill,-depth-.003),point(l,sill,-depth-.003),point(r,head,-depth-.003),point(l,head,-depth-.003));
-          solidBox(l-frame,r+frame,sill,sill+.025,-depth-proud,-depth-proud*3,profile.wall);
-          solidBox(l-frame,r+frame,head-.02,head,-depth-proud,-depth-proud*3,profile.tiles);
-          for(const x of [l,r])solidBox(x-frame*.5,x+frame*.5,head,sill,-depth-proud,-depth-proud*3,profile.tiles);
+      const crown=profile.tiers.reduce((a,b)=>b.top<a.top?b:a),r=(crown.right-crown.left)*width*.43,y=P(0,crown.top,0)[1];
+      for(let i=0;i<12;i++){
+        const a=i/12*Math.PI*2,x=centerX+Math.sin(a)*r,z=centerZ+Math.cos(a)*r;
+        m.box(x-.022,x+.022,y,y+.075*height,z-.022,z+.022,wall);
+      }
+    }
+    const base=Math.max(bottom,shape.ground??bottom),main=profile.tiers.reduce((a,b)=>b.bottom-b.top>a.bottom-a.top?b:a);
+    door((main.left+main.right)/2,base,main.top,centerZ+(main.right-main.left)*width/2+.002);
+  }else if(profile.board){
+    B(.09,.91,.23,.77,0,-depth,wood);B(.13,.22,.72,.97,0,-depth,wood);B(.79,.88,.72,.97,0,-depth,wood);
+    const roof=profile.roof,path=[...roof,[roof[roof.length-1][0],.25],[roof[0][0],.25]] as Point[];
+    m.extrude(path.map(([x,y])=>{const p=P(x,y,0);return [p[0],p[1]] as const;}),.008,-depth,tiles);
+    for(let i=0;i<3;i++){
+      const l=.20+i*.21;B(l,l+.15,.34+(i%2)*.025,.65+(i%2)*.025,.007,.002,{color:pigment(0xd3c6a5)});
+      for(let j=0;j<3;j++)B(l+.02,l+.12,.40+j*.05,.405+j*.05,.009,.007,darkWood);
+    }
+  }else{
+    const roof=profile.roof,first=roof[0],last=roof[roof.length-1],base=Math.max(.96,shape.ground??.96,...(profile.opening??[]).map(p=>p[1]));
+    const path:Point[]=[...roof,[last[0],base],...(profile.opening??[]),[first[0],base]];
+    const coords=path.map(([x,y])=>{const p=P(x,y,0);return [p[0],p[1]] as const;});
+    m.extrude(coords,0,-depth,wall,path.map((_,i)=>i<roof.length-1?tiles:wall));
+    // Raised eave/ridge joinery follows the silhouette across the full depth.
+    for(let i=1;i<roof.length&&!/^masonry-|^panel$/.test(profile.id);i++){
+      m.beam(P(...roof[i-1],.008),P(...roof[i],.008),.009,wood);
+      m.beam(P(...roof[i-1],-depth-.008),P(...roof[i],-depth-.008),.009,wood);
+    }
+    const eave=Math.max(first[1],last[1]);
+    if(profile.id!=='panel'&&!profile.id.startsWith('masonry-')&&!profile.opening?.length){
+      B(first[0]-.008,last[0]+.008,base-.055,base,.003,-depth-.008,wall);
+      for(const x of [first[0],last[0]])for(const z of [0,-depth+.024])B(x-.012,x+.012,eave,base,z+.009,z-.028,wood);
+      B(first[0]-.014,last[0]+.014,eave-.010,eave+.016,.008,-depth-.008,wood);
+      if(/cottage|inn|stable|smithy/.test(profile.id)){
+        const peak=roof.reduce((a,b)=>b[1]<a[1]?b:a);
+        for(const z of [.012,-depth-.012])m.beam(P(peak[0],peak[1]+.015,z),P(peak[0],eave,z),.010,wood);
+        const x=first[0]+(last[0]-first[0])*.73;
+        const edge=roof.findIndex((p,i)=>i>0&&roof[i-1][0]<=x&&p[0]>=x);
+        if(edge>0){
+          const a=roof[edge-1],b=roof[edge],y=a[1]+(b[1]-a[1])*(x-a[0])/(b[0]-a[0]);
+          B(x-.038,x+.038,y-.13,y+.04,-depth*.56,-depth*.72,wall);
+          B(x-.046,x+.046,y-.145,y-.12,-depth*.55,-depth*.73,wall);
+          const p=P(x,y-.145,-depth*.64);
+          m.quad([p[0]-.02,p[1]+.001,p[2]+.02],[p[0]+.02,p[1]+.001,p[2]+.02],[p[0]-.02,p[1]+.001,p[2]-.02],[p[0]+.02,p[1]+.001,p[2]-.02],darkWood);
         }
-        const sideCount=Math.max(1,Math.min(3,Math.round(sideSpan/.30)));
-        const sidePoint=(x:number,y:number,z:number,dx:number):Vertex=>{const p=point(x,y,z);return [p[0]+dx,p[1],p[2]];};
-        if(window)for(const x of [first[0],last[0]])for(let i=0;i<sideCount;i++){
-          const z=-depth*(i+.5)/sideCount,half=Math.min(depth/sideCount*.27,width*.085),dx=x===first[0]?-proud:proud;
-          const front=x===first[0]?z-half:z+half,back=x===first[0]?z+half:z-half;
-          painted(sidePoint(x,sill,front,dx),sidePoint(x,sill,back,dx),sidePoint(x,head,front,dx),sidePoint(x,head,back,dx));
-          solidBox(x-frame,x+frame,sill,sill+.025,z+half+frame,z-half-frame,profile.wall);
-          solidBox(x-frame,x+frame,head-.02,head,z+half+frame,z-half-frame,profile.tiles);
-          for(const edge of [z-half,z+half])solidBox(x-frame,x+frame,head,sill,edge+proud,edge-proud,profile.tiles);
+      }
+      if(!/shrine/.test(profile.id))door((first[0]+last[0])/2,base,eave);
+      if(houseWindows[profile.id]||/smithy|stable|shrine/.test(profile.id)){
+        const wy=eave+(base-eave)*.43,cy=P(0,wy,0)[1],wh=(base-eave)*height*.37,ww=Math.min(.14,(last[0]-first[0])*.2)*width;
+        for(const x of [first[0]+(last[0]-first[0])*.20,first[0]+(last[0]-first[0])*.80]){
+          window(P(x,0,0)[0],cy,.005,1,0,ww,wh);window(P(x,0,0)[0],cy,-depth-.005,-1,0,ww,wh);
         }
-        // The authored roof slopes keep their shape; raised ridge/eave strips
-        // finish their seams instead of exposing raw extrusion edges.
-        for(let i=1;i<roof.length-1;i++){
-          const [x,y]=roof[i];solidBox(x-.009,x+.009,y-.010,y+.006,.003,-depth-.003,profile.tiles);
+        for(const x of [first[0],last[0]])for(let i=0;i<2;i++){
+          const z=-depth*(i+.5)/2,s=x===first[0]?-1:1;
+          window(P(x,0,0)[0]+s*.005,cy,z,0,-s,ww,wh);
         }
       }
     }
   }
-  const geometry=new BufferGeometry();
-  geometry.setAttribute('position',new Float32BufferAttribute(positions,3));
-  geometry.setAttribute('uv',new Float32BufferAttribute(uvs,2));
-  geometry.setAttribute('surfaceRect',new Float32BufferAttribute(surfaces,4));
-  geometry.setAttribute('surfaceUV',new Float32BufferAttribute(surfaceUVs,2));
-  geometry.computeVertexNormals();
-  const normals=geometry.getAttribute('normal');
-  for(let i=0;i<roundNormals.length;i+=4)normals.setXYZ(roundNormals[i],roundNormals[i+1],roundNormals[i+2],roundNormals[i+3]);
-  return geometry;
+  return m.finish();
 }
 
 /** Closed interior panels share original art and do not acquire town-wall

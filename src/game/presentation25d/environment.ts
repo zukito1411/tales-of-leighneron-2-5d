@@ -12,4 +12,4 @@ export function sunDirection(minute:number,out:Vector3){
   return out.set(Math.cos(angle),Math.sin(angle)*.94,Math.sin(angle)*.34).normalize();
 }
 export const VIEW_DISTANCE=2400;
-export const FOG_START=VIEW_DISTANCE*.84;
+export const FOG_START=VIEW_DISTANCE*.66;

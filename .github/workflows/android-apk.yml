@@ -135,67 +135,25 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Houses now have deeper textured side/back walls and roof volumes.
-          Towers, shrines, chapels, castles and gatehouses use fixed 3D structure
-          geometry. Town curtains follow their surveyed seams with masonry tops
-          and battlements, while gate openings remain open through the mesh.
-          Original source atlases, view streaming and shared instancing are retained.
-          Tower walls, ledges, crowns and roofs now use circular geometry with
-          the existing artwork wrapped around them, including lit windows.
-          Contract boards have thin fixed-facing frames, backs and posts.
-          The camera keeps your chosen zoom near walls, buildings and terrain.
-          Local cutaways still reveal the player and locked enemy behind cover.
-          Press R or tap the translucent Lock button to lock/unlock a visible
-          enemy. Locks follow combat facing, protect the enemy from focus blur,
-          and release beyond range or after sustained loss of sight.
-          Sun shafts now remain visible near screen edges and partial cover.
-          Interior dining tables, reception counters, workbenches, chairs,
-          benches and beds now use character-relative heights, independent of
-          their width. Room footprints, saved layouts and original art remain.
-          Interior furnishings use fixed 3D volumes: beds, chairs, tables,
-          cabinets, counters, barrels, pots, hearths, steps, arches and regional
-          centerpieces. Original furniture artwork and saved layouts are retained.
-          Player-home rotations and weapon displays follow their furniture in
-          world space. Cave chests and tower doors retain their open/closed states.
-          Furniture shares the character cutaway and soft ground-contact artwork.
-          Rivers and seas now have separate lowered surfaces over deeper beds,
-          with bank slopes and shallow/deep color. Bridge/deck routes are retained.
-          House sides and backs gain foundations, framing, eaves and windows.
-          Regional cargo, benches, fences, lamps, wells, stalls, tents, carts and
-          other selected props use shared 3D shapes with the existing artwork.
-          The flagship gains hull, rail, cabin and mast volume while preserving
-          its deck, boarding and combat coordinates. Circular towers are retained.
-          Clear mornings have less mist/haze, later outdoor focus blur and stronger
-          sunlight. Normal adds edge smoothing within the existing compositor.
-          Houses retain their wall material on side elevations, with separate
-          corner posts and complete side/rear window framing. Round towers,
-          barrels, lamps and other cylinder parts gain smooth surface normals.
-          Cabinet backs, counter bases, chest rims and small roof undersides
-          gain finishing geometry within their existing instanced models.
-          Structure lighting follows the shared sun/moon direction and weather,
-          with warm interior fill. Emissive windows retain their own brightness.
-          Normal adds soft highlight bloom through the existing bounded focus
-          buffers. Low keeps its painted halos and avoids fullscreen blur work.
-          A lighter vignette and wider indoor focus range improve clarity.
-          View radius, streaming/preload scheduling and render budgets are unchanged.
-          Camera-frustum streaming now replaces the fixed walking neighborhood.
-          Movement-ahead preloads, GPU preparation and delayed retirement run together.
-          The full sky, sun, moon and stars remain in their separate sky pass.
-          Rain and snow descend, volcanic embers rise, and sun shafts and ambient
-          lights are restored with bounded GPU effects.
-          Outdoor geography now runs in a shared worker with a buffered world water mask.
-          Streaming residency no longer triggers full-world autosaves. Normal quality
-          retains full terrain detail, ground mipmaps and anisotropic filtering;
-          adaptive resolution uses completed render timing rather than CPU stalls.
-          Enemy attacks now use camera-relative facing from their committed world aim.
-          Varkhul's fire stays attached to his mirrored mouth; held caster poses and
-          projectile headings follow camera rotation without changing damage lanes.
-          Performance changes include background terrain painting and placement planning,
-          a shared streaming budget, GPU upload preparation, cached static scenery,
-          GPU-facing scenery billboards, bounded cleanup, and compatible night-pass merging.
-          Frame diagnostics now report raw frame percentiles, slow frames, simulation CPU
-          work and optional asynchronous GPU timing. No device FPS improvement is claimed
-          without a hardware trace.
+          Buildings and furnishings now use modeled doors, window frames, shelves,
+          chair backs, rounded chest lids and fittings instead of full-object
+          paintings across their fronts. Regional wood, masonry, roofing and
+          fabric materials cover their sides and backs. Trees and flowers retain
+          their cutout artwork. Ship hull, deck, cabin, sails and fittings retain
+          the surveyed boarding and combat coordinates.
+
+          Distant scenery gains gradual fog and depth of field. Nearby play and
+          locked targets stay in focus. The animated yellow terrain stripes have
+          been removed; sun shafts follow the projected sun from the upper view.
+          Cloud shadows have depth bias to reduce surface fighting. Lamp glass
+          and rune details add light, and bloom keeps the local highlight color.
+
+          Character-relative furniture heights, saved layouts, circular towers,
+          wall cutaways and manual camera zoom are retained. Streaming radius,
+          staged uploads, shared instancing and render target limits are unchanged.
+          The model catalog was rendered from multiple angles and the changed
+          shaders were linked in an offscreen OpenGL ES context. This is not an
+          Android gameplay or frame-time measurement.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.
