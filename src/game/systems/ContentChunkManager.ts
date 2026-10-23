@@ -89,6 +89,7 @@ export class ContentChunkManager<Actor> {
   private sceneryWanted=new Set<string>();
   private sceneryCandidates=new Set<string>();
   private nextAdmissionCheckAt=0;
+  private admissionBootstrapped=false;
   private nextSpawnSequence: number;
   private readonly summonOwners = new Map<string,string>();
 
@@ -186,12 +187,14 @@ export class ContentChunkManager<Actor> {
     if(changed||now>=this.nextAdmissionCheckAt){
       this.nextAdmissionCheckAt=now+150;
     const checkedGroups = new Set<string>();
-    const admissionStart=performance.now();
+    const budgeted=Boolean(view)&&this.admissionBootstrapped;
+    this.admissionBootstrapped=true;
+    const admissionStart=budgeted?performance.now():0;
     let admitted=0,deferred=false;
     // Bound first-time actor/material/collider construction to one short
     // slice. Encounter groups remain atomic, but don't also create an entire
     // settlement in the same camera-turn frame.
-    const exhausted=()=>admitted>=4||performance.now()-admissionStart>=2;
+    const exhausted=()=>budgeted&&(admitted>=4||performance.now()-admissionStart>=2);
     admissions: for (const key of this.wanted) {
       for (const id of this.buckets.get(key) ?? []) {
         if (this.active.has(id)) continue;
