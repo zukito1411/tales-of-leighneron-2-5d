@@ -365,7 +365,10 @@ export class ChunkManager {
       this.lighting.register(sprite,detail.texture,detail.frame,detail.scale);
       yield;
     }
-    for(const actor of scenery){actor.setVisible(true);this.ground.activate(actor);}
+    // Enabling static bodies, habitat listeners and optional ground blending
+    // is not cheap. Stage publication work before exposing the whole chunk.
+    for(const actor of scenery){this.ground.activate(actor);yield;}
+    for(const actor of scenery)actor.setVisible(true);
     for(const leaves of canopies)leaves.setVisible(true);
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
       .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
