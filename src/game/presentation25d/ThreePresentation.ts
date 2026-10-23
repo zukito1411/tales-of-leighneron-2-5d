@@ -363,7 +363,10 @@ export class ThreePresentation {
     if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',houseVolume?house!.depth:0))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
-    if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)&&!(object instanceof Phaser.GameObjects.Text)&&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
+    if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)
+      &&object.getData('presentation25dPlayerVisual')!==true
+      &&!(object instanceof Phaser.GameObjects.Text)
+      &&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
       const b=this.projectedBounds;
       if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
     }
