@@ -231,10 +231,14 @@ export class ThreePresentation {
     d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.delta);
     if(done-this.diagnosticAt<1000)return;
     const frames=Math.max(1,d.frames);
+    const textureCache=this.textures.stats();
+    const stream=this.game.registry.get('presentationStreamPerf') as {
+      active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
+    }|undefined;
     const result={cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
-      gpuTextures:this.renderer.info.memory.textures};
+      gpuTextures:this.renderer.info.memory.textures,textureCache,stream};
     this.game.registry.set('presentationPerf',result);
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
@@ -242,7 +246,11 @@ export class ThreePresentation {
         +'Whole-frame peak: '+n(result.longestFrameMs)+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
-        +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures;
+        +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
+        +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
+          +' | cold '+textureCache.coldCreates+' | evict '+textureCache.evictions+'\n'
+        +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
+          +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }
     Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0});
     this.diagnosticAt=done;
