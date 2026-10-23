@@ -8,6 +8,7 @@ import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
 import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
+import {getEffectsQuality} from '../systems/effectsQuality';
 import {createHouseGeometry} from './HouseGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
@@ -118,8 +119,14 @@ export class ThreePresentation {
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
     this.native=game.renderer;this.originalRender=this.native.render;this.rasters=new RasterCache(this.native);
-    this.renderer=new WebGLRenderer({alpha:false,antialias:true,powerPreference:'high-performance'});
+    // On tile-based mobile GPUs default framebuffer MSAA can duplicate
+    // bandwidth costs on top of the world/depth postprocessing targets.
+    // Low is already the mobile default; Normal preserves AA on desktop.
+    this.renderer=new WebGLRenderer({alpha:false,antialias:getEffectsQuality()!=='low',powerPreference:'high-performance'});
     this.budget=new RenderBudget();
+    // The game submits multiple Three.js render passes per frame. Keep their
+    // draw call totals, rather than resetting renderer.info after each pass.
+    this.renderer.info.autoReset=false;
     this.renderer.setPixelRatio(1);this.renderer.autoClear=false;
     this.postFX=new WorldPostFX();
     this.sky=new GpuSky();this.gpuShadows=new GpuShadows(this.world,this.textures,this.elevation,this.atmosphere);
@@ -152,6 +159,7 @@ export class ThreePresentation {
     const profStart=this.frameDiagnostics?performance.now():0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
+    this.renderer.info.reset();
     this.native.emit(Phaser.Renderer.Events.RENDER,scene,camera);
     const width=this.game.scale.width,height=this.game.scale.height;
     const presentation=scene as PresentationScene,density=renderDensity(scene);
@@ -235,7 +243,9 @@ export class ThreePresentation {
     const stream=this.game.registry.get('presentationStreamPerf') as {
       active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
     }|undefined;
-    const result={cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
+    const renderInfo=this.renderer.info.render;
+    const result={drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
+      cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
       gpuTextures:this.renderer.info.memory.textures,textureCache,stream};
@@ -246,6 +256,7 @@ export class ThreePresentation {
         +'Whole-frame peak: '+n(result.longestFrameMs)+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
+        +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
         +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
           +' | cold '+textureCache.coldCreates+' | evict '+textureCache.evictions+'\n'
@@ -286,6 +297,21 @@ export class ThreePresentation {
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
     const houseVolume=Boolean(house)&&!emissionOwner&&!hint?.overlay;
+    // Conservative early culling. The old code rasterized offscreen Graphics
+    // and calculated matrices/elevation for offscreen sprites before inView().
+    // Unanchored objects can be rejected using their actual world positions;
+    // keep all attachments/containers and screen overlays on the normal path.
+    if(plane!=='screen'&&!hint?.overlay&&!hint?.anchor&&!emissionOwner
+      &&!object.parentContainer
+      &&(object instanceof Phaser.GameObjects.Image
+        ||object instanceof Phaser.GameObjects.Sprite
+        ||object instanceof Phaser.GameObjects.TileSprite)){
+      const bounds=this.orbit.bounds;
+      const extent=Math.max(Math.abs(object.displayWidth),Math.abs(object.displayHeight));
+      const margin=Math.max(960,extent*1.7+512);
+      if(object.x<bounds.left-margin||object.x>bounds.right+margin
+        ||object.y<bounds.top-margin||object.y>bounds.bottom+margin)return;
+    }
     const warning=object.getData(TELEGRAPH_PRESENTATION) as TelegraphPresentation|undefined;
     const warningArea=warning?.area;
     let texture:Texture|undefined,source:Phaser.Textures.TextureSource|undefined;

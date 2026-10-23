@@ -172,9 +172,13 @@ export class WorldPostFX {
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);return;
     }
     const low=this.quality==='low',cssWidth=frame.width/frame.density,cssHeight=frame.height/frame.density;
+    // Mobile Low must prioritize player input and camera smoothness over two
+    // optional fullscreen blur passes. Depth, lighting, haze and silhouettes
+    // stay enabled. Normal quality retains authored depth of field.
+    const blurEnabled=effects.depthOfField&&!low;
     const scale=Math.min(low ? .5 : .7,960/cssWidth,960/cssHeight,Math.sqrt(650000/(cssWidth*cssHeight)));
     const bw=Math.max(1,Math.floor(cssWidth*scale)),bh=Math.max(1,Math.floor(cssHeight*scale));
-    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,effects.depthOfField);
+    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,blurEnabled);
     this.common.sceneDepth.value=targets.world.depthTexture;
     this.common.clipRange.value.set(frame.camera.near,frame.camera.far);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
@@ -188,7 +192,7 @@ export class WorldPostFX {
     this.composite.uniforms.sourceColor.value=targets.world.texture;
     this.composite.uniforms.blurredColor.value=targets.vertical?.texture??targets.world.texture;
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
-    this.composite.uniforms.dofEnabled.value=Number(effects.depthOfField);
+    this.composite.uniforms.dofEnabled.value=Number(blurEnabled);
     this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .15)*(1-frame.night*.45):0;
     this.composite.uniforms.hazeColor.value.copy(this.hazeDay).lerp(this.hazeNight,frame.night);
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
@@ -206,7 +210,7 @@ export class WorldPostFX {
       renderer.setRenderTarget(targets.world);renderer.clear();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);
-      if(effects.depthOfField&&targets.horizontal&&targets.vertical){
+      if(blurEnabled&&targets.horizontal&&targets.vertical){
         const radius=low?3:5;
         this.quad.material=this.blur;this.blur.uniforms.sourceColor.value=targets.world.texture;
         this.blur.uniforms.direction.value.set(radius/cssWidth,0);this.blur.uniformsNeedUpdate=true;
