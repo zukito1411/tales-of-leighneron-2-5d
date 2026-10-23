@@ -3,6 +3,7 @@ import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import type {GroundShadowSystem,ShadowCaster} from '../systems/GroundShadowSystem';
 import {getGraphicEffects} from '../systems/graphicsEffects';
+import {getEffectsQuality} from '../systems/effectsQuality';
 import {SpriteBatch,pruneSpriteBatches,type DistanceAtmosphere} from './SpriteBatch';
 import type {TextureCache} from './TextureCache';
 import type {ElevationField} from './ElevationField';
@@ -20,6 +21,11 @@ export class GpuShadows {
   private contactSource:Phaser.Textures.TextureSource|undefined;
   constructor(private readonly world:Scene,private readonly textures:TextureCache,private readonly elevation:ElevationField,private readonly atmosphere:DistanceAtmosphere){}
   update(scene:Phaser.Scene,source:GroundShadowSystem|undefined,minute:number,cloud:number,yaw:number,frame:number,interior:boolean,bounds:{left:number;right:number;top:number;bottom:number}){
+    // On fast (60 Hz) frames in mobile Low mode, reuse the previous shadow
+    // instances every other frame. Skip no updates at all when frame time is
+    // already 25+ ms or when entering an interior: collisions and player
+    // animation still update normally every tick.
+    if(source&&!interior&&getEffectsQuality()==='low'&&frame%2===1&&scene.game.loop.delta<25)return;
     for(const batch of this.batches.values())batch.begin();
     if(source&&!interior){
       if(!this.contactSource||!this.contactSource.image){
