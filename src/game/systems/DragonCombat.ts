@@ -16,6 +16,7 @@ import {BossPhaseState,BOSS_PHASE_TWO_TRANSITION_MS} from './BossPhaseState';
 import type {BossPhaseSnapshot} from '../types';
 import {TOWER_ROUND_FLOOR} from '../../data/towerRoom';
 import {BossSkillVisual} from './BossSkillVisual';
+import {onPlane} from '../presentation25d/plane';
 
 type Phase='rest'|'stomp-windup'|'breath-windup'|'breath'|'flight'|'landing'|'recover';
 const smooth=(value:number)=>{const p=Phaser.Math.Clamp(value,0,1);return p*p*(3-2*p);};
@@ -63,6 +64,7 @@ export class DragonCombat {
       .setOrigin(.5,actorArtLayout('enemy_dragon_fly').originY)
       .setScale(artScale('enemy_dragon_fly')*enemyAppearanceMultiplier(enemy.definition))
       .setVisible(false).setName('dragon-flight:'+enemy.instanceId);
+    onPlane(this.flight,'upright',enemy);
     this.shadow=scene.add.ellipse(enemy.x,enemy.y,180,70,0x100909,.4).setVisible(false).setName('dragon-flight-shadow');
   }
   get profile(){return this.currentProfile??VARKHUL_WORLD_PROFILE;}
@@ -365,8 +367,8 @@ export class DragonCombat {
     if(burning)this.warningFill.clear();
     else this.warningFill.draw({kind:'cone',x:origin.x,y:origin.y,angle,radius:r,halfAngle:half,flatEnd:true},this.age/this.breathWindupMs,this.scene.playerRenderDepth(e.y)-1,0xffa25c);
     const reach=r*Math.cos(half),depth=this.scene.playerRenderDepth(e.y)+180,ignition=this.breathIgnitionAt;
-    if(burning)this.fire.show(origin,angle,reach,this.age,depth);
-    else if(this.age>ignition)this.fire.show(origin,angle,reach,this.age-ignition,depth,true);
+    if(burning)this.fire.show(origin,angle,reach,this.age,depth,false,e.y,e.x);
+    else if(this.age>ignition)this.fire.show(origin,angle,reach,this.age-ignition,depth,true,e.y,e.x);
     else this.fire.hide();
   }
   private slam(x:number,y:number,radius:number,multiplier:number){
@@ -439,6 +441,7 @@ export class DragonCombat {
     const e=this.enemy,visual=this.scene.add.sprite(e.x,e.y-40,'enemy_dragon_fly',0)
       .setOrigin(.5,actorArtLayout('enemy_dragon_fly').originY).setScale(this.flight.scaleX,this.flight.scaleY)
       .setDepth(e.y+600).setName('dragon-retreat').play('dragon-fly');
+    onPlane(visual,'upright',{x:e.x,y:e.y});
     const soundId=`${e.instanceId}:retreat`;
     this.scene.playDragonSound(soundId,'flight',e.x,e.y,2800);
     visual.once(Phaser.GameObjects.Events.DESTROY,()=>this.scene.stopDragonSound(soundId,'flight'));

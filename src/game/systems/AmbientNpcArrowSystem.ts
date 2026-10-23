@@ -3,6 +3,7 @@ import {NPC_ARROW_TEXTURE} from '../../data/npcCombatArt';
 import type {Npc} from '../entities/Npc';
 import type {Enemy} from '../entities/Enemy';
 import type {WorldScene} from '../scenes/WorldScene';
+import {onDirectionalSprite} from '../presentation25d/plane';
 
 interface Arrow {sprite:Phaser.GameObjects.Image;source:Npc|null;target:Enemy|null;x:number;y:number;vx:number;vy:number;age:number}
 
@@ -21,6 +22,8 @@ export class AmbientNpcArrowSystem{
         .setName('ambient-adventurer-arrow').setActive(false).setVisible(false),
         source:null,target:null,x:0,y:0,vx:0,vy:0,age:0};
       this.arrows.push(arrow);
+      const anchor=arrow;
+      onDirectionalSprite(arrow.sprite,{get x(){return anchor.vx;},get y(){return anchor.vy;}},{get x(){return anchor.x;},get y(){return anchor.y;}});
     }
     const facing=source.storyFacing;
     arrow.source=source;arrow.target=target;arrow.age=0;

@@ -78,7 +78,7 @@ test('new packs load without missing textures and drive facing, locomotion, hit,
     wolf.takeDamage(1000,s.player.lastDirection);
     const effect = s.children.getByName('enemy-death:creature:oakmere-wolf-east') as Phaser.GameObjects.Sprite;
     return { alive:Boolean(m.getActor('creature:oakmere-wolf-east')),dead:m.getState('creature:oakmere-wolf-east')!.defeated,
-      visual:effect.anims.currentAnim?.key,physical:Boolean(effect.body),saved:JSON.parse(localStorage.getItem('mernondna-save-v1')!).state.worldContent.states['creature:oakmere-wolf-east'].defeated };
+      visual:effect.anims.currentAnim?.key,physical:Boolean(effect.body),saved:JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!).state.worldContent.states['creature:oakmere-wolf-east'].defeated };
   });
   expect(death).toEqual({ alive:false,dead:true,visual:'enemy:0:death',physical:false,saved:true });
   await expect.poll(() => page.evaluate(() => Boolean((window.__mernondnaGame!.scene.getScene('world') as WorldScene).children.getByName('enemy-death:creature:oakmere-wolf-east')))).toBe(false);

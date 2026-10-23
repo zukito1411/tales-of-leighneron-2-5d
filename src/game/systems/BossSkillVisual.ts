@@ -6,6 +6,7 @@ import type {AttackArea} from './attackWarning';
 import {BOSS_SKILL_CONTENT,BOSS_SKILL_FRAMES,BOSS_SKILL_ACCENTS,BOSS_SKILL_TEXTURE,
  BOSS_MOTION_TEXTURE,BOSS_MOTION_START,BOSS_MOTION_GROUND_Y,BOSS_MOTION_SEA_SWEEP,type BossSkillFamily} from '../../data/bossSkillEffects';
 import {ensureBossSkillArt} from './BossSkillArt';
+import {onPlane,onGround} from '../presentation25d/plane';
 
 interface Glow {
  sprite:Phaser.GameObjects.Sprite;active:boolean;age:number;duration:number;size:number;
@@ -44,6 +45,9 @@ export class BossSkillVisual {
    .setPosition(x,y).setOrigin(.5).setScale(size/BOSS_SKILL_CONTENT*.7)
    .setRotation(rotation).setAlpha(0).setVisible(true).setFlip(false,false)
    .setDepth(this.scene.playerRenderDepth(y)+1);
+  const anchor=glow;
+  onPlane(glow.sprite,'upright',{get x(){return anchor.sprite.x;},get y(){return anchor.y+anchor.moveY*Math.min(1,anchor.age/anchor.duration);}});
+  if(accent&&['stone','roots','frost','ember'].includes(this.family))onGround(glow.sprite,.08);
   return glow;
  }
  begin(enemy:Enemy,area:AttackArea){
@@ -52,7 +56,8 @@ export class BossSkillVisual {
   const x=area.kind==='circle'||area.kind==='ring'?area.x:enemy.x;
   const y=area.kind==='circle'||area.kind==='ring'?area.y:enemy.y-25;
   this.windup=this.add(x,y,Math.min(80,area.radius*.6),1,0,true);
-  if(this.windup){this.windup.held=true;this.windup.sprite.setAlpha(0);}
+  if(this.windup){this.windup.held=true;this.windup.sprite.setAlpha(0);
+    if(area.kind!=='circle'&&area.kind!=='ring')onPlane(this.windup.sprite,'upright',enemy);}
  }
  gather(progress:number){
   const glow=this.windup;if(!glow)return;
@@ -111,6 +116,7 @@ export class BossSkillVisual {
  }
  followCharge(enemy:Enemy,area:AttackArea){
   const glow=this.charge;if(!glow)return;
+  onPlane(glow.sprite,'upright',enemy);
   glow.sprite.setPosition(enemy.x-Math.cos(area.angle)*20,enemy.y-Math.sin(area.angle)*20-15)
    .setRotation(area.angle).setScale(glow.size/BOSS_SKILL_CONTENT)
    .setAlpha(.8*smooth(glow.age/110)).setDepth(this.scene.playerRenderDepth(enemy.y)+1);
@@ -124,6 +130,7 @@ export class BossSkillVisual {
   if(!glow)return;
   glow.travelling=true;glow.moveX=Math.cos(area.angle)*(area.range??0);glow.moveY=Math.sin(area.angle)*(area.range??0);
   glow.age=Math.max(0,Math.min(duration,age));
+  onPlane(glow.sprite,'upright',{get x(){return glow.sprite.x;},get y(){return glow.sprite.y+24;}});
   const p=glow.age/duration;
   glow.sprite.setOrigin(.8,.5).setPosition(glow.x+glow.moveX*p,glow.y+glow.moveY*p);
  }

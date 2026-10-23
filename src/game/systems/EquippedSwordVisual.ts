@@ -1,11 +1,12 @@
 import Phaser from 'phaser';
-import {onPlane} from '../presentation25d/plane';
+import {onPlane,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {WEAPONS,WEAPON_BY_ID} from '../../data/weapons';
 import {itemIcon} from '../../data/economy';
 import {alphaFrameBounds} from './spriteArt';
 import {useGameStore} from '../../store/gameStore';
 import {heroFrameData} from './heroFrameData';
 import {AWAKENING_PROFILES,awakenedProfile,awakeningArtPath} from '../../data/awakening';
+import {setDepthIfChanged} from './renderDepth';
 
 interface SwordFrameData {gripX:number;gripY:number;nativeAngle:number;bladeLength:number}
 
@@ -78,7 +79,8 @@ export class EquippedSwordVisual{
     this.hand=scene.add.sprite(0,0,'leigneron',0).setVisible(false).setName('equipped-sword-hand');
   }
   update(actor:Phaser.GameObjects.Sprite,stowed=false,facingUp=false){
-    onPlane(this.blade,'upright',actor);onPlane(this.hand,'upright',actor);
+    const anchor=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.anchor??actor;
+    onPlane(this.blade,'upright',anchor);onPlane(this.hand,'upright',anchor);
     const state=useGameStore.getState(),id=state.weaponId,definition=WEAPON_BY_ID[id];
     const frameId=awakenedProfile(id,state.awakenedWeapons)&&this.blade.scene.textures.get(SWORD_TEXTURE).has('awakened:'+id)?'awakened:'+id:id;
     const meta=heroFrameData(actor.frame),density=meta.heroDensity??4,bodyScale=meta.heroBodyScale??1;
@@ -93,6 +95,11 @@ export class EquippedSwordVisual{
     }:meta.weaponGrip;
     if(!actor.active||actor.alpha<=0||!grip||!definition||!['sword','greatsword'].includes(definition.kind)
       ||grip.x<0||grip.y<0||grip.x>actor.width||grip.y>actor.height){this.hide();return;}
+    // Phaser's +/- .02 draw order is too small for a perspective depth
+    // buffer at distant zoom. Separate the shared planes along view depth.
+    const bladeHint=this.blade.getData(PRESENTATION_HINT) as PresentationHint;
+    const handHint=this.hand.getData(PRESENTATION_HINT) as PresentationHint;
+    bladeHint.depthOffset=grip.behind?-1:1;handHint.depthOffset=2;
     this.blade.cameraFilter=actor.cameraFilter;this.hand.cameraFilter=actor.cameraFilter;
     const frame=this.blade.scene.textures.get(SWORD_TEXTURE).get(frameId),data=frame.customData as SwordFrameData;
     const x=actor.flipX?actor.width-grip.x:grip.x;
@@ -108,14 +115,16 @@ export class EquippedSwordVisual{
     this.blade.setTexture(SWORD_TEXTURE,frameId).setFlipX(actor.flipX).setOrigin(actor.flipX?1-data.gripX:data.gripX,data.gripY)
       .setScale(bladeLength/data.bladeLength).setRotation(actor.rotation+(actor.flipX?-rotation:rotation))
       .setPosition(actor.x+localX*cos-localY*sin,actor.y+localX*sin+localY*cos)
-      .setDepth(actor.depth+(grip.behind?-.02:.02)).setAlpha(actor.alpha).setVisible(actor.visible);
+      .setAlpha(actor.alpha).setVisible(actor.visible);
+    setDepthIfChanged(this.blade,actor.depth+(grip.behind?-.02:.02));
     // Reuse the full parent frame with a tiny crop, preserving the glove's
     // original pixels/registration instead of drawing substitute hands.
     const radius=5/Math.max(.001,Math.abs(actor.scaleX));
     const left=Math.max(0,grip.x-radius),top=Math.max(0,grip.y-radius);
     this.hand.setTexture(actor.texture.key,actor.frame.name).setOrigin(actor.originX,actor.originY).setScale(actor.scaleX,actor.scaleY).setFlipX(actor.flipX).setRotation(actor.rotation)
-      .setPosition(actor.x,actor.y).setDepth(actor.depth+.04).setAlpha(actor.alpha).setVisible(actor.visible&&!grip.behind&&!stowed)
+      .setPosition(actor.x,actor.y).setAlpha(actor.alpha).setVisible(actor.visible&&!grip.behind&&!stowed)
       .setCrop(left,top,Math.min(actor.width-left,radius*2),Math.min(actor.height-top,radius*2));
+    setDepthIfChanged(this.hand,actor.depth+.04);
   }
   hide(){this.blade.setVisible(false);this.hand.setVisible(false);}
   destroy(){this.blade.destroy();this.hand.destroy();}

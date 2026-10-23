@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import {onPlane} from '../presentation25d/plane';
+import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {houseShape} from '../presentation25d/HouseGeometry';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
@@ -20,13 +21,14 @@ export const WORLD_SPRITE_OWNER='worldSpriteOwner';
  * Render bounds, physical contour and draw order are deliberately separate. */
 export class WorldSpriteSystem {
   private readonly owned=new Map<WorldActor,Phaser.GameObjects.Rectangle[]>();
+  private readonly staged=new Map<WorldActor,()=>void>();
   // Runtime pixel-based ground skirts are opt-in. Without them the original
   // full-quality sprite art, collision, foliage, and shadows render unchanged
   // with zero per-actor masking scans, CPU readbacks or texture uploads.
   private readonly blend:PropGroundBlend|null;
   constructor(private readonly scene:Phaser.Scene,private readonly bodies:Phaser.Physics.Arcade.StaticGroup,
     private readonly shadows?:GroundShadowSystem,private readonly wildlife?:AmbientWildlifeSystem){this.blend=getGraphicEffects().groundBlend?new PropGroundBlend(scene):null;}
-  register(actor:WorldActor,texture:ArtTextureKey,frame:number,scale:number,solid:boolean,fallback?:{width:number;height:number},center=false){
+  register(actor:WorldActor,texture:ArtTextureKey,frame:number,scale:number,solid:boolean,fallback?:{width:number;height:number},center=false,staged=false){
     if(this.owned.has(actor))return;
     const sheet=ART_BY_KEY[texture],metadata=(actor.frame.customData??{}) as PreparedArt;
     const visible=metadata.visibleBounds??{left:0,top:0,width:sheet.frameWidth,height:sheet.frameHeight};
@@ -49,7 +51,10 @@ export class WorldSpriteSystem {
       return source?point((x-source[0])/source[2],(y-source[1])/source[3]):point(x,y);
     };
     const profile=worldSpriteProfile(texture,frame),owned:Phaser.GameObjects.Rectangle[]=[];
+    const layers:Phaser.GameObjects.Image[]=[];
     onPlane(actor,profile?.floor||texture==='port_dock'||texture==='pirate_flagship'?'ground':'upright');
+    const house=houseShape(texture,actor.frame,frame);
+    if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
         ||texture==='world_objects'&&frame<4;
@@ -81,11 +86,19 @@ export class WorldSpriteSystem {
       for(const [part,y] of [['back',TIMBER_BRIDGE.backSortY],['front',TIMBER_BRIDGE.frontSortY]] as const){
         const layer=this.scene.add.image(actor.x,actor.y,`bridge-${part}-rail`).setOrigin(actor.originX,actor.originY)
           .setScale(actor.scaleX,actor.scaleY).setDepth(sourcePoint([241,y]).y).setName('bridge-'+part+':'+actor.name);
+        if(staged)layer.setVisible(false);
+        layers.push(layer);
         layer.setTint(actor.tintTopLeft,actor.tintTopRight,actor.tintBottomLeft,actor.tintBottomRight);
+        const railGround=sourcePoint([241,y]);
+        const anchor={x:actor.x,y:railGround.y,get presentationElevation(){
+          return worldHeight(layer.scene,actor.x,actor.y)-worldHeight(layer.scene,this.x,this.y);
+        }};
+        layer.setData('presentation25d',{plane:'upright',anchor,wall:{axis:'x'}} satisfies PresentationHint);
         // The deck artwork includes water and bank soil: only the extracted
         // rail silhouettes cast a shadow, never the entire river illustration.
         this.shadows?.register(layer,true,{projection:.3,contactScale:0,
-          groundPoint:{x:actor.originX,y:actor.originY}});
+          groundPoint:{x:layer.originX,y:layer.originY+(railGround.y-layer.y)/(layer.height*layer.scaleY)},
+          groundOffsetY:railGround.y-layer.y});
         actor.once('destroy',()=>layer.destroy());
       }
       // Bridge rail art is decorative; terrain bounds already constrain the crossing.
@@ -105,11 +118,26 @@ export class WorldSpriteSystem {
       }
     }
     this.owned.set(actor,owned);
-    this.wildlife?.register(actor,texture,frame,point(.5,1),visible.width*scale,visible.height*scale);
     actor.once('destroy',()=>this.release(actor));
-    this.blend?.apply(actor,texture,frame,point(.5,1));
+    const bottom=point(.5,1);
+    const activate=()=>{
+      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=true;
+      for(const layer of layers)layer.setVisible(actor.visible);
+      this.wildlife?.register(actor,texture,frame,bottom,visible.width*scale,visible.height*scale);
+      this.blend?.apply(actor,texture,frame,bottom);
+    };
+    if(staged){
+      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
+      this.staged.set(actor,activate);
+    }else activate();
+  }
+  /** Chunk publication enables prepared collisions and habitat together. */
+  activate(actor:WorldActor){
+    const activate=this.staged.get(actor);if(!activate)return;
+    this.staged.delete(actor);activate();
   }
   private release(actor:WorldActor){
+    this.staged.delete(actor);
     const shapes=this.owned.get(actor);if(!shapes)return;this.owned.delete(actor);
     for(const shape of shapes)this.bodies.remove(shape,true,true);
   }

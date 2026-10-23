@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import {useGameStore} from '../../store/gameStore';
 import type {Npc} from '../entities/Npc';
 import type {WorldScene} from '../scenes/WorldScene';
+import {onPlane} from '../presentation25d/plane';
 
 /** One reusable text texture. Follow physics only during the visible remark. */
 export class AliceSpeechBubble {
@@ -33,6 +34,7 @@ export class AliceSpeechBubble {
     // Use the actor's stable head registration, not an animated frame's bounds
     // or a HUD position sampled before Arcade moves her feet.
     const y=npc.speechAnchorY,depth=this.scene.playerRenderDepth(npc.y)+200;
+    onPlane(this.bubble,'upright',npc);
     if(this.bubble.x!==npc.x||this.bubble.y!==y)this.bubble.setPosition(npc.x,y);
     if(this.bubble.depth!==depth)this.bubble.setDepth(depth);
     this.bubble.cameraFilter=npc.cameraFilter;

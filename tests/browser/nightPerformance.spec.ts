@@ -15,6 +15,8 @@ for(const mobile of [false,true])test.describe(mobile?'Touch nighttime':'Desktop
   const result=await page.evaluate(async()=>{
    const tp='/src/data/towns.ts',rp='/src/game/systems/renderSizing.ts';
    const {TOWN_BY_ID}=await import(tp),{overlayViewport}=await import(rp);
+   const projection='/src/game/presentation25d/plane.ts';
+   const {presentationAttachment}=await import(projection);
    const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
    s.scene.pause();s.physics.world.pause();
    type Light={actor:Phaser.GameObjects.Sprite;x:number;y:number;radius:number;fire:boolean;phase:number;glow:Phaser.GameObjects.Image};
@@ -36,7 +38,8 @@ for(const mobile of [false,true])test.describe(mobile?'Touch nighttime':'Desktop
      ctx.fillStyle=`rgba(2,6,17,${night*.84})`;ctx.fillRect(0,0,w,h);ctx.globalCompositeOperation='destination-out';
      let count=0;
      for(const node of dn.lights){
-      const px=(node.actor.x+node.x-origin.x)*z+pad,py=(node.actor.y+node.y-origin.y)*z+pad,r=node.radius*z;
+      const point=presentationAttachment(s,node.actor,node.actor.x+node.x,node.actor.y+node.y,{x:0,y:0});
+      const px=(point.x-origin.x)*z+pad,py=(point.y-origin.y)*z+pad,r=node.radius*z;
       if(px+r<0||py+r<0||px-r>w||py-r>h)continue;
       if(dn.lightweight&&count>=18)break;count++;
       const flicker=node.fire?.92+Math.sin(dn.elapsed*.013+node.phase)*.06:1;
@@ -54,20 +57,20 @@ for(const mobile of [false,true])test.describe(mobile?'Touch nighttime':'Desktop
    const originals=[...dn.lights].map(node=>({node,fire:node.fire}));originals.forEach(({node})=>node.fire=false);
    dn.maskDirty=true;dn.update(0,s.player.x,s.player.y);
    let paints=0,uploads=0,sortRequests=0;
-   const erase=dn.texture.erase,renderer=s.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-   const upload=renderer.canvasToTexture,sort=s.children.queueDepthSort;
+   const erase=dn.texture.erase,source=dn.texture.source[0];
+   const upload=source.update,sort=s.children.queueDepthSort;
    dn.texture.erase=function(...args:Parameters<typeof erase>){paints++;return erase.apply(this,args);};
-   renderer.canvasToTexture=function(...args:Parameters<typeof upload>){uploads++;return upload.apply(this,args);};
+   source.update=function(){uploads++;return upload.call(this);};
    s.children.queueDepthSort=function(){sortRequests++;return sort.call(this);};
    for(let i=0;i<240;i++)dn.update(1000/60,s.player.x,s.player.y);
-   const stationaryPaints=paints;const origin={...dn.maskWorldOrigin},view=s.cameras.main.worldView;
-   view.x+=16;dn.update(16,s.player.x,s.player.y);
+   const stationaryPaints=paints;const origin={...dn.maskWorldOrigin},camera=s.cameras.main;
+   camera.scrollX+=16;camera.preRender();dn.update(16,s.player.x,s.player.y);
    const reusedOrigin=origin.x===dn.maskWorldOrigin.x;
    const withinBufferPaints=paints-stationaryPaints;
-   view.x+=400;dn.update(16,s.player.x,s.player.y);
+   camera.scrollX+=400;camera.preRender();dn.update(16,s.player.x,s.player.y);
    const edgePaints=paints-stationaryPaints-withinBufferPaints;
    const edgeOriginChanged=dn.maskWorldOrigin.x!==origin.x;
-   dn.texture.erase=erase;renderer.canvasToTexture=upload;s.children.queueDepthSort=sort;
+   dn.texture.erase=erase;source.update=upload;s.children.queueDepthSort=sort;
    originals.forEach(({node,fire})=>node.fire=fire);
    dn.maskDirty=true;dn.update(0,s.player.x,s.player.y);
    // Contact-only shadows remain valid throughout night even as the weather
@@ -120,8 +123,8 @@ test('afternoon weather tint keeps its color without full-screen uploads',async(
   const refresh=weather.texture.refresh;let uploads=0;weather.texture.refresh=function(){uploads++;return refresh.call(this);};
   for(let i=0;i<240;i++)weather.update(1000/60,s.player.x,s.player.y);
   const tintVisible=weather.tint.visible,animatedLayerVisible=weather.overlay.visible,alpha=weather.tint.alpha;
-  const renderer=s.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-  const color=await new Promise<Phaser.Display.Color>(resolve=>renderer.snapshotPixel(Math.floor(w/2),Math.floor(h/2),color=>resolve(color as Phaser.Display.Color)));
+  const probe='/tests/browser/presentationProbe.ts';const {presentedPixel}=await import(probe);
+  const color=await presentedPixel(s.game,Math.floor(w/2),Math.floor(h/2));
   weather.kind=weather.target='clear';weather.strength=0;weather.drawMs=1000;weather.update(0,s.player.x,s.player.y);
   weather.texture.refresh=refresh;
   return{uploads,tintVisible,animatedLayerVisible,alpha,rgb:[color.red,color.green,color.blue],clear:!weather.tint.visible&&!weather.overlay.visible};

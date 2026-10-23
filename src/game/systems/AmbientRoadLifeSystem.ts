@@ -1,3 +1,4 @@
+import {groundWorldView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {TOWN_BY_ID} from '../../data/towns';
 import {seededRandom} from '../../utils/seededRandom';
@@ -146,7 +147,7 @@ export class AmbientRoadLifeSystem{
       if(this.pendingParty)this.release(this.pendingParty.party.id,this.pendingParty.party);
     }
     this.scan-=step;this.think-=step;
-    const view=this.scene.cameras.main.worldView;
+    const view=groundWorldView(this.scene);
     for(const [id,party] of this.parties)if(party.walkers.every(w=>!w.npc.active||
       w.npc.x<view.x-650||w.npc.x>view.right+650||w.npc.y<view.y-550||w.npc.y>view.bottom+750))this.release(id,party);
     if(this.scan<=0){this.scan=2500;this.populate();}
@@ -257,7 +258,7 @@ export class AmbientRoadLifeSystem{
   private collectSpawnCandidates(){
     if(this.scanRemaining===0)return;
     if(this.pendingParty||this.parties.size>=2){this.scanRemaining=0;this.spawnCandidates.length=0;return;}
-    const player=this.scene.player,view=this.scene.cameras.main.worldView;
+    const player=this.scene.player,view=groundWorldView(this.scene);
     const count=Math.min(24,this.scanRemaining);
     for(let i=0;i<count;i++){
       const route=this.routes[this.scanCursor];
@@ -296,7 +297,7 @@ export class AmbientRoadLifeSystem{
       const {route,point}=this.spawnCandidates.pop()!;
       // The player may have moved while discovery was spread over several
       // frames. Never spend resources spawning a now-invisible party.
-      if(!this.eligibleViewBand(point,this.scene.cameras.main.worldView))continue;
+      if(!this.eligibleViewBand(point,groundWorldView(this.scene)))continue;
       if(this.parties.has(route.id))continue;
       if([...this.parties.values()].some(p=>p.patrol===route.patrol||Math.hypot(p.anchor.x-point.x,p.anchor.y-point.y)<700))continue;
       const patrol=route.patrol;

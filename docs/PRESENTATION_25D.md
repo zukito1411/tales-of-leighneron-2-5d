@@ -1,128 +1,265 @@
-# 2.5D presentation migration
+﻿# 2.5D presentation
 
-## Ownership
+The existing Phaser scene remains the sole owner of physics, AI, story, combat,
+streaming and version-7 saves. ThreePresentation replaces the Canvas world draw
+callback and finishes before the normal POST_RENDER readiness event. It adds no
+simulation or requestAnimationFrame loop. Original artwork and content IDs stay
+in use.
 
-`createMernondnaGame` keeps the existing BootScene and WorldScene, timers,
-Arcade physics, input actions, Zustand state and streamed content. It selects
-Phaser's Canvas compatibility backend and installs `ThreePresentation` after
-boot. Only the scene-manager world render callback is replaced. Dynamic texture
-and vector preparation still use Phaser's existing canvas utilities.
+## Camera and coordinates
 
-ThreePresentation does not start an independent simulation, RAF loop or save
-provider. Rendering finishes before the original POST_RENDER readiness event.
-Renderer disposal participates in GAME_DISPOSING and DESTROY and restores
-wrapped methods before disposing GPU resources.
+OrbitCamera uses a perspective camera, continuous 360-degree yaw, look pitch
+from -60 to 75 degrees, bounded distance, wheel zoom and smooth following. The
+camera's orbit remains at least eight degrees above terrain while upward look
+reveals the sky. Horizon views fade to a bounded 2,400-unit ground range; views
+facing only sky keep a small nearby streaming footprint. PC mouse
+look uses pointer lock, with a capture button and Escape release/pause. Menus,
+dialogue and cinematics release capture. Sensitivity and vertical inversion are
+saved separately from progression. Touch supports drag orbit and pinch zoom.
+Terrain obstruction shortens the orbit; foreground scenery covering the subject
+fades. Camera shake remains connected to the original camera effect.
 
-## Projection
+Logical world XY maps to Three XZ. The live camera projection and inverse are
+shared by lights, weather, picking and streaming. Streaming uses all four
+perspective ground-view corners with bounded margins. Native Phaser artwork
+fixtures retain their deterministic bootstrap projection.
 
-World `(x,y)` is ground `(x,0,y)`, viewed at 52 degrees above the ground. Sprite
-planes face the fixed camera and use the original feet/origin registration.
-There is no camera rotation control: arbitrary yaw would expose missing views
-in the four-direction source artwork. World positions, collision footprints,
-movement speed and skill geometry remain in the original coordinate space.
+Characters, trees and non-house props retain their original cylindrical
+billboards. Farm wheat is upright, non-solid scenery rather than floor art.
+Houses use fixed world-aligned volumes with original complete front artwork,
+side/rear walls and roof surfaces following each style's surveyed silhouette.
+Side and roof UVs reuse opaque patches of the supplied regional house artwork;
+no replacement PNGs, procedural color blocks or extra image decodes are used.
+Cottages, inns, manors, halls, smithies, stables, storehouses, chapels and the
+elven estate use this path; gates, shrines, ruins, towers and castles retain
+their established billboards. Geometry is instanced by style in SpriteBatch,
+with the same source atlas cache, world elevation, original collision contours
+and door interactions. House shadows use the same volume and world orientation;
+window emissions and lamp projections stay registered to the fixed facade.
+House volume bounds participate in culling and selection occlusion. Interior
+walls use the original wall panel artwork on world-aligned vertical planes;
+its uniform scale, cropped final panels and original collision boundaries are
+retained. Floor artwork, water, shadows and warnings use ground geometry.
+Bridge rail strips stay on world-aligned vertical planes at their surveyed
+back/front baselines; their projected shadows use that same world axis.
 
-`onPlane` marks ground/upright/screen objects. Attachments and labels can retain
-an owner anchor, keeping weapons and names on the same projected foot plane.
-Ground profiles, interiors, trees, the flagship and combat warnings provide
-explicit classification at their existing owners. Existing floor masks are
-translated into bounded rectangle-union shader clipping.
+Movement and dash vectors remain in world coordinates after camera-relative
+input conversion. Directional locomotion, attacks and supported action clips
+select their existing camera-relative artwork, retaining animation progress.
+Hysteresis reduces direction changes near diagonals. Equipment retains its
+original frame-specific grip registration and owner anchor.
 
-## GPU and raster resources
+Boat and cart frames use the route heading transformed by camera yaw. The hull,
+crew, passenger, shadows and front rail share one boat anchor, with explicit
+layer separation; bobbing changes elevation rather than moving map coordinates.
+Wake headings still use world travel. Passage passengers select existing
+front/side/rear artwork. These remain four authored vehicle views, not new 3D
+vehicle models.
 
-SpriteBatch shares one instanced mesh per atlas/blend/layer/mask combination.
-Frame rectangles and tint/opacity are instance attributes. TextureCache observes
-existing source refresh boundaries and DynamicTexture drawing; no pixels are
-read back for frame updates. Geometry, textures and batches not used for more
-than two presentation frames are released.
+Desktop clicks now reach manual selection before the attack input; captured
+mouse clicks raycast through the camera center. Only interactive world batches
+and house occluder batches participate in picking. Automatic nearest-target assistance rejects targets
+outside the perspective view; manual locks retain the original range and LOS
+rules. Indicators use the same perspective visibility, and ground rings receive
+their perspective squash from the camera rather than a second baked ellipse.
 
-Vector warnings, shapes and tiled floor objects use RasterCache. It invokes the
-pinned Phaser 3.90 native canvas draw routine on a detached local drawing facade,
-then uploads that object's small raster. It never rasterizes the full world.
-Unchanged command buffers reuse their surface; dimensions are limited to 2048
-pixels per side. This boundary depends on Phaser 3.90's native object layout,
-which is why the runtime is pinned instead of floating to another Phaser release.
+## Elevation and jumping
 
-## Input and presentation
+ElevationField provides bounded cached 64-unit samples and a shared GPU height
+map. Terrain chunks use matching grid triangles; decals and upright sprite feet
+sample the same field. WorldGenerator supplies deterministic hills and slopes,
+with authored settlements, shorelines and interiors kept level. Existing
+bridge/deck regions receive an elevation offset. Source ground artwork supplies
+the visible texture throughout.
+The GPU map keeps fixed 129-by-129 storage and a reusable float buffer; camera
+movement changes only its sample contents and world-space origin. Sampling UVs
+use that fixed texture stride, independently of the active coverage dimensions.
+Coverage includes complete terrain chunks and a one-cell gutter, so vertices
+outside the immediate camera footprint are not flattened to a moving map edge.
+CPU foot/jump/camera queries use the same float samples, 64-unit lattice and
+triangle diagonal as the rendered terrain. The cache holds at most 33,282
+samples, allowing current coverage and a bounded speculative margin to coexist;
+interiors and scenes without terrain use zero height on CPU and GPU.
+During active play, exact height samples ahead of the viewport prepare within
+a soft 0.4–0.8 ms frame budget (at most 64 yielded steps). Preloading changes
+only the CPU cache, never a partially prepared GPU surface. Source changes,
+disabled controls and shutdown discard obsolete work. Large unprepared turns
+or teleports can still require synchronous height/terrain preparation.
+Regional relief combines broad hills and smaller undulations, with stronger
+highland relief and a smooth 384-unit shoulder around town foundations. Height
+sampling remains deterministic and bounded; logical XY walkability is unchanged.
 
-Native mouse/touch world hit testing is disabled while ThreePresentation owns
-the visible canvas; keyboard and React touch actions remain connected to the
-original simulation. Raycasting finds a displayed instance and applies the
-original object's local hit-area callback before emitting its pointer event.
-Proximity, quest and menu guards stay in the existing handlers.
+Space or the touch jump action starts a gravity-driven jump. Landing uses local
+ground height, additional jumps are blocked while airborne, and a complete
+existing neutral pose is reused. Attached weapons and attack visuals inherit
+airborne height; shadows stay at the ground contact point. Respawn clears jump
+state. Save coordinates and original obstacle/ground navigation remain XY.
 
-Existing UI overlays are rendered in screen coordinates. Interior backdrops
-are drawn before the world; weather and cinematic covers follow it. A WebGL
-context failure stops simulation and exposes a menu/reopen recovery message.
+This is a height-field world with the existing collision simulation. Stacked
+walkable floors, arbitrary overhangs and jumping over authored solid barriers
+are not implemented as a new volumetric physics system.
 
-## Isolation
+## Rendering and performance
 
-- Original upstream source and asset history are retained.
-- Browser save key: `mernondna-25d-save-v1`; same version-7 payload.
-- Offline cache prefix: `mernondna-25d-shell-`.
-- Android package: `com.mernondna.rpg25d`.
-- New CI builds browser artifacts. Android preview builds are manual.
-- Original itch.io publishing automation is removed from this repository.
+SpriteBatch instances shared atlas frames with UV/tint/alpha attributes. Upright
+planes use single-pass double-sided materials. Original alpha, trimmed frames,
+crops and text backing resolution are respected. Opaque floors render before
+ground decals, which do not claim depth and hide the terrain behind them.
+Ground bounds include sampled elevation and a center point for hill crests.
+Decal meshes use bounded size-based subdivisions and a small polygon depth bias
+to reduce clipping/flicker against sloping floors and bridge artwork.
 
-## Verification and remaining work
+AttackTelegraph publishes the existing AttackArea dimensions and progress into
+instanced GPU attributes. Circle, hollow ring, capsule and cone fills/boundaries
+run in the shared sprite shader without repainting a warning canvas every
+frame. Authored rune artwork remains on a separate ground layer. Native Phaser
+fixtures retain the original Graphics implementation. Damage checks, windup
+timing and cancellation remain owned by the combat systems.
 
-This is an initial rendering migration, not an assertion of complete visual
-parity. No gameplay/browser tests, server launch or device performance checks
-are authorized by this implementation task's standing repository rules.
-Compiler results are reported separately in the delivery message and Actions.
+Instance buffers track changed ranges independently: moving a sprite does not
+re-upload its unchanged atlas rectangle, colors or tiling data. Picking records,
+UV/color preparation and camera basis values are reused. Growing a batch creates
+only its required geometry and buffers instead of cloning discarded attributes.
+Picking slot/rectangle storage is reused across view-edge count changes; idle
+slots release actor references, and batch disposal releases the pool and geometry.
 
-Before promoting this edition, explicitly authorize and perform visual review of:
+Tiled floors and foam repeat their original atlas artwork in the shader instead
+of repeatedly rasterizing large scrolling canvases. Vector graphics alone use
+the bounded raster cache. TextureCache observes existing refresh boundaries;
+animation frames do not recreate textures. Batches, rasters and source textures
+retire when unused. Camera input, settings listeners, textures, geometry, render
+targets and pointer lock are released on presentation shutdown.
 
-1. New game, continued save, recovery, imports and return to menu.
-2. All four actor directions, cropped hand patches, awakened forms and weapon grips.
-3. Picking NPCs, enemies, beds and housing interactions on mouse and touch.
-4. Warning boundaries and hit positions, projectiles, boss skills and ground effects.
-5. Interiors, furniture, wall occlusion, room masks, flagship and Tower floors.
-6. Night lighting, weather, transparency, camera transitions and skipped cinematics.
-7. Portrait/landscape resizing, context loss, scene disposal and repeated re-entry.
-8. Actual Android GPU memory, texture churn and steady frame time.
+Recently idle batches survive up to 90 frames, capped at 32 world batches and
+16 shadow batches, to avoid repeated buffer/material creation near view edges.
+Idle vector rasters have the same grace period, capped at 32 entries and 8 MiB.
+Quest arrows and target markers use separate small local surfaces outdoors and
+indoors; travel never rasterizes the empty distance between them. Interior
+navigation/store publication runs at 150 ms while movement and poses stay on
+the normal frame loop. Speculative terrain preparation advances at most 128
+small generator steps within a soft 1.5–3 ms budget. Relief rows, ground-cover
+candidates, landmark/wilderness placement candidates and individual scenery actors yield
+separately. Staged scenery stays hidden until its complete chunk is published;
+cancellation releases its actors, canopies and texture. Required visible terrain
+still finishes atomically to retain its scenery and collisions, so rapid turns
+or teleports into unprepared ground can still cause a stall.
 
-Known design constraints: existing perspective-painted scenery remains sprite
-art rather than volumetric geometry. Fixed yaw and the existing 2D collision
-model are intentional. A fully modeled world, elevation traversal, new camera
-angles or measured FPS improvements require additional work. Do not label the
-migration as release-ready based on successful TypeScript or a web build.
+Streaming uses the actual asymmetric perspective footprint instead of mirroring
+its far edge behind the player. Nearby physics residency is retained separately.
+Content residency sets are rebuilt only when their cell bounds change. Minimap
+terrain never forces all 2,304 samples through a React effect: it keeps a complete
+overlapping tile while its requested tile prepares in short animation-frame
+slices. On first entry or a distant teleport, markers remain visible over the map
+background until the first tile completes. These are source-level scheduling
+changes; gameplay, visual and real-device frame-time verification remain pending.
 
-## Ground coverage and artifact correction
+Room entry owns at most two cancellable image decodes, independent of optional
+audio in the scene loader. Furniture extraction yields between subjects and
+releases temporary canvases. A 25-second request deadline restores the outside
+position and controls on failure; cancellation, defeat and shutdown invalidate
+pending work. Room-light masks accept Phaser's automatic default line style.
+Equipped sword/hand layers use explicit camera-depth separation rather than
+relying on tiny Phaser draw-order differences in the perspective depth buffer.
 
-The original Phaser camera's vertical world rectangle is too small for a tilted
-ground plane. Walking, initial loading and cinematics now share the projected
-45-degree ground footprint with chunk streaming. The normal 2D simulation and
-world-coordinate saves do not change. The camera-fitted darkness overlay is
-composited in screen space; large projected silhouette shadows are made
-translucent so painted props do not cover the floor in black. Atlas offsets
-move the sprite mesh only for genuinely trimmed frames.
+Source textures are acquired after visibility culling. Recently visible textures
+may remain for 90 presentation frames, with at most 32 idle entries and a 64 MiB
+estimated residency budget; required current-frame textures are retained even
+when they exceed that budget. Destroyed sources release immediately on pruning.
+The cache never decodes additional artwork or loads beyond streamed content.
 
-This removes known sources of black gaps and black overlay slabs, but does not
-constitute a real-device visual test. The scenery is still sprite art rather
-than extruded architecture; a fully modeled 2.5D environment is separate work.
+GPU water uses the original foam atlas and a cached shoreline mask. Only changes
+to shoreline coverage upload that mask; scrolling and blending run in a shader.
+Buffered coverage has hysteresis, so small orbit changes avoid rebuilding the
+mask. A bounded 16,384-cell terrain cache retains bank and bridge masking. NPC
+camera pose refreshes avoid duplicating selection already done by movement.
 
-## Oakmere architecture pass (real 3D structures)
+RenderBudget limits pixel count and dimensions, with optional adaptive backing
+resolution after sustained slow frames. Logical coordinates, artwork and effect
+switches remain independent of backing resolution. Small ground effects avoid
+the terrain grid's subdivision cost. Phaser-only artwork fixtures retain their
+original CPU effects; the game uses the GPU environment paths below.
 
-The presentation layer now creates retained Three.js building volumes for the
-existing authored cottages, inns, smithies and most compatible capital/elven
-buildings. Surveyed source-art footprints determine their ground positions.
-Buildings receive separate vertical wall meshes, painted front façades sourced
-from the approved artwork, pitched roof meshes textured with the same art,
-three-dimensional beams, stone foundations and real chimney geometry. The 2D
-building actor remains the owner of the original collision, save ID and
-streaming lifecycle; only its visual draw is replaced. Hollow ruins, gateways,
-interactive structures and incompatible props retain their original art until
-specialized models exist. This is not a wholesale conversion of the eight realms.
+## GPU sky, shadows, lighting and weather
 
-The rendering path also uses Phaser Text's actual backing resolution for
-nameplates and removes giant opaque NPC label backdrops. Volume geometry
-resides only for visible/recently visible actors and is disposed on streaming
-retirement or presentation shutdown.
+GpuSky draws one full-screen background with illustrated 2D cloud, sun and moon
+sprites. The versioned atlas loads asynchronously after world presentation
+begins and never gates first-frame readiness. Daylight palettes, celestial
+positions and GPU projected shadows use the existing clock. Reduced-motion
+preferences stop cloud drift. Atlas source and generation notes are in
+[SKY_ASSETS.md](SKY_ASSETS.md).
 
-### Actual visual verification still required
+Night stars use deterministic cube-face directions within the same sky shader.
+They stay anchored while orbiting, fade near the horizon and at dawn, and sit
+behind the moon and clouds. Cloud cover suppresses their brightness; reduced
+motion freezes the subtle twinkle. No additional sky texture, draw call or
+per-star object is allocated.
 
-A successful compiler/APK build does not verify the material UV sampling,
-roof placement, facade alignment, occlusion, input or device frame time.
-Inspect Oakmere in the Android build before accepting this as a finished
-Octopath-style conversion. Buildings retain the game's unique approved art:
-this implementation is *inspired by* HD-2D and does not copy Octopath assets.
+GpuShadows consumes the existing GroundShadowSystem caster registry. Contact
+footprints and source-alpha silhouettes are instanced on terrain-conforming
+ground geometry with no full-screen shadow canvas or runtime silhouette scans.
+Foot registration, multiple contacts, hidden casters and graphics choices remain
+owned by the original systems. Player casting/awakened visuals supply their
+actual frame while the authoritative player supplies grounded coordinates and
+jump height. The original CPU path remains available for isolated art fixtures.
+
+GpuCloudShadows projects the shared cloud artwork over the ground. GpuWeather
+uses static particle seeds and GPU motion for rain, snow, wind, dust and volcanic
+ash, reusing the existing ash sprites. Cached world depth provides per-pixel
+occlusion; bounded nearby roof rectangles retain sheltered areas. Fog and
+overcast tint use the existing compositor and prepared fog density texture.
+Weather transitions, labels, audio and progression stay in WeatherSystem.
+
+GpuNightMask draws local light pockets using GPU destination-out blending into
+a bounded mask, followed by one darkness overlay. It retains the original radial
+light profile and flicker, respects Low's light cap, and uses world depth to
+exclude the sky. Night darkness, ground haze and weather fade together at the
+streamed horizon. It does not upload a screen-sized canvas each update.
+
+SRGB tint bytes are converted through a cached lookup before linear-light
+blending with the shared artwork. All environment managers run inside the
+existing scene draw, dispose their resources on shutdown, and hide outdoors-only
+effects in interiors. CPU preparation remains for vector graphics, small source
+art textures and changing shoreline masks; gameplay and physics remain on CPU.
+
+WorldPostFX captures the world once into a bounded color/depth target. Perspective
+eye depth drives focus around the subject's actual terrain height. Two reduced
+resolution five-tap bilateral passes soften distant and near scenery. Depth
+haze and restrained grading remain independently configurable. Screen UI,
+weather, darkness and transitions composite afterward. Loading scenes bypass
+world postprocessing. World depth remains available when precipitation or night
+lighting needs it, even with photographic effects disabled. Other unused targets
+are released when their effects are disabled.
+
+## Ambient wildlife
+
+Existing prepared rabbit, squirrel, robin and coastal gull atlases remain in use.
+Loaded trees, shrubs, roofs and shoreline props supply habitat anchors; ground
+routes still require safe terrain. Four ground slots and two bird slots bound
+the population, with proximity scans at 125 ms and separate refill cooldowns.
+Animals remain ambient visuals without physics bodies or saved progression.
+They emerge during daylight in suitable habitats; squirrels can climb, birds
+can feed, perch and take flight, and gull flybys remain tied to Tidewatch.
+
+Ground and bird directional poses now follow camera yaw without rotating their
+world routes. Resting and social poses refresh during orbiting too. Visibility
+checks use actual ground elevation plus perch/flight altitude and reject points
+behind the perspective camera. Native Phaser artwork fixtures retain their
+original map-view fallback. Existing pause, travel, hidden-tab, scenery-unload
+and scene-destruction cleanup still owns every pooled actor.
+
+## Verification status
+
+Only the repository-authorized TypeScript compiler checks are run for this
+implementation. No game launch, browser simulation, gameplay tests, production
+build or Android device inspection is implied. Compiler success cannot verify
+GLSL execution, artwork alignment, visual quality, save traversal or FPS.
+
+Rendered inspection remains necessary for orbiting around dense scenery,
+night/weather alignment, all directional combat/equipment poses, jumping across
+terrain transitions, interior cutaways, cinematic framing, repeated scene entry,
+Android pointer/touch behavior and measured frame time/GPU memory.
+
+These source changes and compiler checks cannot establish bug-free rendering.
+GLSL execution, transparency at the horizon, all shadow poses, shelter masks,
+sky-facing touch gestures and real-device frame time require authorized rendered
+inspection before visual correctness or performance gains can be claimed.

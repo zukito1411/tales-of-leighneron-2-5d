@@ -30,9 +30,13 @@ function clearSite(bounds:Rect,world:WorldGenerator,reserved:readonly Rect[],gap
 /** Deterministic stands, meadow openings and altitude breaks, not a uniform
  * forest carpet. Neighboring cell jitter keeps trunks >=128 world units apart. */
 export function planWildernessTrees(chunkX:number,chunkY:number,world:WorldGenerator,reserved:SceneryReservation[]):SceneryTree[]{
+  return finishPlan(planWildernessTreeSteps(chunkX,chunkY,world,reserved));
+}
+export function* planWildernessTreeSteps(chunkX:number,chunkY:number,world:WorldGenerator,reserved:SceneryReservation[]):Generator<void,SceneryTree[]>{
   const rng=seededRandom(`${chunkX}:${chunkY}:woodland`),trees:SceneryTree[]=[];
   const reservedRects=reserved.map(reservedBounds);
   for(let row=0;row<6;row++)for(let col=0;col<6;col++){
+    yield;
     const x=chunkX*CHUNK_SIZE+col*256+64+rng()*128,y=chunkY*CHUNK_SIZE+row*256+64+rng()*128;
     if(settlementAt(x,y))continue;
     const terrain=world.getTerrainAt(x,y),region=world.getRegionAt(x,y),biome=world.getBiomeAt(x,y);
@@ -52,9 +56,13 @@ export function planWildernessTrees(chunkX:number,chunkY:number,world:WorldGener
 
 export interface SceneryDetail extends Vec2 {texture:ArtTextureKey;frame:number;scale:number;id:string;solid:boolean;footprint:{width:number;height:number}}
 export function planWildernessDetails(chunkX:number,chunkY:number,world:WorldGenerator,reserved:SceneryReservation[]):SceneryDetail[]{
+  return finishPlan(planWildernessDetailSteps(chunkX,chunkY,world,reserved));
+}
+export function* planWildernessDetailSteps(chunkX:number,chunkY:number,world:WorldGenerator,reserved:SceneryReservation[]):Generator<void,SceneryDetail[]>{
   const result:SceneryDetail[]=[],rng=seededRandom(`landscape:${chunkX}:${chunkY}`);
   const exclusions=reserved.map(reservedBounds);
   for(let row=0;row<8;row++)for(let col=0;col<8;col++){
+    yield;
     const x=chunkX*CHUNK_SIZE+(col+.25+rng()*.5)*192,y=chunkY*CHUNK_SIZE+(row+.25+rng()*.5)*192;
     if(settlementAt(x,y)||!world.isWalkable(x,y))continue;
     const biome=world.getBiomeAt(x,y),region=world.getRegionAt(x,y),patch=standNoise(x*.001,y*.001);
@@ -78,4 +86,7 @@ export function planWildernessDetails(chunkX:number,chunkY:number,world:WorldGen
       solid:choice.solid??false,footprint:{width:size.width*scale*.52,height:Math.min(48,size.height*scale*.22)}});
     exclusions.push(bounds);
   }return result;
+}
+function finishPlan<T>(steps:Generator<void,T>):T{
+  let result=steps.next();while(!result.done)result=steps.next();return result.value;
 }

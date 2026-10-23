@@ -88,8 +88,8 @@ for (const mobile of [false, true]) test.describe(mobile ? 'M01 touch comparison
         const scene = window.__mernondnaGame!.scene.getScene('world') as WorldScene;
         const runtime = scene as unknown as { enemies: Set<Enemy>; contentManager: ContentChunkManager<Enemy>;
           dayNight: { minuteOfDay: number; update(delta: number, x: number, y: number): void } };
-        const renderer = scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer;
-        const gl = renderer.gl;
+        const presented=document.querySelector<HTMLCanvasElement>('.three-world-canvas');
+        const gl=presented?.getContext('webgl2')??(scene.game.renderer as Phaser.Renderer.WebGL.WebGLRenderer).gl;
         const counters = () => {
           const sources = new Set<Phaser.Textures.TextureSource>();
           for (const texture of Object.values(scene.textures.list)) for (const source of texture.source) sources.add(source);
@@ -111,18 +111,29 @@ for (const mobile of [false, true]) test.describe(mobile ? 'M01 touch comparison
           const before = counters();
           let draws = 0, uploads = 0, aiUpdates = 0;
           const drawArrays = gl.drawArrays, drawElements = gl.drawElements, image = gl.texImage2D, subImage = gl.texSubImage2D;
+          const instanced='drawElementsInstanced' in gl?gl as WebGL2RenderingContext:null;
+          const drawArraysInstanced=instanced?.drawArraysInstanced,drawElementsInstanced=instanced?.drawElementsInstanced;
           gl.drawArrays = function (...args: Parameters<typeof drawArrays>) { draws++; return drawArrays.apply(this, args); };
           gl.drawElements = function (...args: Parameters<typeof drawElements>) { draws++; return drawElements.apply(this, args); };
           gl.texImage2D = ((...args: unknown[]) => { uploads++; (image as (...args: unknown[]) => void).apply(gl, args); }) as typeof image;
           gl.texSubImage2D = ((...args: unknown[]) => { uploads++; (subImage as (...args: unknown[]) => void).apply(gl, args); }) as typeof subImage;
+          if(instanced&&drawArraysInstanced&&drawElementsInstanced){
+            instanced.drawArraysInstanced=function(...args:Parameters<typeof drawArraysInstanced>){draws++;return drawArraysInstanced.apply(this,args);};
+            instanced.drawElementsInstanced=function(...args:Parameters<typeof drawElementsInstanced>){draws++;return drawElementsInstanced.apply(this,args);};
+          }
           const updates = [...runtime.enemies].map(enemy => ({ enemy, update: enemy.updateEnemy }));
           for (const { enemy, update } of updates) enemy.updateEnemy = function (...args: Parameters<typeof update>) {
             aiUpdates++; return update.apply(this, args);
           };
-          const intervals: number[] = []; let previous = await frame();
-          for (let i = 0; i < 120; i++) { const now = await frame(); intervals.push(now - previous); previous = now; }
-          gl.drawArrays = drawArrays; gl.drawElements = drawElements; gl.texImage2D = image; gl.texSubImage2D = subImage;
-          for (const { enemy, update } of updates) enemy.updateEnemy = update;
+          const intervals: number[] = [];
+          try{
+            let previous=await frame();
+            for(let i=0;i<120;i++){const now=await frame();intervals.push(now-previous);previous=now;}
+          }finally{
+            gl.drawArrays=drawArrays;gl.drawElements=drawElements;gl.texImage2D=image;gl.texSubImage2D=subImage;
+            if(instanced&&drawArraysInstanced&&drawElementsInstanced){instanced.drawArraysInstanced=drawArraysInstanced;instanced.drawElementsInstanced=drawElementsInstanced;}
+            for(const {enemy,update} of updates)enemy.updateEnemy=update;
+          }
           intervals.sort((a, b) => a - b);
           const percentile = (p: number) => intervals[Math.ceil(intervals.length * p) - 1];
           cases.push({ label, medianMs: percentile(.5), p95Ms: percentile(.95), p99Ms: percentile(.99),

@@ -8,7 +8,7 @@ import {drainageDistance,harborBay,harborShoreDistance,LAVA_FLOW,pathDistance,RI
 import { CHUNK_SIZE, WORLD_SEED, WORLD_WIDTH, WORLD_HEIGHT } from '../../data/world';
 import { seededRandom } from '../../utils/seededRandom';
 import { FARM_PLOTS } from '../../data/landmarks';
-import { settlementAt, settlementTerrain, onStreet, protectedSettlementAt } from '../../data/settlements';
+import {SETTLEMENT_LAYOUTS,settlementAt,settlementTerrain,onStreet,protectedSettlementAt} from '../../data/settlements';
 import { fortificationBlocksPoint } from '../../data/fortifications';
 import {lakeAt,lakeShoreDistance} from '../../data/landscapeFeatures';
 import {dragonLairTerrain,onDragonTrail} from '../../data/dragonLair';
@@ -18,6 +18,11 @@ import {inTowerClearing,onTowerApproach} from '../../data/towerOfMight';
 
 const noise2D = createNoise2D(seededRandom(WORLD_SEED));
 const mainlandRegions=REGIONS.filter(region=>!['darkav','frostlands','portquill'].includes(region.id));
+// Same hexagonal boundaries as insideDefense, with a smooth visual shoulder.
+// These immutable records are sampled only through the bounded height cache.
+const foundations=SETTLEMENT_LAYOUTS.map(layout=>({
+  ...TOWN_BY_ID[layout.townId].world,hx:layout.profile.bounds.width/2+160,hy:layout.profile.bounds.height/2+160,
+}));
 
 const TERRAIN_INDEX: Record<TerrainKind, number> = {
   grass: 0,
@@ -40,6 +45,26 @@ function ellipseContains(chunkX: number, chunkY: number, cx: number, cy: number,
 }
 
 export class WorldGenerator {
+  /** Stable height in the existing XY world. Painted roads follow these slopes;
+   * settlements and shorelines retain their authored ground registration. */
+  getElevationAt(x:number,y:number):number {
+    if(onPortDeck(x,y)||onHighmereBridge(x,y)||onWildernessBridge(x,y))return 8;
+    if(inTowerClearing(x,y)||onTowerApproach(x,y)||onFlagshipBoarding(x,y))return 0;
+    let foundation=1;
+    for(const f of foundations){
+      const dx=Math.abs(x-f.x),dy=Math.abs(y-f.y);
+      if(dy>f.hy+384||dx>f.hx+2*f.hy+384)continue;
+      const outside=Math.max(dy-f.hy,(dx+2*dy-f.hx-2*f.hy)/Math.sqrt(5));
+      if(outside<=0)return 0;
+      const t=Math.min(1,outside/384);foundation=Math.min(foundation,t*t*(3-2*t));
+    }
+    const terrain=this.getTerrainAt(x,y);
+    if(terrain==='water'||terrain==='lava'||terrain==='ice'||terrain==='farmland')return 0;
+    const coast=Math.max(0,Math.min(1,(this.distanceToWater(x,y)-120)/700));
+    const biome=this.getBiomeAt(x,y),amplitude=biome==='highland'?165:biome==='snowfield'?115:biome==='volcanic'?95:biome==='forest'?58:biome==='coast'?14:36;
+    const hill=Math.max(0,noise2D(x*.0008,y*.0008)*.55+noise2D(x*.00032,y*.00032)*.30+noise2D(x*.0018,y*.0018)*.15+.35);
+    return hill*amplitude*coast*coast*(3-2*coast)*foundation;
+  }
   getFootstepSurface(x:number,y:number):'grass'|'stone'|'snow'|'wood'{
     if(onPortDeck(x,y))return 'wood';
     if(onHighmereBridge(x,y))return 'stone';

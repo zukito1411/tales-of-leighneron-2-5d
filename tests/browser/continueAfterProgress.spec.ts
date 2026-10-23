@@ -45,7 +45,7 @@ test('continue after a boss defeat, distant teleport, and inn sleep starts a pla
   if(!dayNight.sleepUntilMorning())throw new Error('Inn-time sleep failed in resume fixture');
   scene.syncState();
   if(!saveGame())throw new Error('Progressed save was rejected');
-  const saved=JSON.parse(localStorage.getItem('mernondna-save-v1')!);
+  const saved=JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!);
   return {region:saved.state.regionId,day:saved.state.day,gold:saved.state.gold,
    bosses:saved.state.defeatedBosses,clock:saved.state.minuteOfDay,travel};
  },TOWN_BY_ID.redmesa.id);

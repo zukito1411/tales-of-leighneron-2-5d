@@ -40,7 +40,7 @@ test('quays connect to dry banks and both riders stay on each rendered boat deck
    });
    results.push({direction,scale:ratio,feet});s.add.text(px-50,py+18,'view '+direction+' scale '+ratio,{color:'#ffffff'}).setDepth(py+1000);
   }
-  const canvas=window.__mernondnaGame!.canvas;for(const e of [...document.querySelectorAll('body *')])if(e instanceof HTMLElement&&e!==canvas&&!e.contains(canvas))e.style.visibility='hidden';
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;for(const e of [...document.querySelectorAll('body *')])if(e instanceof HTMLElement&&e!==canvas&&!e.contains(canvas))e.style.visibility='hidden';
   return results;
  });
  for(const boat of boats)for(const rider of boat.feet){expect(rider.alpha,`view ${boat.direction}, scale ${boat.scale}: foot on hull`).toBeGreaterThan(64);expect(rider.underRail).toBe(true);expect(rider.height).toBeGreaterThan(60);}

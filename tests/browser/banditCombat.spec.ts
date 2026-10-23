@@ -70,7 +70,7 @@ test('complete bandit combat poses keep boots, body scale and collision registra
    s.add.sprite(x,y,frame.textureKey,frame.textureFrame).setScale(.58).setOrigin(.5,142/144).setDepth(2000001).setName('bandit-combat-preview');
    s.add.text(x,y+8,state+' '+(col+1),{fontSize:'12px',color:'#ffffff'}).setOrigin(.5,0).setDepth(2000002);
   }));
-  const canvas=window.__mernondnaGame!.canvas;
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;
   for(const element of [...document.querySelectorAll('body *')])if(element instanceof HTMLElement&&element!==canvas&&!element.contains(canvas))element.style.visibility='hidden';
  });
  await page.waitForTimeout(100);await page.screenshot({path:'test-results/bandit-combat-rendered.png'});

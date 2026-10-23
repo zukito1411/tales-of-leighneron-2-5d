@@ -43,11 +43,16 @@ export class GroundCoverBaker {
     this.art.set(key,entry);return entry;
   }
   draw(ctx:CanvasRenderingContext2D,world:WorldGenerator,chunkX:number,chunkY:number){
+    const steps=this.drawSteps(ctx,world,chunkX,chunkY);while(!steps.next().done){/* Synchronous callers only. */}
+  }
+  *drawSteps(ctx:CanvasRenderingContext2D,world:WorldGenerator,chunkX:number,chunkY:number):Generator<void,void>{
     const ox=chunkX*CHUNK_SIZE,oy=chunkY*CHUNK_SIZE,step=128;
     const roofs=this.roofs.filter(r=>r.right>=ox-5&&r.left<=ox+CHUNK_SIZE+5&&r.bottom>=oy-5&&r.top<=oy+CHUNK_SIZE+5);
     let marks=0;ctx.save();ctx.imageSmoothingEnabled=true;
+    try{
     for(let row=Math.floor((oy-64)/step);row<=Math.ceil((oy+CHUNK_SIZE+64)/step);row++)
       for(let col=Math.floor((ox-64)/step);col<=Math.ceil((ox+CHUNK_SIZE+64)/step);col++){
+        yield;
         const rng=seededRandom(`ground-cover:${col}:${row}`),x=(col+.28+rng()*.44)*step,y=(row+.28+rng()*.44)*step;
         const terrain=world.getTerrainAt(x,y),region=world.getRegionAt(x,y);
         if(['water','lava','ice','farmland'].includes(terrain))continue;
@@ -91,7 +96,7 @@ export class GroundCoverBaker {
           ctx.drawImage(art.source,art.sx,art.sy,art.width,art.height,px-width/2-ox,py-height-oy,width,height);marks++;
         }
       }
-    ctx.restore();
+    }finally{ctx.restore();}
   }
   destroy(){this.art.clear();}
 }

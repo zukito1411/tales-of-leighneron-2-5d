@@ -5,6 +5,7 @@ import type {WorldScene} from '../scenes/WorldScene';
 import type {Vec2} from '../types';
 import {NPC_ARROW_TEXTURE} from '../../data/npcCombatArt';
 import {NpcCombatResidency} from './NpcCombatResidency';
+import {onDirectionalSprite} from '../presentation25d/plane';
 
 interface Helper {
   origin:Vec2;cooldown:number;think:number;target:Enemy|null;goal:Vec2|null;
@@ -164,6 +165,8 @@ export class StoryAllySystem {
       if(this.arrows.length>=8)return;
       const sprite=this.scene.add.image(0,0,NPC_ARROW_TEXTURE).setOrigin(.15,.5).setDisplaySize(36,9).setVisible(false).setActive(false);
       flight={sprite,source:null,x:0,y:0,vx:0,vy:0,age:0};this.arrows.push(flight);
+      const anchor=flight;
+      onDirectionalSprite(sprite,{get x(){return anchor.vx;},get y(){return anchor.vy;}},{get x(){return anchor.x;},get y(){return anchor.y;}});
     }
     const facing=npc.storyFacing;
     // Release from the bow hand, then aim once at the target's chest. Logical

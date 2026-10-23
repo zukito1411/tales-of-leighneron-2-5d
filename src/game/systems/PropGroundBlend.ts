@@ -1,3 +1,4 @@
+import {groundWorldView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {CHUNK_SIZE} from '../../data/world';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
@@ -33,7 +34,7 @@ export class PropGroundBlend{
     // Maintain a full-detail blend queue, but reduce continual background
     // canvas readbacks/uploads during traversal after the earlier spike fix.
     this.retryMs+=delta;if(this.retryMs<70||!this.pending.size)return;this.retryMs=0;
-    const view=this.scene.cameras.main.worldView;
+    const view=groundWorldView(this.scene);
     let unavailable=0;
     const pass=(visible:boolean)=>{
       // Prefer visible art without allocating/sorting the full pending queue.

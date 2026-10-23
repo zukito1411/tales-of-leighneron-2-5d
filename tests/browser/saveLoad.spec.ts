@@ -75,6 +75,6 @@ test('manual save, Continue and exported-backup import restore the same live-wor
   await page.getByRole('button',{name:'Continue',exact:true}).click({timeout:30000});
   await worldReady(page);await pause(page);
   expect(await restoredProgress(page)).toEqual(expected);
-  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('mernondna-save-v1:pre-import-backup')!).state.gold)).toBe(987);
+  expect(await page.evaluate(()=>JSON.parse(localStorage.getItem('mernondna-25d-save-v1:pre-import-backup')!).state.gold)).toBe(987);
   expect(errors).toEqual([]);
 });

@@ -5,6 +5,7 @@ import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {useGameStore} from '../../store/gameStore';
 import {heroFrameData} from './heroFrameData';
 import {losslessImagePath} from '../../utils/losslessImagePath';
+import {onPlane,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 let nextOwner=0;
 
 /** Cosmetic-only presentation. The original actor still owns animation timing,
@@ -45,6 +46,8 @@ export class AwakenedHeroVisual{
    .setScale(actor.scaleX*density*bodyScale/AWAKENED_HERO_DENSITY,actor.scaleY*density*bodyScale/AWAKENED_HERO_DENSITY).setPosition(actor.x,actor.y)
    .setRotation(actor.rotation).setFlip(actor.flipX,actor.flipY).setAlpha(actor.alpha).setDepth(actor.depth).setVisible(actor.visible);
   this.model.cameraFilter=actor.cameraFilter;
+  const hint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined;
+  onPlane(this.model,'upright',hint?.anchor);
   if(actor.tintFill)this.model.setTintFill(actor.tintTopLeft,actor.tintTopRight,actor.tintBottomLeft,actor.tintBottomRight);
   else this.model.setTint(actor.tintTopLeft,actor.tintTopRight,actor.tintBottomLeft,actor.tintBottomRight);
   this.hidden=actor;this.hiddenFilter=actor.cameraFilter;

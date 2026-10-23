@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react';
+import {memo,useEffect,useRef,useState} from 'react';
 import { useGameStore } from '../store/gameStore';
 import { mapPoint, questBearing } from '../game/systems/questNavigation';
 import {MiniMapTerrain,MINI_TERRAIN_EXTENT} from './miniMapTerrain';
@@ -12,6 +12,7 @@ export const MiniMap = memo(function MiniMap() {
   const ref = useRef<HTMLCanvasElement>(null);
   // Four exact-resolution cached mini terrain tiles improve backtracking.
   const terrainCache=useRef<MiniMapTerrain|null>(null);
+  const [terrainRevision,setTerrainRevision]=useState(0);
   useEffect(()=>()=>{terrainCache.current?.destroy();terrainCache.current=null;},[]);
   const x = useGameStore(s => s.worldX), y = useGameStore(s => s.worldY);
   const navigation = useGameStore(s => s.navigation);
@@ -25,11 +26,12 @@ export const MiniMap = memo(function MiniMap() {
     const ctx = ref.current?.getContext('2d');
     if (!ctx) return;
     const player = navigation.playerPosition??{ x, y },extent=MINI_TERRAIN_EXTENT;
-    terrainCache.current??=new MiniMapTerrain();
+    terrainCache.current??=new MiniMapTerrain(()=>setTerrainRevision(revision=>revision+1));
     if(navigation.interiorName)terrainCache.current.pause();
     const cache=navigation.interiorName?undefined:terrainCache.current.current(x,y);
     const scale = SIZE / (2 * RANGE);
     ctx.clearRect(0,0,SIZE,SIZE); ctx.save(); ctx.beginPath(); ctx.arc(SIZE / 2,SIZE / 2,SIZE / 2 - 2,0,Math.PI * 2); ctx.clip();
+    ctx.fillStyle='#17251f';ctx.fillRect(0,0,SIZE,SIZE);
     ctx.imageSmoothingEnabled = false;
     if(navigation.interiorName){
       ctx.fillStyle='#14120f';ctx.fillRect(0,0,SIZE,SIZE);ctx.fillStyle='#978460';
@@ -84,7 +86,7 @@ export const MiniMap = memo(function MiniMap() {
     ctx.beginPath(); ctx.moveTo(0,-7); ctx.lineTo(5,5); ctx.lineTo(0,2); ctx.lineTo(-5,5); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
     ctx.fillStyle = '#fff2c6'; ctx.font = 'bold 12px system-ui'; ctx.textAlign = 'center'; ctx.shadowColor = '#121a12'; ctx.shadowBlur = 3;
     ctx.fillText('N',SIZE / 2,17); ctx.restore();
-  }, [x,y,navigation]);
+  }, [x,y,navigation,terrainRevision]);
   return (
     <button type="button" className="minimap-card" onClick={() => open('regional-map')} aria-label="Open expanded regional minimap">
       <span className="minimap-heading">{navigation.interiorName?'ROOM MAP':'LOCAL MAP'} <span> N ↑</span></span>

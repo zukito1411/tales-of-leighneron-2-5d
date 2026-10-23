@@ -21,7 +21,7 @@ async function travelFixture(page: Page, x: number, y: number) {
   if(firstArrival){await page.getByRole('button',{name:'Skip scene · Esc'}).click();await expect(page.getByRole('region',{name:'Story scene'})).toBeHidden();}
 }
 async function storeState(page: Page) {
-  return page.evaluate(() => JSON.parse(localStorage.getItem('mernondna-save-v1')!).state);
+  return page.evaluate(() => JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!).state);
 }
 
 test('streamed actors, damaged creatures, NPC state and used loot survive travel and reload', async ({ page }) => {

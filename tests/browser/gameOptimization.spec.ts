@@ -42,7 +42,7 @@ test('spatial queries retain collision results and bosses retain defeat artwork'
   s.children.list.forEach(o=>{if(o!==corpse)(o as Phaser.GameObjects.Sprite).setVisible?.(false);});
   s.add.rectangle(corpse.x,corpse.y,1800,1400,0x182029).setDepth(2000000);
   corpse.setVisible(true).setDepth(2000001);corpse.anims.setProgress(.4);
-  const canvas=window.__mernondnaGame!.canvas;for(const el of [...document.querySelectorAll('body *')])if(el instanceof HTMLElement&&el!==canvas&&!el.contains(canvas))el.style.visibility='hidden';
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;for(const el of [...document.querySelectorAll('body *')])if(el instanceof HTMLElement&&el!==canvas&&!el.contains(canvas))el.style.visibility='hidden';
   return {visible:Boolean(corpse?.active),texture:corpse?.texture.key,state:runtime.contentManager.getState('boss:captain-varr')};
  });
  expect(defeat.visible).toBe(true);expect(defeat.texture).toBe('enemy_bandit');expect(defeat.state.defeated).toBe(true);expect(defeat.state.respawnAt).toBeGreaterThan(Date.now());

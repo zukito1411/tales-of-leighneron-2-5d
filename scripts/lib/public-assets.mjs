@@ -5,7 +5,6 @@ import {createHash} from 'node:crypto';
 // Confirmed authoring/retired files only. Never exclude reference/, JSON or
 // audio licenses as a class: several are required at runtime or for attribution.
 export const AUTHORING_ONLY_ASSETS=new Set([
- 'assets/audio/README.txt',
  'assets/effects/boss-skills-v1.png',
  ...['krag_chieftain','frost_wyrm','rootfather','ashen_seer'].map(folder=>`assets/enemies/${folder}/walk.png`),
  ...['down-v1','side-v1','up-v1','dissolve-v1','bat-v1'].map(file=>`assets/enemies/grand_magus/${file}.png`),

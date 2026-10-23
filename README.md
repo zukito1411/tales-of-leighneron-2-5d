@@ -11,17 +11,26 @@ not apply the speculative campaign rewrite discussed separately.
 
 ## Rendering
 
-- A fixed, angled orthographic Three.js camera views an actual X/Z ground plane.
-- Existing animated sprites, buildings and vegetation use camera-facing planes.
-- Terrain, water, shadows, floor artwork and combat warnings use ground planes.
+- A perspective Three.js camera orbits through 360 degrees, with adjustable
+  pitch, smooth follow, mouse look and zoom.
+- Animated sprites and vegetation use camera-facing planes. Houses use fixed
+  textured wall/roof volumes with their original facades; field crops stand upright.
+- Look upward to see illustrated clouds, sun and moon. Sky colors and shadows
+  follow the existing day/night clock; terrain residency stays bounded.
+- Terrain uses a bounded height field; decals and sprite feet share its heights.
 - Atlas frames are instanced; changing animation frames changes UVs rather than
   uploading a new image per pose.
 - Phaser 3.90 remains the sole gameplay/physics/streaming owner and the asset and
   vector preparation backend. Its world drawing call is replaced, so the world
   is not rendered twice or copied from a screenshot onto a tilted rectangle.
 - React retains the original menus, dialogue, HUD and mobile controls.
-- Three.js requires WebGL 2. Existing 2D artwork is not converted into 3D models;
-  the camera has fixed yaw to keep four-direction sprites consistent.
+- Shadows, cloud drift, precipitation, night-light masks and foam animation run
+  on the GPU, sharing existing source art and gameplay state.
+- Three.js requires WebGL 2. Characters and non-house scenery retain cylindrical
+  billboards; directional actors select their existing poses relative to yaw.
+- WASD moves relative to the camera; left click attacks, right click dashes,
+  Space jumps, Shift sprints and the wheel zooms. The pause menu has camera
+  sensitivity and graphics settings. Touch supports drag orbit and pinch zoom.
 
 See [the migration notes](docs/PRESENTATION_25D.md) for integration details and
 remaining verification work. This edition is experimental. Compilation alone
@@ -58,12 +67,13 @@ itch.io page or assume that GitHub Pages has been enabled.
 `capacitor.config.ts`, Gradle, Java packages and Android resources use a separate
 application ID: **`com.mernondna.rpg25d`**. It can coexist with the original app.
 
-The manual **Build 2.5D Android preview** workflow builds an experimental debug
-APK without requiring the original application's signing secrets. This preview
-is not a release-signed update channel: GitHub-hosted debug signing keys can
-change between runs. Establish a dedicated stable signing key before using it
-for persistent in-place Android updates. Export save backups before replacing a
-preview installation.
+The **Build and release 2.5D Android APK** workflow runs on pushes to `main`
+and manual dispatch. It publishes an experimental, non-debuggable release APK.
+Configure all four `ANDROID_25D_*` signing secrets for persistent in-place
+updates. Without them, each run generates an ephemeral signing key; those APKs
+cannot update installations signed by another key. Export save backups before
+replacing an installation. CI compilation and packaging do not verify gameplay
+or real-device rendering.
 
 ## Saves and offline storage
 

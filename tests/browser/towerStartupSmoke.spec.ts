@@ -54,7 +54,7 @@ test('focused New Game, Continue, backup recovery and live Magus spell smoke',as
   expect(await progress(page)).toEqual(expected);
   await page.screenshot({path:shots+'/continued-save.png'});
   // Corrupt only this test's primary; retain a verified last-good checkpoint.
-  await page.evaluate(()=>localStorage.setItem('mernondna-save-v1','{truncated-test-primary'));
+  await page.evaluate(()=>localStorage.setItem('mernondna-25d-save-v1','{truncated-test-primary'));
   await page.reload();await page.getByRole('button',{name:'Continue',exact:true}).click();await ready(page);
   expect(await progress(page)).toEqual(expected);
   await page.screenshot({path:shots+'/recovered-save.png'});

@@ -67,10 +67,25 @@ export class RasterCache {
     return cached;
   }
   prune(frame:number){
-    for(const [object,entry] of this.frames)if(!object.scene||frame-entry.lastUsed>2){
-      entry.texture.dispose();const canvas=entry.texture.image as HTMLCanvasElement;canvas.width=canvas.height=1;
-      this.frames.delete(object);
+    let idle=0,bytes=0;
+    for(const [object,entry] of this.frames){
+      if(!object.scene||frame-entry.lastUsed>90)this.release(object,entry);
+      else if(entry.lastUsed<frame){
+        idle++;const canvas=entry.texture.image as HTMLCanvasElement;bytes+=canvas.width*canvas.height*4;
+      }
     }
+    // Retain brief occlusion without an unbounded collection of vector canvases.
+    if(idle<=32&&bytes<=8*1024*1024)return;
+    const retired=[...this.frames].filter(([,entry])=>entry.lastUsed<frame).sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
+    for(const [object,entry] of retired){
+      if(idle<=32&&bytes<=8*1024*1024)break;
+      const canvas=entry.texture.image as HTMLCanvasElement;bytes-=canvas.width*canvas.height*4;idle--;
+      this.release(object,entry);
+    }
+  }
+  private release(object:RasterObject,entry:RasterFrame){
+    entry.texture.dispose();const canvas=entry.texture.image as HTMLCanvasElement;canvas.width=canvas.height=1;
+    this.frames.delete(object);
   }
   destroy(){for(const entry of this.frames.values()){entry.texture.dispose();const canvas=entry.texture.image as HTMLCanvasElement;canvas.width=canvas.height=1;}this.frames.clear();this.camera.destroy();}
 }

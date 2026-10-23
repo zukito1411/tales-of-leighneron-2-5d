@@ -1,3 +1,4 @@
+import {groundWorldView,onPlane} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import type {Vec2} from '../types';
 import type {WildlifeHost} from './AmbientWildlifeSystem';
@@ -6,6 +7,7 @@ import {woodlandBirdHabitat,tidewatchGullHabitat,WildlifeCoverIndex,type Wildlif
 import {BIRD_TEXTURE,BIRD_CELL,BIRD_FOOT,BIRD_HEIGHT} from './WoodlandBirdArt';
 import {GULL_TEXTURE,GULL_HEIGHT} from './CoastalGullArt';
 import {WILDLIFE_TUNING as TUNING} from './wildlifeTuning';
+import {wildlifeFacing,wildlifeInView} from './wildlifePresentation';
 
 type BirdSpecies='robin'|'gull';
 const ART={robin:{texture:BIRD_TEXTURE,height:BIRD_HEIGHT,registry:'woodlandBirdVisibleHeight'},
@@ -29,7 +31,7 @@ interface Bird {
   row:number;
   flip:boolean;
   groupId?:number;
-  social?:{until:number;row:number;flip:boolean};
+  social?:{until:number;direction:Vec2};
   nextSocialAt?:number;
   departureDelay?:number;
   departureDirection?:Vec2;
@@ -53,9 +55,11 @@ export class WoodlandBirdSystem {
       const sprite=scene.add.sprite(0,0,art.texture,0).setOrigin(.5,BIRD_FOOT/BIRD_CELL)
         .setScale(art.height/height).setActive(false).setVisible(false).setName(`wildlife:bird:${i}`);
       shadows.register(sprite,false,{projection:0,contactScale:.4,contactHeight:.4});
-      this.birds.push({sprite,species,ground:{x:0,y:0},direction:{x:1,y:0},altitude:0,perch:false,
+      const bird:Bird={sprite,species,ground:{x:0,y:0},direction:{x:1,y:0},altitude:0,perch:false,
         phase:'rest',restPoint:{x:0,y:0},arrivalFrom:{x:0,y:0},arrivalDuration:0,
-        age:0,restDuration:0,row:0,flip:false});
+        age:0,restDuration:0,row:0,flip:false};
+      onPlane(sprite,'upright',{get x(){return bird.ground.x;},get y(){return bird.ground.y;}});
+      this.birds.push(bird);
     }
   }
   occupies(id:number){return this.birds.some(b=>b.cover?.id===id);}
@@ -79,11 +83,12 @@ export class WoodlandBirdSystem {
       if(bird.phase==='arrival'&&!this.arrive(bird,player,scan))continue;
       if(bird.phase==='rest'){
         const distance=Math.hypot(bird.ground.x-player.x,bird.ground.y-player.y);
-        if(distance>1450&&!this.inView(bird.sprite,100)){this.release(bird);continue;}
+        if(distance>1450&&!this.birdInView(bird,100)){this.release(bird);continue;}
         if(scan&&bird.departureDelay===undefined
           &&(distance<(bird.species==='gull'?190:150)||bird.age>bird.restDuration||hour<6.5||hour>18.5))this.startleFlock(bird,player);
         else{
           this.updateSocial(bird,player,now);
+          this.refreshFacing(bird);
           const peck=!bird.perch&&bird.age%2500>1750&&bird.age%2500<2150;
           bird.sprite.setFrame(bird.row*6+(peck?1:0)).setFlipX(bird.flip);continue;
         }
@@ -95,16 +100,17 @@ export class WoodlandBirdSystem {
       bird.altitude+=Math.min(targetHeight-bird.altitude,110*seconds);
       const launch=gull?440:280,gliding=gull&&bird.age>1400&&bird.age%4200>3000;
       const frame=bird.age<launch?2:gliding?4:[3,4,5,4][Math.floor((bird.age-launch)/(gull?140:85))%4];
+      this.refreshFacing(bird);
       bird.sprite.setPosition(bird.ground.x,bird.ground.y-bird.altitude)
         .setDepth(Math.max(bird.cover.depth+.02,bird.ground.y+bird.altitude))
         .setFrame(bird.row*6+frame).setFlipX(bird.flip);
       // Do not fade out over open sky just because a flight timeout elapsed.
-      if(bird.age>600&&!this.inView(bird.sprite,160))this.release(bird);
+      if(bird.age>600&&!this.birdInView(bird,160))this.release(bird);
     }
     return spawned;
   }
-  private inView(point:Vec2,margin:number){const view=this.scene.cameras.main.worldView;
-    return point.x>=view.x-margin&&point.x<=view.right+margin&&point.y>=view.y-margin&&point.y<=view.bottom+margin;}
+  private birdInView(bird:Bird,margin:number){return wildlifeInView(this.scene,bird.ground,bird.altitude,margin);}
+  private refreshFacing(bird:Bird){wildlifeFacing(this.scene,bird.direction,bird);}
   private checkEntry(player:Vec2,hour:number,now:number,allowSpawn:boolean){
     if(!this.birds.length||!allowSpawn||now<this.nextEventAt||hour<6.5||hour>18.5
       ||!this.birds.some(b=>!b.cover))return false;
@@ -112,7 +118,7 @@ export class WoodlandBirdSystem {
     if(flyby&&(this.preferFlyby||this.birds.some(b=>b.cover&&b.phase==='rest'))){
       this.startSeaFlyby(flyby,player,now);return true;
     }
-    const view=this.scene.cameras.main.worldView;
+    const view=groundWorldView(this.scene);
     // Keep offscreen resting opportunities on larger PC viewports too,
     // without demanding cover beyond the loaded neighborhood.
     const radius=Math.min(1100,Math.max(600,Math.min(view.width,view.height)/2+200));
@@ -122,7 +128,8 @@ export class WoodlandBirdSystem {
     // runs only on a refill opportunity, not on every movement/frame update.
     const score=(cover:WildlifeCover)=>{
       const point=cover.shoreFeed??cover.perch??{x:cover.x,y:cover.y+18};
-      return (this.inView(point,0)?0:3000)+Math.hypot(point.x-player.x,point.y-player.y);
+      const ground=point===cover.perch?{x:point.x,y:cover.y}:point,altitude=ground.y-point.y;
+      return (wildlifeInView(this.scene,ground,altitude,0)?0:3000)+Math.hypot(point.x-player.x,point.y-player.y);
     };
     nearby.sort((a,b)=>score(a)-score(b));
     let spawned=false;
@@ -208,10 +215,11 @@ export class WoodlandBirdSystem {
     bird.cover=cover;bird.perch=perch;bird.age=0;bird.restPoint={...point};
     bird.ground={x:point.x,y:perch?cover.y:point.y};bird.altitude=bird.ground.y-point.y;
     bird.restDuration=TUNING.birdRestMin+this.random()*TUNING.birdRestRange;bird.row=0;bird.flip=flip;
+    bird.direction={x:flip?-1:1,y:0};this.refreshFacing(bird);
     bird.sprite.setPosition(point.x,point.y).setDepth(perch?cover.depth+.02:point.y)
-      .setFrame(0).setFlipX(flip).setAlpha(1).setActive(true).setVisible(true);
+      .setFrame(bird.row*6).setFlipX(bird.flip).setAlpha(1).setActive(true).setVisible(true);
     this.shadows.setEnabled(bird.sprite,!perch);
-    if(this.inView(point,80))this.beginArrival(bird);
+    if(this.birdInView(bird,80))this.beginArrival(bird);
     else bird.phase='rest';
   }
   private groundSite(point:Vec2){
@@ -233,6 +241,7 @@ export class WoodlandBirdSystem {
       const point={x:from.x,y:from.y+count*72};
       this.placeBird(bird,owner,'gull',point,false,direction.x<0,direction);
       this.takeOff(bird,player,direction);
+      bird.ground.x=point.x;bird.ground.y=point.y;
       bird.altitude=120;bird.age=440;
       bird.sprite.setPosition(point.x,point.y-120).setDepth(point.y+120)
         .setFrame(bird.row*6+4).setData('wildlifeGroup',id);
@@ -243,7 +252,7 @@ export class WoodlandBirdSystem {
     this.nextEventAt=now+1000+this.random()*1000;
   }
   private beginArrival(bird:Bird){
-    const view=this.scene.cameras.main.worldView,p=bird.restPoint;
+    const view=groundWorldView(this.scene),p=bird.restPoint;
     const entries=[{x:view.x-180,y:p.y},{x:view.right+180,y:p.y},
       {x:p.x,y:view.y-180},{x:p.x,y:view.bottom+180}];
     entries.sort((a,b)=>Math.hypot(a.x-p.x,a.y-p.y)-Math.hypot(b.x-p.x,b.y-p.y));
@@ -252,7 +261,7 @@ export class WoodlandBirdSystem {
     bird.altitude=Math.max(90,bird.cover!.height*.65,bird.altitude);
     bird.ground={x:entries[0].x,y:entries[0].y+bird.altitude};
     const dx=p.x-entries[0].x,dy=p.y-entries[0].y;
-    bird.row=Math.abs(dx)>Math.abs(dy)*.8?0:dy>0?1:2;bird.flip=bird.row===0&&dx<0;
+    bird.direction={x:dx,y:dy};this.refreshFacing(bird);
     this.shadows.setEnabled(bird.sprite,false);
   }
   private arrive(bird:Bird,player:Vec2,scan:boolean):boolean{
@@ -262,7 +271,10 @@ export class WoodlandBirdSystem {
     bird.altitude=Phaser.Math.Linear(height,restAltitude,t);
     const x=Phaser.Math.Linear(bird.arrivalFrom.x,p.x,t);
     const y=Phaser.Math.Linear(bird.arrivalFrom.y,p.y,t)-Math.sin(t*Math.PI)*20;
+    const dx=x-bird.ground.x,dy=y+bird.altitude-bird.ground.y;
+    if(Math.hypot(dx,dy)>.01){bird.direction.x=dx;bird.direction.y=dy;}
     bird.ground={x,y:y+bird.altitude};
+    this.refreshFacing(bird);
     bird.sprite.setPosition(x,y).setDepth(Math.max(cover.depth+.02,bird.ground.y))
       .setFlipX(bird.flip).setFrame(bird.row*6+(t>.9?2:[3,4,5,4][Math.floor(bird.age/(bird.species==='gull'?140:85))%4]));
     if(scan&&bird.departureDelay===undefined
@@ -292,6 +304,8 @@ export class WoodlandBirdSystem {
     if(bird.social){
       if(!partner||bird.departureDelay!==undefined||now>=bird.social.until){
         this.finishSocial(bird);bird.nextSocialAt=now+TUNING.birdSocialGap;
+      }else if(partner){
+        bird.direction.x=partner.ground.x-bird.ground.x;bird.direction.y=partner.ground.y-bird.ground.y;
       }
       return;
     }
@@ -310,30 +324,31 @@ export class WoodlandBirdSystem {
     }):this.host.clearRoute(bird.restPoint,partner.restPoint);
     if(!open)return;
     for(const [member,other] of [[bird,partner],[partner,bird]]){
-      member.social={until:now+TUNING.socialDuration,row:member.row,flip:member.flip};
+      member.social={until:now+TUNING.socialDuration,direction:{...member.direction}};
       const dx=other.sprite.x-member.sprite.x,dy=other.sprite.y-member.sprite.y;
-      member.row=Math.abs(dx)>Math.abs(dy)*.8?0:dy>0?1:2;
-      member.flip=member.row===0&&dx<0;
+      member.direction={x:dx,y:dy};this.refreshFacing(member);
       member.sprite.setFrame(member.row*6).setFlipX(member.flip).setData('wildlifeSocializing',true);
     }
   }
   private finishSocial(bird:Bird){
-    if(bird.social){bird.row=bird.social.row;bird.flip=bird.social.flip;bird.social=undefined;}
+    if(bird.social){bird.direction=bird.social.direction;bird.social=undefined;this.refreshFacing(bird);}
     bird.sprite.setData('wildlifeSocializing',false);
   }
   private takeOff(bird:Bird,player:Vec2,sharedDirection?:Vec2){
     this.finishSocial(bird);
     bird.departureDelay=undefined;bird.departureDirection=undefined;
     const dx=bird.ground.x-player.x,dy=bird.ground.y-player.y,length=Math.hypot(dx,dy);
-    bird.direction=length>1?{x:dx/length,y:dy/length}:{x:(bird.flip?-1:1)/Math.hypot(1,.25),y:-.25/Math.hypot(1,.25)};
+    bird.direction=length>1?{x:dx/length,y:dy/length}:{x:bird.direction.x,y:bird.direction.y};
+    if(length<=1){const facingLength=Math.hypot(bird.direction.x,bird.direction.y);
+      bird.direction.x=facingLength>.01?bird.direction.x/facingLength:1;
+      bird.direction.y=facingLength>.01?bird.direction.y/facingLength:0;}
     // Prefer the open coast, but retain a positive away-from-player heading.
     if(bird.species==='gull'&&bird.seaward){
       const x=bird.direction.x*.75+bird.seaward.x*.25,y=bird.direction.y*.75+bird.seaward.y*.25,length=Math.hypot(x,y);
       bird.direction={x:x/length,y:y/length};
     }
     if(sharedDirection)bird.direction={...sharedDirection};
-    bird.row=Math.abs(bird.direction.x)>Math.abs(bird.direction.y)*.8?0:bird.direction.y>0?1:2;
-    bird.flip=bird.row===0&&bird.direction.x<0;bird.phase='flight';bird.age=0;
+    this.refreshFacing(bird);bird.phase='flight';bird.age=0;
     this.shadows.setEnabled(bird.sprite,false);
   }
   private release(bird:Bird){this.finishSocial(bird);bird.nextSocialAt=undefined;

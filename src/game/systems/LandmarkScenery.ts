@@ -41,11 +41,15 @@ const authoredBounds=new StaticBoundsIndex(WORLD_CONTENT.map(s=>({bounds:bossAre
  * Deterministic fitting, dry banks and access reservations precede decoration.
  * Visual dressing unloads with chunks; discovery flags remain in the ledger. */
 export function planLandmarkScenery(chunkX:number,chunkY:number,world:WorldGenerator,includeNeighbors=false):SceneryDetail[]{
+  const steps=planLandmarkScenerySteps(chunkX,chunkY,world,includeNeighbors);
+  let result=steps.next();while(!result.done)result=steps.next();return result.value;
+}
+export function* planLandmarkScenerySteps(chunkX:number,chunkY:number,world:WorldGenerator,includeNeighbors=false):Generator<void,SceneryDetail[]>{
   const result:SceneryDetail[]=[];
   const reservationCache=new Map<string,Rect[]>();
   const home=(p:Vec2)=>Math.floor(p.x/CHUNK_SIZE)===chunkX&&Math.floor(p.y/CHUNK_SIZE)===chunkY;
   const nearby=(p:Vec2)=>Math.abs(p.x-(chunkX+.5)*CHUNK_SIZE)<CHUNK_SIZE/2+1000&&Math.abs(p.y-(chunkY+.5)*CHUNK_SIZE)<CHUNK_SIZE/2+1000;
-  const add=(id:string,anchor:Vec2,item:Piece,lava=false)=>{
+  const add=function*(id:string,anchor:Vec2,item:Piece,lava=false):Generator<void,void>{
     const region=world.getRegionAt(anchor.x,anchor.y);
     const preferred={x:anchor.x+item.dx,y:anchor.y+item.dy};
     const slots=[preferred,...[64,128,192].flatMap(radius=>Array.from({length:8},(_,i)=>({x:preferred.x+Math.cos(i*Math.PI/4)*radius,y:preferred.y+Math.sin(i*Math.PI/4)*radius})))];
@@ -56,14 +60,16 @@ export function planLandmarkScenery(chunkX:number,chunkY:number,world:WorldGener
     if(!bounds){bounds=authoredBounds.query({left:anchor.x-1600,right:anchor.x+1600,top:anchor.y-1600,bottom:anchor.y+1600}).map(s=>s.bounds);
       reservationCache.set(reservationKey,bounds);}
     const occupied=[...bounds,...result.map(s=>spriteBounds(s.texture,s.frame,s.scale,s.x,s.y))];
-    const position=slots.find(p=>{
+    const fits=(p:Vec2)=>{
       const r=spriteBounds(item.texture,item.frame,item.scale,p.x,p.y);
       if(world.getRegionAt(p.x,p.y)!==region||!propFitsHabitat(item.texture,item.frame,world,p.x,p.y,item.scale))return false;
       if(ROAD_ROUTES.some(road=>rectTouchesStreet(r,road,30)))return false;
       if(occupied.some(b=>overlaps(r,b,24)))return false;
       return [r.left,(r.left+r.right)/2,r.right].every(x=>[r.top,(r.top+r.bottom)/2,r.bottom].every(y=>
         !settlementAt(x,y)&&(lava?world.getTerrainAt(x,y)==='lava':world.isWalkable(x,y)&&!world.isRoad(x,y,30))));
-    });
+    };
+    let position:Vec2|undefined;
+    for(const slot of slots){yield;if(fits(slot)){position=slot;break;}}
     if(!position)return;
     const size=artFrameSize(item.texture,item.frame);
     result.push({...position,id:'scenic:'+id,texture:item.texture,frame:item.frame,scale:item.scale,solid:item.solid??false,
@@ -71,17 +77,18 @@ export function planLandmarkScenery(chunkX:number,chunkY:number,world:WorldGener
   };
   // Each piece belongs to its actual chunk, including groups across seams.
   for(const site of WILDERNESS_SITES){if(!nearby(site.world))continue;
-    dressing(world.getRegionAt(site.world.x,site.world.y),site.style,world.getTerrainAt(site.world.x,site.world.y)==='snow').forEach((item,i)=>add(site.id+':'+i,site.world,item));}
+    const pieces=dressing(world.getRegionAt(site.world.x,site.world.y),site.style,world.getTerrainAt(site.world.x,site.world.y)==='snow');
+    for(const [i,item] of pieces.entries())yield* add(site.id+':'+i,site.world,item);}
   for(const lake of SCENIC_LAKES){if(!nearby(lake))continue;
     const anchor={x:lake.x-lake.rx-130,y:lake.y+100};
     const pieces=lake.region==='rindass'?[piece('desert_props',0,.65,-150,-100),piece('desert_props',4,.72,-210,190),piece('desert_props',3,.35,0,40,false)]:
       lake.frozen?[piece('climate_props',2,.85,0,-120),piece('climate_props',3,.85,-130,170)]:
       [piece(lake.region==='portquill'?'native_region_props':'woodland_props',lake.region==='portquill'?3:0,.45,0,40,false),
         piece('woodland_props',6,.78,-210,190),piece('woodland_props',8,.6,-150,-80)];
-    pieces.forEach((item,i)=>add(lake.id+':'+i,anchor,item));}
+    for(const [i,item] of pieces.entries())yield* add(lake.id+':'+i,anchor,item);}
   // The lava-pool artwork sits only on real non-walkable lava, never across
   // safe roads. No extra invisible pool collider is needed.
   for(let i=1;i<LAVA_FLOW.length;i++){const a=LAVA_FLOW[i-1],b=LAVA_FLOW[i],p={x:(a.x+b.x)/2,y:(a.y+b.y)/2};
-    if(nearby(p))add('lava-fissure:'+i,{x:p.x,y:p.y+55},piece('climate_props',11,.7,0,0,false),true);}
+    if(nearby(p))yield* add('lava-fissure:'+i,{x:p.x,y:p.y+55},piece('climate_props',11,.7,0,0,false),true);}
   return includeNeighbors?result:result.filter(home);
 }

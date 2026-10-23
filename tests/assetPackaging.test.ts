@@ -18,6 +18,7 @@ it('retains runtime reference art, licenses, outfits and their registration mani
  for(const path of ['assets/reference/game-load.png','assets/reference/Title.png',
   'assets/reference/Tales of Leighneron_ Sunset Valley.png','assets/reference/mernondna-world-map.jpg',
   'assets/audio/KENNEY-IMPACT-SOUNDS-LICENSE.txt','assets/audio/KENNEY-RPG-AUDIO-LICENSE.txt',
+  'assets/audio/README.txt',
   'assets/characters/leigneron/awakened/varr/manifest-v1.json',
   'assets/characters/leigneron/awakened/varr/heart-v1.png','assets/characters/leigneron/awakened/varr/weapon-v1.png'])
   expect(files.has(path),path).toBe(true);

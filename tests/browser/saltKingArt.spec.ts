@@ -44,7 +44,7 @@ test('Salt King complete pirate poses render with stable feet, scale and isolate
      .setScale(.5*1.45).setOrigin(.5,1-2/sheet.frameHeight).setDepth(2000001);
    });
   });
-  const canvas=window.__mernondnaGame!.canvas;for(const el of [...document.querySelectorAll('body *')])if(el instanceof HTMLElement&&el!==canvas&&!el.contains(canvas))el.style.visibility='hidden';
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;for(const el of [...document.querySelectorAll('body *')])if(el instanceof HTMLElement&&el!==canvas&&!el.contains(canvas))el.style.visibility='hidden';
   return{invalid,sizes,registration};
  });
  await test.info().attach('salt-king-registration.json',{body:JSON.stringify(audit,null,2),contentType:'application/json'});

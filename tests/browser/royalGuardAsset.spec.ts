@@ -31,7 +31,7 @@ test('Trandum guard art renders complete, consistently sized poses without frame
   const marchHeight=Math.max(...poses.map(({b})=>b.height*2))*marchScale;
   actor.nameLabel.setVisible(false);(actor as unknown as {titleLabel:Phaser.GameObjects.Text}).titleLabel.setVisible(false);
   for(let i=0;i<6;i++)s.add.sprite(x-160+i*100,y+460,'npc_guard_idle',i).setScale(.5).setOrigin(.5,1-2/112).setDepth(y+1000);
-  const canvas=window.__mernondnaGame!.canvas;for(const e of [...document.querySelectorAll('body *')])if(e instanceof HTMLElement&&e!==canvas&&!e.contains(canvas))e.style.visibility='hidden';
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;for(const e of [...document.querySelectorAll('body *')])if(e instanceof HTMLElement&&e!==canvas&&!e.contains(canvas))e.style.visibility='hidden';
   return{poses,animations,idleTexture,idleAnimation,idleHeight,marchHeight};
  });
  for(const p of result.poses){expect(p.border,`frame ${p.frame} containment`).toBe(0);expect(p.feet,`frame ${p.frame} foot pixels`).toBeGreaterThan(20);expect(p.gpu).toBe(true);expect(p.b.width).toBeGreaterThan(0);expect(p.b.height).toBeGreaterThan(0);}

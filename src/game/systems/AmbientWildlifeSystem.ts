@@ -1,3 +1,4 @@
+import {onPlane} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import type {ArtTextureKey} from '../../data/art';
 import {isTreeArt,treeLayerKey} from '../../data/treeArt';
@@ -8,6 +9,7 @@ import {SQUIRREL_TEXTURE,SQUIRREL_CELL,SQUIRREL_FOOT,SQUIRREL_HEIGHT} from './Sq
 import {coverPorts,rabbitHabitat,squirrelHabitat,squirrelGroundRoute,woodlandBirdHabitat,tidewatchGullHabitat,WildlifeCoverIndex,type WildlifeCover} from './wildlifeCover';
 import {WoodlandBirdSystem} from './WoodlandBirdSystem';
 import {WILDLIFE_TUNING as TUNING} from './wildlifeTuning';
+import {wildlifeFacing,wildlifeInView} from './wildlifePresentation';
 
 type Scenery=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite;
 export interface WildlifeHost {
@@ -40,6 +42,7 @@ interface GroundAnimal {
   blockedMs:number;
   direction:number;
   flip:boolean;
+  heading:Vec2;
 }
 
 /** Ambient visuals, not enemies: no bodies, timers, health or saved records.
@@ -63,6 +66,7 @@ export class AmbientWildlifeSystem {
   private groupSequence=0;
   private lastPlayer?:Vec2;
   private destroyed=false;
+  private readonly facing={row:0,flip:false};
   private readonly onVisibility=()=>{if(document.hidden)this.reset();};
   constructor(private readonly scene:Phaser.Scene,private readonly host:WildlifeHost,
     private readonly shadows:GroundShadowSystem,private readonly random:()=>number=Math.random){
@@ -76,7 +80,8 @@ export class AmbientWildlifeSystem {
         .setVisible(false).setActive(false).setName(`wildlife:animal:${i}`);
       shadows.register(sprite,false,{projection:0,contactScale:.6,contactHeight:.45});
       const animal:GroundAnimal={species,phase:'ground',sprite,path:[],from:{x:0,y:0},to:{x:0,y:0},
-        age:0,distance:0,duration:0,returning:false,blockedMs:0,direction:0,flip:false};
+        age:0,distance:0,duration:0,returning:false,blockedMs:0,direction:0,flip:false,heading:{x:1,y:0}};
+      onPlane(sprite,'upright',{get x(){return sprite.x;},get y(){return animal.phase==='climb'&&animal.destination?animal.destination.y:sprite.y;}});
       this.applyArt(animal,species);this.animals.push(animal);
     }
   }
@@ -146,6 +151,7 @@ export class AmbientWildlifeSystem {
     this.birds.update(step,player,hour,scan,this.elapsed,true);
     for(const animal of this.animals){
       if(!animal.source)continue;
+      this.refreshFacing(animal);
       if(animal.phase==='pending'){
         animal.age+=step;
         if(scan&&animal.age>=0){
@@ -181,7 +187,7 @@ export class AmbientWildlifeSystem {
             this.configureRoute(animal);
           }else{
             animal.blockedMs+=125;
-            animal.sprite.setFrame(animal.direction*6);
+            animal.sprite.setFrame(animal.direction*6).setFlipX(animal.flip);
             if(animal.blockedMs>1500&&!this.inView(animal.sprite))this.release(animal);
             continue;
           }
@@ -213,8 +219,7 @@ export class AmbientWildlifeSystem {
   }
 
   private inView(point:Vec2){
-    const view=this.scene.cameras.main.worldView;
-    return point.x>view.x-80&&point.x<view.right+80&&point.y>view.y-80&&point.y<view.bottom+80;
+    return wildlifeInView(this.scene,point,0,80);
   }
   private checkEntry(player:Vec2,hour:number){
     const nearby=this.covers.nearby(player,260),inside=new Set<number>();
@@ -364,7 +369,12 @@ export class AmbientWildlifeSystem {
   }
   private face(animal:GroundAnimal,from:Vec2,to:Vec2){
     const dx=to.x-from.x,dy=to.y-from.y;
-    animal.direction=Math.abs(dx)>Math.abs(dy)*.8?0:dy>0?1:2;animal.flip=animal.direction===0&&dx<0;
+    if(Math.hypot(dx,dy)>.01){animal.heading.x=dx;animal.heading.y=dy;}
+    this.refreshFacing(animal);
+  }
+  private refreshFacing(animal:GroundAnimal){
+    wildlifeFacing(this.scene,animal.heading,this.facing);
+    animal.direction=this.facing.row;animal.flip=this.facing.flip;
   }
   private squirrelCover(cover:WildlifeCover){const habitat=this.host.habitat(cover);
     return squirrelHabitat(habitat.region,habitat.biome,habitat.terrain);}

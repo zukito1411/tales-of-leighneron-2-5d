@@ -1,6 +1,9 @@
 import type Phaser from 'phaser';
-import {onPlane} from '../presentation25d/plane';
+import {onGround} from '../presentation25d/plane';
 import {ATTACK_WARNING_FRAMES,ATTACK_WARNING_TEXTURE,windupProgress,type AttackArea} from './attackWarning';
+
+export const TELEGRAPH_PRESENTATION='attackTelegraphPresentation';
+export interface TelegraphPresentation {area:AttackArea|null;progress:number;color:number}
 
 /** A full-size boundary remains fixed while the interior fills toward impact. */
 export class AttackTelegraph {
@@ -9,11 +12,15 @@ export class AttackTelegraph {
   private geometry:AttackArea|null=null;
   private lastProgress=-1;
   private lastColor=0;
+  private readonly gpu:boolean;
+  private readonly presentation:TelegraphPresentation={area:null,progress:0,color:0};
   progress=0;
   constructor(scene:Phaser.Scene,name:string,preserveRune=true){
-    this.graphics=onPlane(scene.add.graphics().setName(name).setVisible(false),'ground');
-    if(preserveRune&&scene.textures.exists(ATTACK_WARNING_TEXTURE))this.rune=scene.add.image(0,0,ATTACK_WARNING_TEXTURE,ATTACK_WARNING_FRAMES.circle.name)
-      .setOrigin(.5).setVisible(false).setName(name+':rune');
+    this.gpu=scene.game.registry.get('presentation')==='three-2.5d';
+    this.graphics=onGround(scene.add.graphics().setName(name).setVisible(false),.35);
+    if(this.gpu)this.graphics.setData(TELEGRAPH_PRESENTATION,this.presentation);
+    if(preserveRune&&scene.textures.exists(ATTACK_WARNING_TEXTURE))this.rune=onGround(scene.add.image(0,0,ATTACK_WARNING_TEXTURE,ATTACK_WARNING_FRAMES.circle.name)
+      .setOrigin(.5).setVisible(false).setName(name+':rune'),.25);
   }
   draw(area:AttackArea,progress:number,depth:number,color=0xf3aa57){
     const g=this.graphics,p=windupProgress(progress,1),r=area.radius;
@@ -21,6 +28,8 @@ export class AttackTelegraph {
     g.setVisible(true).setPosition(area.x,area.y).setRotation(area.angle).setDepth(depth);
     const tint=p>=.85?0xff6659:color;
     this.rune?.setPosition(area.x,area.y).setDisplaySize(r*2,r*2).setDepth(depth-.1).setAlpha(.12).setVisible(area.kind==='circle');
+    this.presentation.area=area;this.presentation.progress=p;this.presentation.color=tint;
+    if(this.gpu)return this;
     const old=this.geometry;
     // Filled lingering zones retain their command buffer. World position,
     // depth and fade can change independently without rebuilding the polygon.

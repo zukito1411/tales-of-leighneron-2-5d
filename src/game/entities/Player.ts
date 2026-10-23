@@ -17,6 +17,8 @@ import { PlayerSkillSystem } from '../systems/PlayerSkillSystem';
 import { RecoverySystem } from '../systems/RecoverySystem';
 import { approachVelocity, strideRate } from '../systems/locomotion';
 import {localPlayCheatsEnabled} from '../../utils/localPlayCheats';
+import {screenMovement,viewDirection,worldHeight,onPlane} from '../presentation25d/plane';
+import {actorAimDirection,type ActorDirection} from '../../data/directionalEnemyArt';
 
 export class Player extends DepthSortedSprite {
   readonly moveSpeed = 165;
@@ -28,6 +30,17 @@ export class Player extends DepthSortedSprite {
   stamina: number;
   maxStamina: number;
   lastDirection = new Phaser.Math.Vector2(0, 1);
+  private readonly movement=new Phaser.Math.Vector2();
+  private readonly screenFacing=new Phaser.Math.Vector2();
+  private viewFacing:ActorDirection='down';
+  get presentationDirection(){
+    const facing=viewDirection(this.scene,this.lastDirection.x,this.lastDirection.y,this.screenFacing);
+    this.viewFacing=actorAimDirection(facing.x,facing.y,this.viewFacing);
+    facing.x=this.viewFacing==='left'?-1:this.viewFacing==='right'?1:0;
+    facing.y=this.viewFacing==='up'?-1:this.viewFacing==='down'?1:0;return facing;
+  }
+  private jumpY=0;private jumpVelocity=0;private jumping=false;
+  get presentationElevation(){return this.jumping?Math.max(0,this.jumpY-worldHeight(this.scene,this.x,this.y)):0;}
   private readonly keys: Record<'up' | 'down' | 'left' | 'right' | 'sprint' | MobileAction, Phaser.Input.Keyboard.Key>;
   private nextAttackAt = 0;
   private comboStep=0;
@@ -43,6 +56,9 @@ export class Player extends DepthSortedSprite {
   private sprintExhausted = false;
   private readonly pressed = new Set<MobileAction>();
   private attackVisual:Phaser.GameObjects.Sprite | null = null;
+  private shadowVisual:Phaser.GameObjects.Sprite|undefined;
+  get presentationShadowVisual(){return this.shadowVisual??this;}
+  private attackStep=0;
   private readonly swordVisual:EquippedSwordVisual;
   private readonly awakenedVisual:AwakenedHeroVisual;
   private weaponDrawnRemaining=0;
@@ -50,17 +66,20 @@ export class Player extends DepthSortedSprite {
   // scene's updatePlayer call. Attach visual layers only once that is done.
   private readonly syncSwordAfterPhysics=()=>{
     if(!this.active)return;
+    this.refreshAttackView();
     this.setDepth((this.scene as WorldScene).playerRenderDepth(this.y));
     if(this.attackVisual?.active)setDepthIfChanged(this.attackVisual,this.depth).setPosition(this.x,this.y);
     this.updateSwordVisual();
   };
   private updateSwordVisual(){
     const actor=this.awakenedVisual.update(this.skills.weaponActor??this.attackVisual??this);
+    this.shadowVisual=actor;
     if(this.skills.hidesWeapon){this.swordVisual.hide();return;}
     const attacking=Boolean(this.attackVisual?.active)||this.skills.isCasting;
+    const facing=this.presentationDirection;
     this.swordVisual.update(actor,
       !attacking&&this.weaponDrawnRemaining===0,
-      this.lastDirection.y<0&&Math.abs(this.lastDirection.y)>=Math.abs(this.lastDirection.x));
+      facing.y<0&&Math.abs(facing.y)>=Math.abs(facing.x));
   }
   private vitalRevision=useGameStore.getState().vitalRevision;
   syncInventoryVitals(){
@@ -109,11 +128,11 @@ export class Player extends DepthSortedSprite {
 
     if (!scene.input.keyboard) throw new Error('Keyboard input is unavailable.');
     this.keys = scene.input.keyboard.addKeys({
-      up: 'W', down: 'S', left: 'A', right: 'D', sprint: 'SHIFT', dash: 'Q', attack: 'SPACE', interact: 'E',
+      up: 'W', down: 'S', left: 'A', right: 'D', sprint: 'SHIFT', dash: 'Q', attack: 'F', jump:'SPACE',interact: 'E',
       skill1:'ONE',skill2:'TWO',skill3:'THREE',skill4:'FOUR',
       healPotion:'FIVE',staminaPotion:'SIX',
     }) as typeof this.keys;
-    for (const action of ['dash', 'attack', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) {
+    for (const action of ['dash', 'attack', 'jump','interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) {
       this.keys[action].setEmitOnRepeat(false).on('down', () => this.pressed.add(action));
     }
   }
@@ -136,10 +155,16 @@ export class Player extends DepthSortedSprite {
     // Even the completion frame belongs to the cast. Held inputs resume on
     // the next frame, without adding a walk/sprint displacement to the rush.
     const movementLocked=castingAtFrameStart||this.skills.isCasting;
+    const keyboardJump=this.consumeAction('jump'),touchJump=mobileInput.consume('jump');
+    const jumpPressed=keyboardJump||touchJump;
+    const ground=worldHeight(scene,this.x,this.y),dt=Math.max(0,Math.min(delta,80))/1000;
+    if(jumpPressed&&!this.jumping&&!movementLocked&&this.hp>0){this.jumping=true;this.jumpY=ground;this.jumpVelocity=380;}
+    if(this.jumping){this.jumpY+=this.jumpVelocity*dt-550*dt*dt;this.jumpVelocity-=1100*dt;
+      if(this.jumpY<=ground&&this.jumpVelocity<0){this.jumping=false;this.jumpVelocity=0;this.jumpY=ground;}}
 
     let x = (this.keys.right.isDown ? 1 : 0) - (this.keys.left.isDown ? 1 : 0) + mobileInput.moveX;
     let y = (this.keys.down.isDown ? 1 : 0) - (this.keys.up.isDown ? 1 : 0) + mobileInput.moveY;
-    const movement = new Phaser.Math.Vector2(x, y);
+    const movement=this.movement;screenMovement(scene,x,y,movement);
     if (movementLocked) movement.set(0,0);
     if (movement.lengthSq() > 1) movement.normalize();
     x = movement.x;
@@ -319,6 +344,7 @@ export class Player extends DepthSortedSprite {
   }
 
   restoreAt(x: number, y: number) {
+    this.jumping=false;this.jumpVelocity=0;this.jumpY=0;
     this.resetBasicAttackCombo();
     this.recovery.interrupt();
     this.skills.cancelCast(); this.skills.clearRally();
@@ -356,7 +382,7 @@ export class Player extends DepthSortedSprite {
 
   discardActions() {
     this.pressed.clear();
-    for (const action of ['attack', 'dash', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) mobileInput.consume(action);
+    for (const action of ['attack', 'dash','jump', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion'] as const) mobileInput.consume(action);
   }
   private consumeAction(action: MobileAction) {
     const value = this.pressed.has(action);
@@ -385,13 +411,23 @@ export class Player extends DepthSortedSprite {
 
   private playSwordVisual(cooldown:number,stepIndex=0) {
     this.clearAttackVisual();
-    const direction = directionFrame(this.lastDirection.x,this.lastDirection.y) / 6;
+    const facing=this.presentationDirection;
+    const direction = directionFrame(facing.x,facing.y) / 6;
     const animation = PLAYER_COMBO_ATTACK_ANIMATIONS[stepIndex][direction], layout = actorArtLayout('leigneron_attack');
     const effect = this.scene.add.sprite(this.x,this.y,'leigneron_attack',animation.frames[0]).setOrigin(.5,layout.originY)
       .setScale(artScale('leigneron_attack')).setDepth(this.depth).setName('player-sword-visual');
-    this.attackVisual = effect; this.setAlpha(0);
+    this.attackVisual = effect;this.attackStep=stepIndex;onPlane(effect,'upright',this); this.setAlpha(0);
     effect.play(animation.key); effect.anims.timeScale = animationDuration(animation) / cooldown;
     effect.once(Phaser.Animations.Events.ANIMATION_COMPLETE,() => { if (this.attackVisual === effect) this.clearAttackVisual(); });
+  }
+
+  private refreshAttackView(){
+    const effect=this.attackVisual;if(!effect?.active||!effect.anims.isPlaying)return;
+    const facing=this.presentationDirection;
+    const animation=PLAYER_COMBO_ATTACK_ANIMATIONS[this.attackStep][directionFrame(facing.x,facing.y)/6];
+    if(effect.anims.currentAnim?.key===animation.key)return;
+    const progress=effect.anims.getProgress(),scale=effect.anims.timeScale;
+    effect.anims.play(animation.key);effect.anims.setProgress(progress);effect.anims.timeScale=scale;
   }
 
   private createDashTrail(time: number) {
@@ -400,6 +436,7 @@ export class Player extends DepthSortedSprite {
       .setOrigin(this.originX, this.originY).setScale(this.scaleX, this.scaleY)
       .setFlipX(this.flipX).setTint(0x9debdc).setAlpha(0.38).setBlendMode(Phaser.BlendModes.ADD)
       .setDepth((this.scene as WorldScene).playerRenderDepth(this.y) - 1).setName('player-dash-afterimage');
+    onPlane(trail,'upright',{get x(){return trail.x;},get y(){return trail.y;},presentationElevation:this.presentationElevation});
     this.scene.tweens.add({ targets: trail, alpha: 0, x: trail.x - this.dashDirection.x * 18,
       y: trail.y - this.dashDirection.y * 18, duration: 180, onComplete: () => trail.destroy() });
   }
@@ -423,9 +460,10 @@ export class Player extends DepthSortedSprite {
   private movementAxis: 'horizontal' | 'vertical' = 'vertical';
 
   private updateAnimation(x: number, y: number, running: boolean, directionX: number, directionY: number) {
-    if (Math.hypot(x,y) < 3) {
+    if (this.jumping||Math.hypot(x,y) < 3) {
       this.anims.timeScale=1;
-      const standingFrame=directionFrame(this.lastDirection.x,this.lastDirection.y);
+      const facing=this.presentationDirection;
+      const standingFrame=directionFrame(facing.x,facing.y);
       this.movementAxis = standingFrame === 6 || standingFrame === 12 ? 'horizontal' : 'vertical';
       if (standingFrame === 6 || standingFrame === 12) {
         if (this.texture.key !== 'leigneron_idle_sides') {
@@ -450,8 +488,9 @@ export class Player extends DepthSortedSprite {
     // during a turn only controls cadence, so pressing down cannot show a
     // sideways run while the previous horizontal motion slows down.
     const hasDirection = Math.hypot(directionX,directionY) > .1;
-    const facingX = hasDirection ? directionX : this.lastDirection.x;
-    const facingY = hasDirection ? directionY : this.lastDirection.y;
+    const facing=viewDirection(this.scene,hasDirection?directionX:this.lastDirection.x,
+      hasDirection?directionY:this.lastDirection.y,this.screenFacing);
+    const facingX=facing.x,facingY=facing.y;
     const sideways = this.movementAxis === 'horizontal'
       ? Math.abs(facingX) >= Math.abs(facingY) * 0.78
       : Math.abs(facingX) > Math.abs(facingY) * 1.28;

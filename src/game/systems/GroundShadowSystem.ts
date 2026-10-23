@@ -1,6 +1,6 @@
 ﻿import Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
-import {overlayViewport} from './renderSizing';
+import {overlayViewport,groundEffectViewport} from './renderSizing';
 import {cloudShadowStamps} from './CloudShadowArt';
 import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from './effectsQuality';
 import {getGraphicEffects} from './graphicsEffects';
@@ -13,7 +13,8 @@ export interface ShadowOptions {
  /** Ground-plane footprint offsets; hollow structures keep separate contacts. */
  contacts?:readonly {x:number;y:number;width:number;height:number}[];
 }
-interface Caster extends ShadowOptions {actor:Actor;texture?:string;frame?:string|number;enabled?:boolean}
+export interface ShadowCaster extends ShadowOptions {actor:Actor;texture?:string;frame?:string|number;enabled?:boolean}
+type Caster=ShadowCaster;
 interface Layer {texture:Phaser.Textures.CanvasTexture;image:Phaser.GameObjects.Image}
 const OVERSCAN=96;
 
@@ -30,7 +31,7 @@ export class GroundShadowSystem {
  private readonly actorLayer:Layer;
  private readonly cloudLayer:Layer;
  private readonly contact=document.createElement('canvas');
- private readonly clouds=cloudShadowStamps(getEffectsQuality()==='low'?3:5);
+ private readonly clouds:HTMLCanvasElement[];
  private readonly reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
  // LEIGHNERON_CLOUD_SHADOW_OPTIMIZATION_V1
  // Keep clouds anchored to world coordinates, but translate their cached canvas
@@ -45,15 +46,17 @@ export class GroundShadowSystem {
  };
  private cloudPaintElapsed=0;
  private cloudLightKey='';
- private base={x:Infinity,y:Infinity,zoom:0};
+ private base={x:Infinity,y:Infinity,zoom:0,zoomY:0};
  private drawMs=100;private staticScanMs=250;private cloudDrawMs=2000;private cloudElapsed=0;private staticDirty=true;
  private lightingKey='';private sceneryStamp:string|null=null;private actorStamp:string|null=null;
  constructor(private readonly scene:Phaser.Scene){
+  const gpu=scene.game.registry.get('presentation')==='three-2.5d';
+  this.clouds=gpu?[]:cloudShadowStamps(getEffectsQuality()==='low'?3:5);
   const viewport=overlayViewport(scene);
   const makeLayer=(key:string,name:string,depth:number,resolution=1):Layer=>{
    const texture=scene.textures.createCanvas(key,
-    Math.max(1,Math.round((viewport.width+OVERSCAN*2)*resolution)),
-    Math.max(1,Math.round((viewport.height+OVERSCAN*2)*resolution)))!;
+    gpu?1:Math.max(1,Math.round((viewport.width+OVERSCAN*2)*resolution)),
+    gpu?1:Math.max(1,Math.round((viewport.height+OVERSCAN*2)*resolution)))!;
    // Cloud shadows are soft; LINEAR filtering avoids blocky edges at low DPI.
    texture.setFilter(Phaser.Textures.FilterMode.LINEAR);
    return {texture,image:scene.add.image(0,0,key).setOrigin(0).setDepth(depth).setName(name)};
@@ -69,6 +72,8 @@ export class GroundShadowSystem {
   stamp.addColorStop(.65,'rgba(14,19,18,.2)');stamp.addColorStop(1,'rgba(14,19,18,0)');
   ctx.fillStyle=stamp;ctx.fillRect(-96,-96,192,192);
  }
+ gpuCasters(){return this.casters.values();}
+ get contactArtwork(){return this.contact;}
  register(actor:Actor,retainArtwork=false,options:ShadowOptions={}){
   if(this.casters.has(actor))return;
   const caster:Caster={actor,...options,...(retainArtwork?{texture:actor.texture.key,frame:actor.frame.name}:{})};
@@ -89,23 +94,26 @@ export class GroundShadowSystem {
   if(this.scenery.has(caster))this.staticDirty=true;
  }
  update(delta:number,hour:number,cloudCover=0,windStrength=.18){
+  if(this.scene.game.registry.get('presentation')==='three-2.5d'){
+   this.staticLayer.image.setVisible(false);this.actorLayer.image.setVisible(false);this.cloudLayer.image.setVisible(false);return;
+  }
   this.drawMs+=delta;this.staticScanMs+=delta;
   this.cloudDrawMs+=delta;
   if(!this.reducedMotion.matches)this.cloudElapsed+=Math.min(100,Math.max(0,delta))*(.016+Math.max(0,Math.min(1,windStrength))*.032);
-  const viewport=overlayViewport(this.scene),view=this.scene.cameras.main.worldView,zoom=viewport.zoom;
+  const viewport=groundEffectViewport(this.scene),view=viewport.view,zoom=viewport.zoom,zoomY=viewport.zoomY;
   const width=viewport.width+OVERSCAN*2,height=viewport.height+OVERSCAN*2;
-  const shifted=this.base.zoom!==zoom||this.staticLayer.texture.width!==width||this.staticLayer.texture.height!==height
+  const shifted=this.base.zoom!==zoom||this.base.zoomY!==zoomY||this.staticLayer.texture.width!==width||this.staticLayer.texture.height!==height
    ||this.cloudLayer.texture.width!==Math.max(1,Math.round(width*this.cloudResolution))
    ||this.cloudLayer.texture.height!==Math.max(1,Math.round(height*this.cloudResolution))
    ||Math.abs((view.x-this.base.x)*zoom-OVERSCAN)>OVERSCAN/2
-   ||Math.abs((view.y-this.base.y)*zoom-OVERSCAN)>OVERSCAN/2;
+   ||Math.abs((view.y-this.base.y)*zoomY-OVERSCAN)>OVERSCAN/2;
   if(shifted){
-   this.base={x:view.x-OVERSCAN/zoom,y:view.y-OVERSCAN/zoom,zoom};this.staticDirty=true;this.actorStamp=null;
+   this.base={x:view.x-OVERSCAN/zoom,y:view.y-OVERSCAN/zoomY,zoom,zoomY};this.staticDirty=true;this.actorStamp=null;
    for(const layer of [this.cloudLayer,this.staticLayer,this.actorLayer]){
     const resolution=layer===this.cloudLayer?this.cloudResolution:1;
     const tw=Math.max(1,Math.round(width*resolution)),th=Math.max(1,Math.round(height*resolution));
     if(layer.texture.width!==tw||layer.texture.height!==th)layer.texture.setSize(tw,th);
-    layer.image.setPosition(this.base.x,this.base.y).setDisplaySize(width/zoom,height/zoom);
+    layer.image.setPosition(this.base.x,this.base.y).setDisplaySize(width/zoom,height/zoomY);
    }
   }
   // Static scenery needs no redraw for subpixel clock changes. Actor shadows
@@ -173,7 +181,7 @@ export class GroundShadowSystem {
    const w=frame.cutWidth*Math.abs(actor.scaleX),h=frame.cutHeight*Math.abs(actor.scaleY);
    const reach=w+h*Math.abs(castX)*(caster.projection??1),down=h*castY*(caster.projection??1)+w;
    if(actor.x+reach<this.base.x||actor.x-reach>this.base.x+width/this.base.zoom
-    ||actor.y+down<this.base.y||actor.y-w>this.base.y+height/this.base.zoom)continue;
+    ||actor.y+down<this.base.y||actor.y-w>this.base.y+height/this.base.zoomY)continue;
    if(count<result.length){result[count].caster=caster;result[count].frame=frame;}
    else result.push({caster,frame});
    count++;
@@ -187,14 +195,15 @@ export class GroundShadowSystem {
   for(const {caster:{actor},frame} of visible){
    if(stamp)stamp+=';';
    stamp+=frame.texture.key+','+frame.name+','
-     +Math.round(actor.x*this.base.zoom*4)+','+Math.round(actor.y*this.base.zoom*4)+','
+     +Math.round(actor.x*this.base.zoom*4)+','+Math.round(actor.y*this.base.zoomY*4)+','
      +actor.scaleX+','+actor.scaleY+','+actor.rotation+','+actor.alpha+','
      +actor.originX+','+actor.originY+','+actor.flipX+','+actor.flipY;
   }
   return stamp;
  }
  private paint(layer:Layer,visible:Array<{caster:Caster;frame:Phaser.Textures.Frame}>,daylight:number,castX:number,castY:number,cloud:number){
-  const ctx=layer.texture.getContext(),zoom=this.base.zoom;ctx.clearRect(0,0,layer.texture.width,layer.texture.height);
+  const ctx=layer.texture.getContext(),zoom=this.base.zoom,aspect=this.base.zoomY/zoom;
+  ctx.clearRect(0,0,layer.texture.width,layer.texture.height);ctx.save();ctx.scale(1,aspect);
   for(const {caster,frame} of visible){
    const {actor}=caster;
    const sx=Math.abs(actor.scaleX)*zoom*(actor.flipX?-1:1),sy=Math.abs(actor.scaleY)*zoom*(actor.flipY?-1:1);
@@ -224,13 +233,13 @@ export class GroundShadowSystem {
     // sunlight while keeping these ground shadows translucent and understated.
     const perspective=this.scene.game.registry.get('presentation')==='three-2.5d';
     ctx.globalAlpha=(perspective?.16+daylight*.07:.34+daylight*.3)*(1-cloud*.35)*actor.alpha;
-   ctx.setTransform(m0,m1,m2,m3,x-m0*gx-m2*gy,y-m1*gx-m3*gy);
+   ctx.setTransform(m0,m1*aspect,m2,m3*aspect,x-m0*gx-m2*gy,(y-m1*gx-m3*gy)*aspect);
    ctx.drawImage(silhouette,0,0,frame.cutWidth,frame.cutHeight);ctx.restore();
   }
-  layer.texture.refresh();
+  ctx.restore();layer.texture.refresh();
  }
  private paintClouds(daylight:number,cloudCover:number){
-  const layer=this.cloudLayer,ctx=layer.texture.getContext(),zoom=this.base.zoom*this.cloudResolution;
+  const layer=this.cloudLayer,ctx=layer.texture.getContext(),zoom=this.base.zoom*this.cloudResolution,zoomY=this.base.zoomY*this.cloudResolution;
   ctx.clearRect(0,0,layer.texture.width,layer.texture.height);
   const graphics=getGraphicEffects();
   layer.image.setVisible(daylight>.02&&(graphics.cloudShadows||graphics.sunRays));
@@ -261,7 +270,7 @@ export class GroundShadowSystem {
    }
   }
   const driftX=this.cloudElapsed,driftY=-this.cloudElapsed*.24;
-  const left=this.base.x,right=left+layer.texture.width/zoom,top=this.base.y,bottom=top+layer.texture.height/zoom;
+  const left=this.base.x,right=left+layer.texture.width/zoom,top=this.base.y,bottom=top+layer.texture.height/zoomY;
   const stepX=900,stepY=640;
   const firstX=Math.floor((left-driftX-1100)/stepX),lastX=Math.ceil((right-driftX+1100)/stepX);
   const firstY=Math.floor((top-driftY-900)/stepY),lastY=Math.ceil((bottom-driftY+900)/stepY);
@@ -273,9 +282,9 @@ export class GroundShadowSystem {
    if(random(gx,gy,9)>.22+cover*.60)continue;
    const seed=random(gx,gy,1),x=(gx+.25+random(gx,gy,2)*.5)*stepX+driftX;
    const y=(gy+.25+random(gx,gy,3)*.5)*stepY+driftY;
-   const px=(x-left)*zoom,py=(y-top)*zoom,rotation=(seed-.5)*.7;
-   const stamp=this.clouds[Math.floor(random(gx,gy,4)*this.clouds.length)],w=(980+seed*420)*zoom,h=(680+random(gx,gy,5)*280)*zoom;
-   ctx.save();ctx.translate(px,py);ctx.rotate(rotation);ctx.globalAlpha=strength*(.75+random(gx,gy,8)*.25);
+   const px=(x-left)*zoom,py=(y-top)*zoomY,rotation=(seed-.5)*.7;
+   const stamp=this.clouds[Math.floor(random(gx,gy,4)*this.clouds.length)],w=980+seed*420,h=680+random(gx,gy,5)*280;
+   ctx.save();ctx.translate(px,py);ctx.scale(zoom,zoomY);ctx.rotate(rotation);ctx.globalAlpha=strength*(.75+random(gx,gy,8)*.25);
    ctx.drawImage(stamp,-w/2,-h/2,w,h);ctx.restore();
   }
   layer.texture.refresh();
@@ -310,6 +319,7 @@ export class GroundShadowSystem {
   this.staticVisible.length=0;this.movingVisible.length=0;
   for(const layer of [this.cloudLayer,this.staticLayer,this.actorLayer]){layer.image.destroy();this.scene.textures.remove(layer.texture.key);}
   if(this.scene.textures.exists('interior-contact-shadow'))this.scene.textures.remove('interior-contact-shadow');
+  if(this.scene.textures.exists('gpu-contact-shadow'))this.scene.textures.remove('gpu-contact-shadow');
   this.contact.width=this.contact.height=1;
  }
 }

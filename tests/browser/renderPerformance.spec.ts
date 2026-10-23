@@ -44,16 +44,18 @@ for(const viewport of [{width:1280,height:720},{width:844,height:390}])test.desc
    // Controlled half-water fixture isolates the actual mask renderer from
    // region choice. Scrolling within overscan must reuse its terrain survey.
    const water=systems.waterSurface,world=systems.worldGenerator,original=world.getTerrainAt;
-   const view=s.cameras.main.worldView,oldX=view.x,split=view.centerX;let terrainQueries=0;
+   const projection='/src/game/presentation25d/plane.ts';const {groundWorldView,groundForeshortening}=await import(projection);
+   const camera=s.cameras.main;camera.stopFollow();camera.preRender();
+   const view=groundWorldView(s),oldX=camera.scrollX,split=view.centerX;let terrainQueries=0;
    world.getTerrainAt=(x:number)=>{terrainQueries++;return x<split?'water':'grass';};
    (water as unknown as {base:{zoom:number}}).base.zoom=0;s.registry.set('openSeaView',false);water.update(100);
    const buffer=(water as unknown as {base:{x:number;y:number;zoom:number};mask:HTMLCanvasElement});
-   const sample=(x:number)=>buffer.mask.getContext('2d')!.getImageData(Math.floor((x-buffer.base.x)*buffer.base.zoom),Math.floor((view.centerY-buffer.base.y)*buffer.base.zoom),1,1).data[3];
+   const sample=(x:number)=>buffer.mask.getContext('2d')!.getImageData(Math.floor((x-buffer.base.x)*buffer.base.zoom),Math.floor((view.centerY-buffer.base.y)*buffer.base.zoom*groundForeshortening(s)),1,1).data[3];
    const mask={water:sample(split-64),land:sample(split+64)};terrainQueries=0;
    const texture=s.textures.get('moving-water') as Phaser.Textures.CanvasTexture,refresh=texture.refresh;let waterUploads=0;
    texture.refresh=function(){waterUploads++;return refresh.call(this);};
-   for(let i=0;i<120;i++){view.x+=.2;water.update(8);}
-   texture.refresh=refresh;world.getTerrainAt=original;view.x=oldX;
+   for(let i=0;i<120;i++){camera.scrollX+=.2;camera.preRender();water.update(8);}
+   texture.refresh=refresh;world.getTerrainAt=original;camera.scrollX=oldX;camera.preRender();
    return {unshadowed,moving,stationary,water:{calls:120,terrainQueries,uploads:waterUploads,mask}};
   });
   await test.info().attach('render-work.json',{body:JSON.stringify(metrics,null,2),contentType:'application/json'});

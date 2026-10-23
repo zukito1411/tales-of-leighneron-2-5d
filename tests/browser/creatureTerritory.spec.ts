@@ -53,7 +53,7 @@ test('old in-village authored/event saves relocate without resetting wounds or d
   await page.waitForFunction(() => (window.__mernondnaGame?.scene.getScene('world') as WorldScene)?.player?.active);
   const oldSave = await page.evaluate(() => {
     const s = window.__mernondnaGame!.scene.getScene('world') as WorldScene; s.syncState();
-    const raw = JSON.parse(localStorage.getItem('mernondna-save-v1')!), inside = { x:22 * 1536 + 768,y:25 * 1536 + 848 };
+    const raw = JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!), inside = { x:22 * 1536 + 768,y:25 * 1536 + 848 };
     raw.state.worldContent.states['creature:oakmere-wolf-east'] = { ...inside,hp:17 };
     raw.state.worldContent.states['creature:oakmere-boar-north'] = { ...inside,hp:0,defeated:true };
     raw.state.worldContent.states['spawn:0'] = { ...inside,hp:9 };
@@ -63,7 +63,7 @@ test('old in-village authored/event saves relocate without resetting wounds or d
   });
   // Production pagehide autosaves intentionally flush the current world. Load
   // the old-save fixture before the next app boots, not before leaving this one.
-  await page.addInitScript(saved => localStorage.setItem('mernondna-save-v1',saved),oldSave);
+  await page.addInitScript(saved => localStorage.setItem('mernondna-25d-save-v1',saved),oldSave);
   await page.reload();
   await page.waitForFunction(() => (window.__mernondnaGame?.scene.getScene('world') as WorldScene)?.player?.active);
   const repaired = await page.evaluate(() => {
@@ -72,7 +72,7 @@ test('old in-village authored/event saves relocate without resetting wounds or d
     s.syncState();
     return { wolfHp:wolf.hp,eventHp:event.hp,allSafe:[...d.enemies].every(e => s.isEnemyTerritory(e.x,e.y)),
       boarAlive:Boolean(d.contentManager.getActor('creature:oakmere-boar-north')),boarDead:d.contentManager.getState('creature:oakmere-boar-north')!.defeated,
-      sequence:d.contentManager.snapshot().nextSpawnSequence,version:JSON.parse(localStorage.getItem('mernondna-save-v1')!).version };
+      sequence:d.contentManager.snapshot().nextSpawnSequence,version:JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!).version };
   });
   expect(repaired).toEqual({ wolfHp:17,eventHp:9,allSafe:true,boarAlive:false,boarDead:true,sequence:1,version:4 });
 });

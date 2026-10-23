@@ -98,6 +98,7 @@ export function MobileControls() {
       </div>
 
       <div className="touch-actions">
+        <button type="button" className="touch-button jump" aria-label="Jump" onPointerDown={()=>mobileInput.press('jump')}><span className="touch-glyph">↑</span><small>Jump</small></button>
         <div className="touch-potions" aria-label="Potion shortcuts">
           {(['healing-potion','stamina-potion'] as PotionId[]).map(id=>{
             const healing=id==='healing-potion',count=potions[id],full=healing?hp>=maxHp:stamina>=maxStamina;

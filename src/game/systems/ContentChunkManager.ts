@@ -1,5 +1,5 @@
 import type { ContentDefinition, ContentState, ContentWorldState, CreatureContentDefinition, EncounterRole, Vec2 } from '../types';
-import { chunkNeighborhood, contentChunkKey,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
+import { chunkNeighborhood, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
 import {CHUNK_SIZE,STREAM_RADIUS,WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
 import {ENEMY_BY_ID,isWolfFamily} from '../../data/enemies';
 import {MAX_LIVE_HOSTILES,MAX_PERSISTENT_SPAWNS} from './encounterAdmission';
@@ -131,9 +131,17 @@ export class ContentChunkManager<Actor> {
   }
 
   update(x: number, y: number,view?:StreamView): boolean {
-    const viewport=view?viewportChunks(view,768):undefined;
-    const center = viewport?'view:'+streamViewKey(viewport):contentChunkKey(x, y);
+    // Rebuild residency only when its cell bounds change. Preserve the local
+    // physics neighborhood even when the perspective footprint looks ahead.
+    const playerCell=contentChunkKey(x,y);
+    const center=view?playerCell+':view:'
+      +Math.floor((view.left-768)/CHUNK_SIZE)+':'+Math.floor((view.right+768)/CHUNK_SIZE)+':'
+      +Math.floor((view.top-768)/CHUNK_SIZE)+':'+Math.floor((view.bottom+768)/CHUNK_SIZE):playerCell;
     let changed = center !== this.centerKey;
+    if(changed){
+      this.centerKey=center;this.wanted=chunkNeighborhood(x,y);
+      if(view)for(const key of viewportChunks(view,768))this.wanted.add(key);
+    }
     // Roofs and canopies may be visible while their base belongs to another
     // chunk. Query immutable drawn bounds, not a larger world neighborhood.
     const sceneryKey=view?[view.left-768,view.right+768,view.top-768,view.bottom+768].map(v=>Math.floor(v/512)).join(':'):'';
@@ -161,7 +169,6 @@ export class ContentChunkManager<Actor> {
       this.returns.delete(id);changed=true;
     }
     }
-    if (changed) { this.centerKey = center; this.wanted = viewport??chunkNeighborhood(x, y); }
     // Only near actors are inspected. Bucket migration lets moving creatures cross chunks.
     for (const [id, actor] of this.active) {
       const kind=this.definitions.get(id)!.kind;
@@ -514,9 +521,14 @@ export class ContentChunkManager<Actor> {
   private capture(id: string) {
     const actor = this.active.get(id), definition = this.definitions.get(id);
     if (!actor || !definition) return;
-    const state = { ...this.getState(id)!, ...this.host.capture(definition, actor) };
-    const initial = this.host.initialState(definition);
-    if (Object.entries(state).some(([key, value]) => value !== initial[key as keyof ContentState])) this.states.set(id, state);
+    const previous=this.getState(id)!,patch=this.host.capture(definition,actor);
+    // Camera-driven admissions also publish snapshots. Unmoved scenery must
+    // not allocate a second initial state and a replacement saved record.
+    let changed=false;
+    for(const key in patch)if(patch[key as keyof ContentState]!==previous[key as keyof ContentState]){changed=true;break;}
+    if(!changed)return;
+    const state={...previous,...patch};
+    this.states.set(id,state);
     this.index(id, contentChunkKey(state.x, state.y));
   }
   private deactivate(id: string, capture = true) {

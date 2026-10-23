@@ -1,3 +1,5 @@
+import {actorViewAim,actorViewTravel} from '../systems/actorViewDirection';
+import {worldPointInView,presentationView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
@@ -15,7 +17,7 @@ import { useGameStore } from '../../store/gameStore';
 import { approachVelocity, strideRate } from '../systems/locomotion';
 import {groundMarkerPosition} from '../systems/groundMarkers';
 import {DragonCombat} from '../systems/DragonCombat';
-import {actorAimDirection,actorTravelDirection,enemyLocomotionKey,type ActorDirection} from '../../data/directionalEnemyArt';
+import {enemyLocomotionKey,type ActorDirection} from '../../data/directionalEnemyArt';
 import {pirateAttackPhase,piratePhaseDuration} from '../../data/pirateMotion';
 import {isPirateEnemy} from '../../data/pirateArt';
 import {ATTACK_WARNING_TEXTURE,enemyAttackWarningLayout,type EnemyAttackWarningStyle} from '../systems/attackWarning';
@@ -632,7 +634,7 @@ export class Enemy extends DepthSortedSprite {
     const radius = this.definition.attackRadius ?? this.definition.attackRange;
     const ranged=this.isRangedAttacker;
     const attackAim={x:player.x,y:player.y};
-    if(this.directionalCombat)this.visualDirection=actorTravelDirection(player.x-this.x,player.y-this.y,this.visualDirection);
+    if(this.directionalCombat)this.visualDirection=actorViewTravel(this.scene,player.x-this.x,player.y-this.y,this.visualDirection);
     const attackStyle = ranged?'melee':this.definition.combatStyle==='troll'?'slam':this.boss?.attackStyle ?? (isWolfFamily(this.definition.id) ? 'pounce' : 'melee');
     this.lockedUntil = time + (windup + recovery)/rate;
     this.nextAttackAt = this.lockedUntil + this.definition.attackCooldownMs/rate;
@@ -732,7 +734,7 @@ export class Enemy extends DepthSortedSprite {
    * open-mouth roar. Hold the pose; never play an un-warned strike as a roar. */
   playBossRoar(angle:number){
     this.facing.set(Math.cos(angle),Math.sin(angle));
-    this.visualDirection=actorAimDirection(this.facing.x,this.facing.y,this.visualDirection);
+    this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
     const species=this.definition.spriteFrame,row=['down','left','right','up'].indexOf(this.visualDirection);
     const attack=enemyAnimation(species,'attack',this.directionalCombat?this.visualDirection:undefined);
     this.useVisualTexture(attack.texture as ArtTextureKey);this.anims.stop();
@@ -747,7 +749,7 @@ export class Enemy extends DepthSortedSprite {
   }
   playBossWindup(windup:number,recovery:number,angle:number,spell=false){
     this.facing.set(Math.cos(angle),Math.sin(angle));
-    if(this.directionalCombat)this.visualDirection=actorAimDirection(this.facing.x,this.facing.y,this.visualDirection);
+    if(this.directionalCombat)this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
     this.playAction('attack');
     if(this.definition.id==='grand-magus'){
       this.magusSpell=spell;const row=['down','left','right','up'].indexOf(this.visualDirection);
@@ -764,7 +766,7 @@ export class Enemy extends DepthSortedSprite {
   finishBossWindup(recovery:number,angle?:number){
     if(angle!==undefined){
       this.facing.set(Math.cos(angle),Math.sin(angle));
-      if(this.directionalCombat)this.visualDirection=actorAimDirection(this.facing.x,this.facing.y,this.visualDirection);
+      if(this.directionalCombat)this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
       this.playAction('attack');
       const animation=enemyAnimation(this.definition.spriteFrame,'attack',this.directionalCombat?this.visualDirection:undefined);
       this.anims.timeScale=animationDuration(animation)/Math.max(1,recovery)*this.attackSpeedMultiplier;
@@ -789,6 +791,7 @@ export class Enemy extends DepthSortedSprite {
   }
 
   private updateVisual(time:number) {
+    this.refreshActionView();
     if(this.bossCombat?.isAttacking)return;
     if (time < this.visualUntil) return;
     const body = this.body as Phaser.Physics.Arcade.Body;
@@ -806,9 +809,24 @@ export class Enemy extends DepthSortedSprite {
     this.anims.timeScale=moving?strideRate(speed,this.definition.moveSpeed):1;
   }
 
+  private refreshActionView(){
+    if(!this.directionalCombat)return;
+    const direction=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
+    if(direction===this.visualDirection)return;
+    const animation=this.anims.currentAnim;
+    if(!animation||!this.anims.isPlaying)return;
+    const key=animation.key.replace(/:(down|left|right|up)(?=:|$)/,':'+direction);
+    if(key===animation.key||!this.scene.anims.exists(key))return;
+    const next=this.scene.anims.get(key),progress=this.anims.getProgress(),scale=this.anims.timeScale;
+    this.visualDirection=direction;
+    this.useVisualTexture(next.frames[0].textureKey as ArtTextureKey);
+    this.anims.play(key);this.anims.setProgress(progress);this.anims.timeScale=scale;
+  }
+
   playLocomotion(state:'idle'|'walk'){
     const body=this.body as Phaser.Physics.Arcade.Body;
-    if(state==='walk')this.visualDirection=actorTravelDirection(body.velocity.x,body.velocity.y,this.visualDirection);
+    if(state==='walk'){this.visualDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.visualDirection);if(body.velocity.lengthSq()>9)this.facing.copy(body.velocity).normalize();}
+    else this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
     const key=enemyLocomotionKey(this.definition.spriteFrame,state,this.visualDirection);
     const progress=this.anims.currentAnim?.key.includes(':walk:')?this.anims.getProgress():0;
     const crew=this.definition.id==='cutlass-pirate';
@@ -854,6 +872,7 @@ export class Enemy extends DepthSortedSprite {
     this.leapVisual = scene.add.sprite(this.x, this.y, this.texture.key, this.frame.name)
       .setOrigin(this.originX, this.originY).setScale(this.scaleX, this.scaleY)
       .setFlipX(this.flipX).setDepth(scene.playerRenderDepth(this.y)+1).setName(`wolf-leap:${this.instanceId}`);
+    onPlane(this.leapVisual,'upright',this);
     if(this.definition.spriteTint!==undefined)this.leapVisual.setTint(this.definition.spriteTint);
     this.setAlpha(0);
     this.leapVisual.play(animation.key);
@@ -886,6 +905,17 @@ export class Enemy extends DepthSortedSprite {
       .setOrigin(.5,actorArtLayout(animation.texture as ArtTextureKey).originY).setFlipX(!directional&&(this.visualDirection==='left'||this.flipX)).setDepth(this.depth).setName(`enemy-death:${this.instanceId}`);
     if(this.definition.spriteTint!==undefined)effect.setTint(this.definition.spriteTint);
     effect.play(animation.key);
+    if(directional){
+      const scene=this.scene,worldFacing=this.facing.clone();let direction=this.visualDirection;
+      const update=()=>{
+        if(!effect.active||!effect.anims.isPlaying)return;
+        const next=actorViewAim(scene,worldFacing.x,worldFacing.y,direction);if(next===direction)return;
+        direction=next;const pose=enemyAnimation(this.definition.spriteFrame,'death',next),progress=effect.anims.getProgress();
+        effect.play(pose.key);effect.anims.setProgress(progress);
+      };
+      scene.events.on(Phaser.Scenes.Events.POST_UPDATE,update);
+      effect.once(Phaser.GameObjects.Events.DESTROY,()=>scene.events.off(Phaser.Scenes.Events.POST_UPDATE,update));
+    }
     effect.once(Phaser.Animations.Events.ANIMATION_COMPLETE,() => effect.destroy());
     this.scene.time.delayedCall(animationDuration(animation) + 200,() => { if (effect.active) effect.destroy(); });
   }
@@ -996,7 +1026,7 @@ export class Enemy extends DepthSortedSprite {
     const scene=this.scene as WorldScene;
     // Reject actors outside the camera before costly targeting LOS queries.
     // Visibility and eligibility stay identical, only their order changes.
-    const eligible=!paused&&scene.cameras.main.worldView.contains(this.x,this.y)
+    const eligible=!paused&&worldPointInView(scene,this.x,this.y,Math.max(30,(this.definition.bodyRadius??12)*2),48)
       &&scene.targeting.eligible(this);
     if(eligible){
       const story=useGameStore.getState();
@@ -1024,7 +1054,7 @@ export class Enemy extends DepthSortedSprite {
         this.targetIndicator.fillTriangle(-size,-36,size,-36,0,-26);
       }
       if(selected){const ground=groundMarkerPosition(this);
-        const w=Math.max(this.definition.boss?56:34,(this.definition.bodyRadius??0)*2.2),h=Math.max(10,(this.definition.bodyRadius??0)*.45);
+        const w=Math.max(this.definition.boss?56:34,(this.definition.bodyRadius??0)*2.2),h=presentationView(scene)?w:Math.max(10,(this.definition.bodyRadius??0)*.45);
         setDepthIfChanged(this.targetRing,depth+90).setPosition(ground.x,ground.y);
         if(w!==this.ringWidth||h!==this.ringHeight){
           this.ringWidth=w;this.ringHeight=h;

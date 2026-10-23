@@ -20,6 +20,7 @@ export class MiniMapTerrain {
   private job:Job|null=null;
   private frame:number|null=null;
   private disposed=false;
+  constructor(private readonly onReady:()=>void=()=>{}){}
 
   current(x:number,y:number):Tile|undefined {
     const ox=Math.floor(x/256)*256,oy=Math.floor(y/256)*256,key=`${ox}:${oy}`;
@@ -27,14 +28,18 @@ export class MiniMapTerrain {
     this.wanted=[{key,x:ox,y:oy},{key:`${ox+dx}:${oy}`,x:ox+dx,y:oy},
       {key:`${ox}:${oy+dy}`,x:ox,y:oy+dy},{key:`${ox+dx}:${oy+dy}`,x:ox+dx,y:oy+dy}];
     if(this.job&&!this.wanted.some(p=>p.key===this.job!.key))this.discardJob();
-    // Cold entry/teleports retain immediate complete coverage. Walking normally
-    // consumes a tile already prepared while approaching the boundary.
-    if(!this.tiles.has(key)){
-      if(this.job?.key!==key){this.discardJob();this.job=this.start(key,ox,oy);}
-      if(this.job){while(this.job.next<48*48)this.sample(this.job);this.commit();}
-    }
+    // A React effect must never drain all 2,304 geography samples. Prioritize
+    // the requested tile, retaining a complete overlapping tile while it loads.
+    if(!this.tiles.has(key)&&this.job&&this.job.key!==key)this.discardJob();
     this.schedule();
-    return this.tiles.get(key);
+    const exact=this.tiles.get(key);if(exact)return exact;
+    let nearest:Tile|undefined,distance=Infinity;
+    for(const tile of this.tiles.values()){
+      if(tile.x>x-1100||tile.y>y-1100||tile.x+MINI_TERRAIN_EXTENT<x+1100||tile.y+MINI_TERRAIN_EXTENT<y+1100)continue;
+      const d=Math.hypot(tile.x+MINI_TERRAIN_EXTENT/2-x,tile.y+MINI_TERRAIN_EXTENT/2-y);
+      if(d<distance){distance=d;nearest=tile;}
+    }
+    return nearest;
   }
   private start(key:string,x:number,y:number):Job|null {
     const canvas=document.createElement('canvas');canvas.width=canvas.height=256;
@@ -55,6 +60,7 @@ export class MiniMapTerrain {
       if(key===undefined)break;
       const tile=this.tiles.get(key)!;this.tiles.delete(key);tile.canvas.width=tile.canvas.height=1;
     }
+    if(job.key===this.wanted[0]?.key)this.onReady();
   }
   private schedule(){
     if(!this.disposed&&this.frame===null&&this.wanted.some(p=>!this.tiles.has(p.key)))

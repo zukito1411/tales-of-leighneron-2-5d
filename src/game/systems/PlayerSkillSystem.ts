@@ -12,6 +12,9 @@ import {COMBAT_EFFECT_TEXTURE,DISTINCT_EFFECT_TEXTURE,effectPresentation} from '
 import {weaponEffect} from '../../data/economy';
 import {applySkillWeaponPalette} from './WeaponSkillPalette';
 import {heroFrameData} from './heroFrameData';
+import {onPlane,onGround,onDirectionalSprite,viewDirection} from '../presentation25d/plane';
+import {actorViewAim} from './actorViewDirection';
+import type {ActorDirection} from '../../data/directionalEnemyArt';
 
 interface Cast {
   skill:ActiveSkillDefinition; elapsed:number; nextHit:number;
@@ -19,6 +22,7 @@ interface Cast {
   start:Vec2; landing?:Vec2; shadow?:Phaser.GameObjects.Ellipse;rushEffectStarted?:boolean;
   rushDistance:number;rushTravelled:number;
   barrageTargets?:Enemy[];barrageSlash?:Phaser.GameObjects.Sprite;
+  viewFacing?:ActorDirection;
   effectColor?:number;weaponId:string;
 }
 interface SlashWave {sprite:Phaser.GameObjects.Sprite;direction:Phaser.Math.Vector2;remaining:number;skill:ActiveSkillDefinition;multiplier:number;effectColor?:number;weaponId:string}
@@ -29,6 +33,7 @@ export class PlayerSkillSystem {
   private rallyRemaining = 0;
   private readonly waves=new Set<SlashWave>();
   private readonly flurryTargets=new Set<Enemy>();
+  private readonly visualAim={x:0,y:0};
   private readonly effects=new Set<Phaser.GameObjects.Sprite>();
   private readonly attachedEffects=new Map<Phaser.GameObjects.Sprite,{actor:Phaser.GameObjects.Sprite;grip:boolean;offsetX:number;offsetY:number}>();
   private readonly syncAttachedEffects=()=>{
@@ -87,15 +92,17 @@ export class PlayerSkillSystem {
     if(target){this.scene.targeting.selected=target;this.player.lastDirection.copy(direction);}
     // Choose complete front/back artwork on the dominant aiming axis; side
     // thrusts retain their approved sheet and mirror only for left-facing aim.
-    const verticalRush=id==='iron-tempest'&&Math.abs(direction.y)>Math.abs(direction.x);
-    const texture=verticalRush?(direction.y<0?'skill_iron_rush_up':'skill_iron_rush_down'):skill.texture;
+    const aim=viewDirection(this.scene,direction.x,direction.y,this.visualAim);
+    const verticalRush=id==='iron-tempest'&&Math.abs(aim.y)>Math.abs(aim.x);
+    const texture=verticalRush?(aim.y<0?'skill_iron_rush_up':'skill_iron_rush_down'):skill.texture;
     const effectColor=weaponEffect(state.weaponId,state.awakenedWeapons)?.effectColor;
     applySkillWeaponPalette(this.scene,texture,effectColor);
     // These effect canvases retain 20px below their centered ground anchor so
     // airborne poses are not cropped. Offset the presentation, not physics.
     const visual = this.scene.add.sprite(this.player.x,this.player.y-20,texture,0)
-      .setOrigin(.5).setScale(artScale(texture)).setFlipX(!verticalRush&&direction.x < 0)
+      .setOrigin(.5).setScale(artScale(texture)).setFlipX(!verticalRush&&aim.x < 0)
       .setDepth(this.scene.playerRenderDepth(this.player.y)+2).setName(`player-skill:${id}`);
+    onPlane(visual,'upright',this.player);
     if(!skill.poseTimes)visual?.play(`player-skill:${skill.animationId??id}`);
     const start={x:this.player.x,y:this.player.y};
     const landing=id==='skyfall-slam'?this.scene.skillLanding(target??{x:start.x+direction.x*90,y:start.y+direction.y*90},skill.targetingRange??90):undefined;
@@ -131,6 +138,18 @@ export class PlayerSkillSystem {
     if (!cast) return;
     this.updateFlurryTargets();
     cast.elapsed += deltaMs;
+    if(cast.visual){
+      cast.viewFacing=actorViewAim(this.scene,cast.direction.x,cast.direction.y,cast.viewFacing??'right');
+      const thrust=cast.skill.id==='iron-tempest'||cast.skill.id==='barrage';
+      const vertical=thrust&&(cast.viewFacing==='up'||cast.viewFacing==='down');
+      const texture=vertical?(cast.viewFacing==='up'?'skill_iron_rush_up':'skill_iron_rush_down'):cast.skill.id==='barrage'?'skill_iron_rush':cast.skill.texture;
+      if(cast.visual.texture.key!==texture){
+        applySkillWeaponPalette(this.scene,texture,cast.effectColor);
+        const frame=cast.visual.frame.name;
+        cast.visual.setTexture(texture,frame).setScale(artScale(texture));
+      }
+      cast.visual.setFlipX(!vertical&&cast.viewFacing==='left');
+    }
     if(cast.visual&&cast.skill.poseTimes&&cast.skill.id!=='barrage'){
       const poses=cast.skill.poseTimes;
       let frame=0;while(frame+1<poses.length&&cast.elapsed>=poses[frame+1])frame++;
@@ -197,7 +216,8 @@ export class PlayerSkillSystem {
         // apply melee damage before the traveling wave actually connects.
         const target=this.scene.targeting.nearest(cast.skill.targetingRange??620);
         if(target){cast.direction.set(target.x-this.player.x,target.y-this.player.y).normalize();this.scene.targeting.selected=target;}
-        this.player.lastDirection.copy(cast.direction);cast.visual?.setFlipX(cast.direction.x<0);
+        this.player.lastDirection.copy(cast.direction);
+        cast.visual?.setFlipX(viewDirection(this.scene,cast.direction.x,cast.direction.y,this.visualAim).x<0);
         const row=0;
         const art=effectPresentation(COMBAT_EFFECT_TEXTURE,row,cast.effectColor);
         const sprite=this.scene.add.sprite(this.player.x+cast.direction.x*16,this.player.y+cast.direction.y*16,art.texture,row*4)
@@ -205,7 +225,8 @@ export class PlayerSkillSystem {
           .setRotation(Math.atan2(cast.direction.y,cast.direction.x)).setDepth(this.scene.playerRenderDepth(this.player.y)+4).setName(`${cast.skill.id}-wave`);
         if(cast.effectColor!==undefined)sprite.setTint(cast.effectColor);
         sprite.play({key:art.animation,repeat:-1});
-        this.waves.add({sprite,direction:cast.direction.clone(),remaining:cast.skill.targetingRange??620,skill:cast.skill,multiplier:cast.skill.damageMultipliers[cast.nextHit],effectColor:cast.effectColor,weaponId:cast.weaponId});
+        const wave={sprite,direction:cast.direction.clone(),remaining:cast.skill.targetingRange??620,skill:cast.skill,multiplier:cast.skill.damageMultipliers[cast.nextHit],effectColor:cast.effectColor,weaponId:cast.weaponId};
+        onDirectionalSprite(sprite,wave.direction);this.waves.add(wave);
         this.scene.recordTraining(cast.skill.id);
       } else {
         if(cast.skill.id==='skyfall-slam') {
@@ -257,10 +278,11 @@ export class PlayerSkillSystem {
         (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);
         cast.direction.set(enemy.x-point.x,enemy.y-point.y).normalize();
         this.player.lastDirection.copy(cast.direction);
-        const vertical=Math.abs(cast.direction.y)>Math.abs(cast.direction.x);
-        const texture=vertical?(cast.direction.y<0?'skill_iron_rush_up':'skill_iron_rush_down'):'skill_iron_rush';
+        const aim=viewDirection(this.scene,cast.direction.x,cast.direction.y,this.visualAim);
+        const vertical=Math.abs(aim.y)>Math.abs(aim.x);
+        const texture=vertical?(aim.y<0?'skill_iron_rush_up':'skill_iron_rush_down'):'skill_iron_rush';
         applySkillWeaponPalette(this.scene,texture,cast.effectColor);
-        cast.visual?.setTexture(texture,2+cast.nextHit%3).setScale(artScale(texture)).setFlipX(!vertical&&cast.direction.x<0)
+        cast.visual?.setTexture(texture,2+cast.nextHit%3).setScale(artScale(texture)).setFlipX(!vertical&&aim.x<0)
           .setPosition(point.x,point.y-20).setDepth(this.scene.playerRenderDepth(point.y)+2);
         cast.barrageSlash?.setPosition(enemy.x,enemy.y-20).setDepth(this.scene.playerRenderDepth(enemy.y)+4)
           .setRotation(Math.atan2(cast.direction.y,cast.direction.x)).setVisible(true).play('effect-slash');
@@ -279,12 +301,18 @@ export class PlayerSkillSystem {
       let travel=Math.min(wave.remaining,620*delta/1000),terminated=false;
       while(travel>0&&!terminated){const step=Math.min(12,travel),from={x:wave.sprite.x,y:wave.sprite.y},to={x:from.x+wave.direction.x*step,y:from.y+wave.direction.y*step};
         if(!this.scene.hasClearPath(from.x,from.y,to.x,to.y)){terminated=true;break;}
-        const hits=enemies.filter(e=>e.active&&e.canBeTargeted&&e.hp>0).map(enemy=>{
-          const dx=to.x-from.x,dy=to.y-from.y,len=dx*dx+dy*dy,t=len?Phaser.Math.Clamp(((enemy.x-from.x)*dx+(enemy.y-from.y)*dy)/len,0,1):0;
-          return {enemy,t,distance:Math.hypot(enemy.x-from.x-t*dx,enemy.y-from.y-t*dy)};
-        }).filter(hit=>hit.distance<=(hit.enemy.definition.boss?24:11)+14
-          &&this.scene.hasClearPath(from.x,from.y,hit.enemy.x,hit.enemy.y)).sort((a,b)=>a.t-b.t);
-        if(hits.length){const hit=hits[0];this.scene.applySkillDamage(hit.enemy,wave.skill,wave.multiplier,wave.direction,wave.weaponId);this.playArtEffect(0,hit.enemy.x,hit.enemy.y,92,Math.atan2(wave.direction.y,wave.direction.x),false,wave.effectColor??null);terminated=true;break;}
+        const dx=to.x-from.x,dy=to.y-from.y,len=dx*dx+dy*dy;
+        let struck:Enemy|undefined,first=Infinity;
+        for(const enemy of enemies){
+          if(!enemy.active||!enemy.canBeTargeted||enemy.hp<=0)continue;
+          const radius=(enemy.definition.boss?24:11)+14;
+          if(enemy.x<Math.min(from.x,to.x)-radius||enemy.x>Math.max(from.x,to.x)+radius
+            ||enemy.y<Math.min(from.y,to.y)-radius||enemy.y>Math.max(from.y,to.y)+radius)continue;
+          const t=len?Phaser.Math.Clamp(((enemy.x-from.x)*dx+(enemy.y-from.y)*dy)/len,0,1):0;
+          if(t<first&&Math.hypot(enemy.x-from.x-t*dx,enemy.y-from.y-t*dy)<=radius
+            &&this.scene.hasClearPath(from.x,from.y,enemy.x,enemy.y)){struck=enemy;first=t;}
+        }
+        if(struck){this.scene.applySkillDamage(struck,wave.skill,wave.multiplier,wave.direction,wave.weaponId);this.playArtEffect(0,struck.x,struck.y,92,Math.atan2(wave.direction.y,wave.direction.x),false,wave.effectColor??null);terminated=true;break;}
         wave.sprite.setPosition(to.x,to.y).setDepth(this.scene.playerRenderDepth(to.y)+4);wave.remaining-=step;travel-=step;
       }
       if(terminated||wave.remaining<=0){wave.sprite.destroy();this.waves.delete(wave);}
@@ -319,6 +347,7 @@ export class PlayerSkillSystem {
     const color=effectColor??undefined,art=effectPresentation(DISTINCT_EFFECT_TEXTURE,row,color);
     const sprite=this.scene.add.sprite(x,y,art.texture,row*4)
       .setOrigin(.5,.94).setDisplaySize(width,height).setDepth(this.scene.playerRenderDepth(y)-.1);
+    onGround(sprite,.1);
     if(color!==undefined)sprite.setTint(color);
     this.effects.add(sprite);
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE,()=>{
@@ -333,6 +362,7 @@ export class PlayerSkillSystem {
     const offsetX=gripping&&!up&&!down?tipDistance*(actor.flipX?-1:1):0;
     const offsetY=gripping?(up?-tipDistance:down?tipDistance:0):0;
     const sprite=this.playGroundEffect(row,point.x+offsetX,point.y+offsetY,width,height,effectColor??null);
+    onPlane(sprite,'upright',this.player);
     if(gripping){
       // Both directional rows point right. Their tip is near the right edge,
       // not the canvas center; mirror the pivot together with the artwork.

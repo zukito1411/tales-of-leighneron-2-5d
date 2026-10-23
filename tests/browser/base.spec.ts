@@ -14,7 +14,8 @@ async function ready(page: Page) {
     const game = window.__mernondnaGame;
     return game && (game.scene.getScene('world') as WorldScene)?.player?.active;
   });
-  await expect(page.locator('.game-canvas canvas')).toHaveCount(1);
+  await expect(page.locator('.game-canvas canvas.three-world-canvas')).toBeVisible();
+  await expect(page.locator('.game-canvas canvas:not(.three-world-canvas)')).toBeHidden();
   await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'));
 }
 async function snapshot(page: Page) {
@@ -186,13 +187,13 @@ test('full-health Captain Varr defeat, immediate reload, first quest and fresh g
     });
   }
   await expect.poll(() => page.evaluate(() => {
-    const raw = localStorage.getItem('mernondna-save-v1');
+    const raw = localStorage.getItem('mernondna-25d-save-v1');
     return raw ? JSON.parse(raw).state.defeatedBosses : [];
   })).toContain('captain-varr');
   const saved = await page.evaluate(async () => {
     const path = '/src/utils/save.ts';
     const { parseSave } = await import(path);
-    const raw = localStorage.getItem('mernondna-save-v1')!;
+    const raw = localStorage.getItem('mernondna-25d-save-v1')!;
     return { raw: JSON.parse(raw), parsed: parseSave(raw) };
   });
   expect(saved.parsed, JSON.stringify(saved.raw)).not.toBeNull();

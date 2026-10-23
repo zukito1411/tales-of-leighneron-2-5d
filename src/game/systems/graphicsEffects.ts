@@ -7,6 +7,8 @@ export interface GraphicEffects {
  cloudShadows:boolean; sunRays:boolean; treeSway:boolean; waterMotion:boolean;
  dynamicShadows:boolean; fireflies:boolean; lightBloom:boolean; nightDarkness:boolean;
  combatShake:boolean; groundBlend:boolean;
+ depthOfField:boolean; depthHaze:boolean; cinematicColor:boolean;
+ adaptiveResolution:boolean;
 }
 export type GraphicEffectKey=keyof GraphicEffects;
 const STORAGE_KEY='leighneron:graphics-effects:v1';
@@ -18,7 +20,7 @@ function recommended():GraphicEffects{
    sunRays:true,treeSway:true,waterMotion:true,dynamicShadows:true,
    fireflies:true,lightBloom:false,nightDarkness:true,
    // Combat rendering still independently respects reduced-motion preferences.
-   combatShake:true,
+   combatShake:true,depthOfField:true,depthHaze:true,cinematicColor:true,adaptiveResolution:true,
    // Disable dynamic ground-skirt recoloring by default on every device.
    // The unmodified full-resolution scenery textures still render.
    groundBlend:false};

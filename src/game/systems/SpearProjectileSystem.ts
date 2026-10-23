@@ -4,6 +4,7 @@ import type { Enemy } from '../entities/Enemy';
 import type { Npc } from '../entities/Npc';
 import type { WorldScene } from '../scenes/WorldScene';
 import {artScale} from '../../data/art';
+import {onDirectionalSprite} from '../presentation25d/plane';
 
 const MAX_PROJECTILES=8;
 const SPEED=330;
@@ -30,6 +31,9 @@ export class SpearProjectileSystem {
         .setOrigin(.12,.5).setScale(artScale('enemy_spear_projectile')).setDepth(this.scene.playerRenderDepth(source.y)+2)
         .setVisible(false).setActive(false).setName(`enemy-projectile:${this.pool.length}`);
       flight={sprite,sourceId:'',source:null,target:null,damage:0,x:0,y:0,vx:0,vy:0,distance:0,age:0,maxDistance:MAX_DISTANCE,maxAge:MAX_AGE_MS,stone:false};this.pool.push(flight);
+      const anchor=flight;
+      onDirectionalSprite(sprite,{get x(){return anchor.stone?Math.cos(sprite.rotation):anchor.vx;},get y(){return anchor.stone?Math.sin(sprite.rotation):anchor.vy;}},
+        {get x(){return anchor.x;},get y(){return anchor.y+26;}});
     }
     const dx=target.x-source.x,dy=target.y-source.y,length=Math.hypot(dx,dy);
     if(length<1)return false;

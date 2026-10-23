@@ -91,7 +91,7 @@ export function worldSpriteProfile(texture:ArtTextureKey,frame:number):WorldSpri
   if(texture==='elven_villas')return elven[frame];
   if(texture==='world_objects')return [profile(base(.04,.70,.96,.96)),profile(base(.03,.72,.97,.97)),
     {solids:[base(.05,.72,.36,.97),base(.62,.76,.96,.97)],sortY:.97,forceSolid:true},profile(base(.13,.78,.88,.97))][frame];
-  if(texture==='world_assets')return frame<=1?trees[frame]:frame===4?floor:
+  if(texture==='world_assets')return frame<=1?trees[frame]:frame===4?{solids:[],sortY:.96}:
     frame===2?profile(base(.04,.55,.97,.96)):frame===3?profile(base(.035,.78,.965,.975)):
       frame===5?profile(base(.26,.80,.74,.98)):frame===6?profile(base(.08,.62,.91,.96)):profile(base(.035,.62,.97,.97));
   if(texture==='others')return others[frame];

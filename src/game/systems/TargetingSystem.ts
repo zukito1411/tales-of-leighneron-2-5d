@@ -2,6 +2,7 @@ import type {Enemy} from '../entities/Enemy';
 import type {WorldScene} from '../scenes/WorldScene';
 import {BOSS_BY_ID} from '../../data/enemies';
 import {useGameStore} from '../../store/gameStore';
+import {presentationView,worldPointInView} from '../presentation25d/plane';
 
 /** Shared eligibility for indicators, automatic casts and deliberate selection. */
 export class TargetingSystem {
@@ -27,6 +28,9 @@ export class TargetingSystem {
       if(!enemy.active||!enemy.visible||!enemy.isAlive||!enemy.canBeTargeted)continue;
       const dx=enemy.x-player.x,dy=enemy.y-player.y,distance2=dx*dx+dy*dy;
       if(distance2>range2)continue;
+      // Automatic assistance follows what the free camera can see. Manual
+      // locks keep their original range/LOS rules when briefly offscreen.
+      if(presentationView(this.scene)&&!worldPointInView(this.scene,enemy.x,enemy.y,Math.max(30,(enemy.definition.bodyRadius??12)*2),48))continue;
       if(count<candidates.length){candidates[count].enemy=enemy;candidates[count].distance2=distance2;}
       else candidates.push({enemy,distance2});
       count++;

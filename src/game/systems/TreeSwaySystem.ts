@@ -1,3 +1,4 @@
+import {groundWorldView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
 import {isTreeArt,treeLayerKey} from '../../data/treeArt';
@@ -19,14 +20,16 @@ export class TreeSwaySystem {
     const leaves=this.scene.add.image(tree.x,tree.y,treeLayerKey(texture,'leaves'),frame)
       .setOrigin(tree.originX,tree.originY).setScale(tree.scaleX,tree.scaleY).setRotation(tree.rotation).setFlip(tree.flipX,tree.flipY)
       .setDepth(tree.depth+.01).setName('foliage:'+tree.name);
+    leaves.setVisible(tree.visible);
     onPlane(leaves,'upright',tree);
     const entry={tree,leaves,phase:((tree.x*.013+tree.y*.021)%(Math.PI*2))};this.canopies.add(entry);
     tree.once('destroy',()=>{this.canopies.delete(entry);leaves.destroy();});
+    return leaves;
   }
   update(delta:number,wind:number){
     const swayEnabled=getGraphicEffects().treeSway;
     this.elapsed+=Math.min(delta,100);this.drawMs+=delta;if(this.drawMs<(swayEnabled?50:350))return;this.drawMs=0;
-    const view=this.scene.cameras.main.worldView;
+    const view=groundWorldView(this.scene);
     for(const entry of this.canopies){
       const {tree,leaves,phase}=entry;
       const visible=tree.visible&&tree.x>view.x-400&&tree.x<view.right+400&&tree.y>view.y-80&&tree.y<view.bottom+500;

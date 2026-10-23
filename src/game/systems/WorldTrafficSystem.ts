@@ -1,3 +1,4 @@
+import {groundWorldView,onPlane,onGround,viewDirection,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {setDepthIfChanged} from './renderDepth';
 import {viewportChunks,streamViewKey} from './chunkNeighborhood';
@@ -10,9 +11,11 @@ import type {WorldGenerator} from './WorldGenerator';
 import type {GroundShadowSystem} from './GroundShadowSystem';
 import {PORTS} from '../../data/ports';
 import {useGameStore} from '../../store/gameStore';
+const HEADINGS=[[0,1],[-1,0],[1,0],[0,-1]] as const;
 
 export interface Vehicle {
   route:TrafficRoute;sprite:Phaser.GameObjects.Sprite;
+  ground:{x:number;y:number;depth:number;presentationElevation:number};
   horse?:Phaser.GameObjects.Sprite;wheels?:Phaser.GameObjects.Sprite[];
   helmsman?:Phaser.GameObjects.Sprite;rail?:Phaser.GameObjects.Sprite;wake?:Phaser.GameObjects.Sprite[];
   scale?:number;passenger?:Phaser.GameObjects.Sprite;
@@ -27,6 +30,7 @@ export class WorldTrafficSystem {
   private elapsed=0;
   private seaCenter='';private routes:TrafficRoute[];
   private lastSeaBounds='';
+  private readonly viewHeading={x:0,y:0};
   private readonly reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(private readonly scene:Phaser.Scene,private readonly world:WorldGenerator,private readonly shadows:GroundShadowSystem){
     this.roads=cartRoutes(world);this.routes=this.roads;
@@ -49,7 +53,7 @@ export class WorldTrafficSystem {
   }
   update(delta:number){
     this.elapsed+=Math.min(delta,100);
-    const view=this.scene.cameras.main.worldView;
+    const view=groundWorldView(this.scene);
     // Only recompute viewport cell sets after crossing an actual chunk edge.
     // Merchant/boat positions still animate every frame at their original rate.
     const left=Math.max(0,Math.floor((view.x-500)/CHUNK_SIZE));
@@ -89,13 +93,19 @@ export class WorldTrafficSystem {
     for(const [id,vehicle] of this.active)if(!wanted.has(id)){this.release(vehicle);this.active.delete(id);}
   }
   private create(route:TrafficRoute,x:number,y:number):Vehicle{
-    const sprite=this.scene.add.sprite(x,y,'traffic-'+route.kind,0).setName(route.id),vehicle:Vehicle={route,sprite};
+    const sprite=this.scene.add.sprite(x,y,'traffic-'+route.kind,0).setName(route.id),vehicle:Vehicle={route,sprite,ground:{x,y,depth:y,presentationElevation:0}};
     if(route.kind==='cart'){
       sprite.setScale(.5);this.shadows.register(sprite);
+      onPlane(sprite,'upright',sprite);
       vehicle.horse=this.scene.add.sprite(x,y,'horse-east',0).setScale(.5).setOrigin(.5,252/256).setName('horse:'+route.id);
       this.shadows.register(vehicle.horse);
       vehicle.wheels=[0,1].map(i=>this.scene.add.sprite(x,y,'cart-wheel-turns',0).setName('wheel:'+route.id+':'+i));
       vehicle.wheels.forEach(wheel=>this.shadows.register(wheel,false,{projection:.3,contactScale:.65,groundOffsetY:15}));
+      for(const wheel of vehicle.wheels){
+        onPlane(wheel,'upright',sprite);
+        (wheel.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=.6;
+      }
+      onPlane(vehicle.horse,'upright',sprite);
     }else{
       sprite.setScale(BOAT_SCALE).setOrigin(.5,364/384);
       this.shadows.register(sprite,false,{projection:.35,contactScale:.8});
@@ -103,6 +113,10 @@ export class WorldTrafficSystem {
       vehicle.deckShadows=[this.scene.add.image(x,y,'vehicle-deck-shadow').setDisplaySize(30,12).setName('crew-shadow:'+route.id)];
       vehicle.rail=this.scene.add.sprite(x,y,'traffic-boat-rail',0).setScale(BOAT_SCALE).setOrigin(.5,364/384).setName('boat-rail:'+route.id);
       vehicle.wake=[0,1].map(i=>this.scene.add.sprite(x,y,'water-foam',0).setDepth(-970).setAlpha(.28-i*.08).setName('wake:'+route.id+':'+i));
+      this.attachBoatLayer(vehicle,sprite,0);
+      this.attachBoatLayer(vehicle,vehicle.helmsman,.8);this.attachBoatLayer(vehicle,vehicle.rail,1.6);
+      for(const shadow of vehicle.deckShadows)this.attachBoatLayer(vehicle,shadow,.4);
+      for(const wake of vehicle.wake)onGround(wake,.02);
     }
     return vehicle;
   }
@@ -113,10 +127,15 @@ export class WorldTrafficSystem {
   showPassenger(vehicle:Vehicle){
     vehicle.passenger=this.scene.add.sprite(0,0,'leigneron_idle',0).setName('passenger:'+vehicle.route.id);
     vehicle.deckShadows!.push(this.scene.add.image(0,0,'vehicle-deck-shadow').setDisplaySize(30,12).setName('passenger-shadow:'+vehicle.route.id));
+    this.attachBoatLayer(vehicle,vehicle.passenger,1);
+    this.attachBoatLayer(vehicle,vehicle.deckShadows![vehicle.deckShadows!.length-1],.4);
   }
   positionVessel(vehicle:Vehicle,x:number,y:number,dx:number,dy:number,moving=true){this.presentBoat(vehicle,x,y,dx,dy,trafficDirection(dx,dy),moving);}
   releaseVessel(vehicle:Vehicle){this.release(vehicle);}
   private presentCart(vehicle:Vehicle,x:number,y:number,direction:number,distance:number,moving:boolean){
+    const heading=HEADINGS[direction];
+    viewDirection(this.scene,heading[0],heading[1],this.viewHeading);
+    direction=trafficDirection(this.viewHeading.x,this.viewHeading.y);
     const pose=CART_ART_POSES[direction],horse=vehicle.horse!,side=direction===1||direction===2;
     // The route follows the center of the whole rigid train, so neither end
     // receives the entire lateral offset on a diagonal or narrow crossing.
@@ -126,6 +145,7 @@ export class WorldTrafficSystem {
     // road point changes that joint on diagonals and disconnects the train.
     // Horse, wagon and wheels must share the same pose and registration.
     const horseTexture=side?'horse-east':direction===0?'horse-south':'horse-north';
+    (horse.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=direction===3?-.8:.8;
     setDepthIfChanged(horse,direction===3?y-.02:y+.02).setTexture(horseTexture,moving?horseWalkFrame(distance):0).setFlipX(direction===1)
       .setPosition(x+pose.horse.x,y+pose.horse.y);
     vehicle.wheels!.forEach((wheel,i)=>{
@@ -135,28 +155,40 @@ export class WorldTrafficSystem {
     });
   }
   private presentBoat(vehicle:Vehicle,x:number,y:number,dx:number,dy:number,direction:number,moving:boolean){
+    viewDirection(this.scene,dx,dy,this.viewHeading);
+    direction=trafficDirection(this.viewHeading.x,this.viewHeading.y);
     const bob=this.reducedMotion.matches?0:Math.sin(this.elapsed*.0025+vehicle.route.phase)*1.6,helm=boatHelm(direction);
     const scale=vehicle.scale??BOAT_SCALE,ratio=scale/BOAT_SCALE;
-    setDepthIfChanged(vehicle.sprite,y).setScale(scale).setFrame(direction).setPosition(x,y+bob);
+    const spatial=this.scene.game.registry.get('presentation')==='three-2.5d',paintedY=y+(spatial?0:bob);
+    vehicle.ground.x=x;vehicle.ground.y=y;vehicle.ground.depth=y;vehicle.ground.presentationElevation=spatial?bob:0;
+    setDepthIfChanged(vehicle.sprite,y).setScale(scale).setFrame(direction).setPosition(x,paintedY);
     const crew=vehicle.helmsman!,texture:ArtTextureKey=direction===0?'npc_adventurer_idle':'npc_adventurer_directional_idle';
     // A helmsman stands aboard; use complete directional idle poses, not the
     // replaced six-column walking atlas (nor a frozen mid-stride contact).
     const frame=direction===0?Math.floor(this.elapsed/400)%6:direction===1?0:direction===2?4:8;
     setDepthIfChanged(crew,y+.02).setTexture(texture,frame).setScale(actorScaleForHeight(texture,frame,80))
-      .setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight).setPosition(x+helm.x*ratio,y+bob+helm.y*ratio);
+      .setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight).setPosition(x+helm.x*ratio,paintedY+helm.y*ratio);
     const seat=boatPassenger(direction);
-    if(vehicle.passenger)setDepthIfChanged(vehicle.passenger,y+.021).setScale(actorScaleForHeight('leigneron_idle',0,80)).setOrigin(.5,1-2/ART_BY_KEY.leigneron_idle.frameHeight)
-      .setPosition(x+seat.x*ratio,y+bob+seat.y*ratio);
+    if(vehicle.passenger){
+      const side=direction===1||direction===2,texture=side?'leigneron_idle_sides':direction===3?'leigneron':'leigneron_idle',frame=direction===3?18:0;
+      setDepthIfChanged(vehicle.passenger,y+.021).setTexture(texture,frame).setFlipX(direction===1)
+        .setScale(actorScaleForHeight(texture,frame,80)).setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight)
+        .setPosition(x+seat.x*ratio,paintedY+seat.y*ratio);
+    }
     vehicle.deckShadows!.forEach((shadow,i)=>{
       const actor=i===0?crew:vehicle.passenger!;setDepthIfChanged(shadow,y+.01+i*.001).setPosition(actor.x,actor.y).setVisible(actor.visible);
     });
-    setDepthIfChanged(vehicle.rail!,y+.03).setScale(scale).setFrame(direction).setPosition(x,y+bob);
-    const length=Math.hypot(dx,dy),vx=dx/length,vy=dy/length;
+    setDepthIfChanged(vehicle.rail!,y+.03).setScale(scale).setFrame(direction).setPosition(x,paintedY);
+    const length=Math.max(.001,Math.hypot(dx,dy)),vx=dx/length,vy=dy/length;
     vehicle.wake!.forEach((wake,i)=>{
       const trail=130+i*60;
       wake.setVisible(moving).setFrame((Math.floor(this.elapsed/180)+i)%4).setScale(.65+i*.12)
         .setRotation(Math.atan2(dy,dx)+Math.PI/2).setPosition(x-vx*trail,y-vy*trail-12);
     });
+  }
+  private attachBoatLayer(vehicle:Vehicle,object:Phaser.GameObjects.Sprite|Phaser.GameObjects.Image,depth:number){
+    onPlane(object,'upright',vehicle.ground);
+    (object.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=depth;
   }
   private release(vehicle:Vehicle){
     vehicle.sprite.destroy();vehicle.horse?.destroy();vehicle.helmsman?.destroy();vehicle.rail?.destroy();

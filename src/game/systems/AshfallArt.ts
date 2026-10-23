@@ -3,6 +3,10 @@ import {seededRandom} from '../../utils/seededRandom';
 /** Small prepainted flake sprites, three depth bands and smooth edge fades.
  * Screen-sized buffers keep ash inexpensive at high device pixel ratios. */
 export class AshfallArt {
+  get dayArtwork(){return this.flakes;}
+  get nightArtwork(){return this.nightFlakes;}
+  get dayEmberArtwork(){return this.ember;}
+  get nightEmberArtwork(){return this.nightEmber;}
   private readonly flakes:HTMLCanvasElement[]=[];
   private readonly nightFlakes:HTMLCanvasElement[]=[];
   private readonly ember=document.createElement('canvas');

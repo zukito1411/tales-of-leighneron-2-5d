@@ -2,7 +2,7 @@ import Phaser from 'phaser';
 import { CHUNK_SIZE, TILE_SIZE } from '../../data/world';
 import { WorldGenerator } from './WorldGenerator';
 import { sampleTerrainGridSteps, seamlessTerrainPixels, TERRAIN_MASK_SIZE, TERRAIN_PATTERN_SIZE } from './terrainArt';
-import {drawGroundRelief} from './GroundRelief';
+import {drawGroundReliefSteps} from './GroundRelief';
 import {naturalGroundPattern} from './NaturalGroundArt';
 import {GroundCoverBaker} from './GroundCoverBaker';
 import {PAVING_PATTERN_SIZE} from '../../data/environmentPresentation';
@@ -97,9 +97,8 @@ export class TerrainBaker {
       ctx.drawImage(this.layer, 0, 0);
       yield;
     }
-    drawGroundRelief(ctx,this.mask,world,chunkX,chunkY,grid);
-    yield;
-    this.cover.draw(ctx,world,chunkX,chunkY);
+    yield* drawGroundReliefSteps(ctx,this.mask,world,chunkX,chunkY,grid);
+    yield* this.cover.drawSteps(ctx,world,chunkX,chunkY);
     yield;
   }
 

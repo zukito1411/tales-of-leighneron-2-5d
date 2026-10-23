@@ -41,7 +41,7 @@ test('all NPC families face downward with animated idles after proximity and sto
     whole:prepared.every(f=>(f.customData as {fullSprite:boolean}).fullSprite)};
   }));
   shadows.update(100,12,0);
-  const canvas=window.__mernondnaGame!.canvas;
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;
   for(const e of [...document.querySelectorAll('body *')])if(e instanceof HTMLElement&&e!==canvas&&!e.contains(canvas))e.style.visibility='hidden';
   return results;
  });

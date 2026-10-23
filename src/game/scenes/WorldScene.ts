@@ -1,3 +1,4 @@
+import {groundWorldView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {housingFor} from '../../data/housing';
 import {isGameDisposing} from '../systems/gameLifetime';
@@ -90,7 +91,7 @@ import {WorldSpriteSystem,WORLD_SPRITE_OWNER} from '../systems/WorldSpriteSystem
 import {VolcanicTremor} from '../systems/VolcanicTremor';
 import {VolcanicCameraShake} from '../systems/VolcanicCameraShake';
 import {renderDensity} from '../systems/renderSizing';
-import {CAMERA_SIN,projectedGroundView} from '../presentation25d/plane';
+import {projectedGroundHalfExtents,projectedGroundView} from '../presentation25d/plane';
 import {groundMarkerPosition} from '../systems/groundMarkers';
 import {inDragonArena,DRAGON_BOSS_ID} from '../../data/dragonLair';
 import {isTreeArt,treeFootprint} from '../../data/treeArt';
@@ -150,6 +151,21 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private roadLife!:AmbientRoadLifeSystem;
   private aliceCompanion!:AliceCompanionSystem;
   get inInterior(){return Boolean(this.interiors?.active);}
+  get presentationFocus(){
+    return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active
+      ?this.player:this.cameras.main.midPoint;
+  }
+  readonly presentationHeightAt=(x:number,y:number)=>this.worldGenerator?.getElevationAt(x,y)??0;
+  get presentationShadows(){return this.groundShadows;}
+  get presentationWeather(){return this.weather;}
+  get presentationLighting(){return this.dayNight;}
+  get presentationWater(){return this.waterSurface;}
+  readonly presentationPause=()=>{if(this.presentationControlsEnabled)this.panelActions.add('pause');};
+  get presentationControlsEnabled(){
+    const state=useGameStore.getState();
+    return Boolean(this.player?.active&&this.focused&&!state.panel&&!state.dialogue&&!state.cinematic
+      &&!state.pendingCinematic&&!state.housingEditing&&!this.cinematicDirector?.active&&!this.passage?.active);
+  }
   get activeInteriorId(){return this.interiors?.currentEntry?.id??null;}
   get storyCombatActive(){return Boolean(this.storyEncounters?.active||this.dungeons?.fighting);}
   get storyInteraction(){return this.dungeons?.prompt??this.storyEncounters?.prompt??null;}
@@ -220,6 +236,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private readonly panelActions = new Set<'map' | 'inventory' | 'character' | 'pause' | 'dialogue' | 'journal' | 'codex'>();
   private readonly heldPanelKeys = new Set<string>();
   private questGuide!: Phaser.GameObjects.Graphics;
+  private questMarker!: Phaser.GameObjects.Graphics;
   private questTarget: QuestTarget | null = null;
   private storyCampRetryAt=new Map<string,number>();
   activePlayMs=0;
@@ -438,7 +455,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   beginCinematicView(){
     this.aliceCompanion?.pauseForStory();
     this.interiors.beginCinematic();this.prepareStoryActors();this.targeting.clear();
-    this.questGuide.clear();this.questGuide.setVisible(false);this.spearProjectiles.clear();this.wildlife.reset();this.volcanicTremor.pause();
+    this.questGuide.clear();this.questGuide.setVisible(false);this.questMarker.setVisible(false);this.spearProjectiles.clear();this.wildlife.reset();this.volcanicTremor.pause();
   }
   prepareCinematicShot(shot:StoryShot){return this.interiors.showCinematicLocation(this.cinematicLocation(shot)??null);}
   restoreCinematicLocation(){return this.interiors.restoreCinematicLocation();}
@@ -450,8 +467,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   cinematicTransitionReady(target:Vec2,zoom:number,focusNpcId?:string){
     if(this.inInterior)return this.interiors.ready&&this.cinematicSubjectReady(focusNpcId);
     const camera=this.cameras.main;camera.preRender();
-    const halfWidth=Math.max(camera.width/camera.zoom,camera.width/zoom)/2;
-    const halfHeight=Math.max(camera.height/camera.zoom,camera.height/zoom)/(2*CAMERA_SIN);
+    const half=projectedGroundHalfExtents(camera),factor=camera.zoom/Math.min(camera.zoom,zoom);
+    const halfWidth=half.x*factor,halfHeight=half.y*factor;
     return this.chunkManager.hasView({
       left:Math.min(camera.midPoint.x,target.x)-halfWidth,
       right:Math.max(camera.midPoint.x,target.x)+halfWidth,
@@ -781,6 +798,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.chunkManager.update(safe.x,safe.y,true);this.contentManager.update(safe.x,safe.y);
     }
     this.questGuide = this.add.graphics().setDepth(9100).setName('quest-direction-guide');
+    this.questMarker = this.add.graphics().setDepth(9100).setName('quest-target-marker');
     this.updateNavigation();
     // Older interrupted death transitions may have saved the hero at 0 HP.
     // Recover that save on the next update, without resetting game progress.
@@ -1213,7 +1231,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       return hostileCapacity(this.enemies.size, source, 0, 0);
     let pendingBosses = 0, summonReserve = 0;
     const cx = Math.floor(this.player.x / CHUNK_SIZE), cy = Math.floor(this.player.y / CHUNK_SIZE);
-    const cinematicView=this.cinematicDirector?.active?this.cameras.main.worldView:undefined;
+    const cinematicView=this.cinematicDirector?.active?groundWorldView(this):undefined;
     for (const boss of authoredBosses) {
       if (boss.kind !== 'creature') continue;
       const actor = this.contentManager.getActor(boss.id) as Enemy | undefined;
@@ -1770,6 +1788,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
   private drawQuestGuide(blocked: boolean) {
     this.questGuide.clear().setVisible(!blocked);
+    this.questMarker.clear().setVisible(!blocked);
     const target = this.questTarget;
     if (!target || blocked) return;
     const live = target.type==='escort'?target:this.contentManager.getActor(target.contentId) ?? target;
@@ -1780,7 +1799,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       &&this.hasClearPath(this.player.x,this.player.y,live.x,live.y,this.contentManager.getActor(target.contentId))
       &&this.worldGenerator.isWalkablePath(this.player,live);
     if (approachDistance>10&&!arrived) {
-      const x = this.player.x + dx * 48, y = this.player.y + dy * 48;
+      // Keep vector surfaces local: distant objectives must not create a
+      // viewport-sized raster/upload spanning the hero and the target.
+      this.questGuide.setPosition(this.player.x,this.player.y);
+      const x = dx * 48, y = dy * 48;
       this.questGuide.lineStyle(2,0x34210d,.85).fillStyle(0xffd976,.95);
       this.questGuide.beginPath(); this.questGuide.moveTo(x + dx * 8,y + dy * 8);
       this.questGuide.lineTo(x - dx * 5 - dy * 6,y - dy * 5 + dx * 6);
@@ -1788,10 +1810,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.questGuide.closePath(); this.questGuide.fillPath(); this.questGuide.strokePath();
     }
     const ground=groundMarkerPosition(live);
-    this.questGuide.lineStyle(2,0xffd976,.8).strokeEllipse(ground.x,ground.y,28,10);
-    this.questGuide.fillStyle(0xffdf91,.95).fillPoints([
-      { x: live.x, y: live.y - 116 }, { x: live.x + 5, y: live.y - 110 },
-      { x: live.x, y: live.y - 104 }, { x: live.x - 5, y: live.y - 110 },
+    this.questMarker.setPosition(live.x,live.y);
+    this.questMarker.lineStyle(2,0xffd976,.8).strokeEllipse(ground.x-live.x,ground.y-live.y,28,10);
+    this.questMarker.fillStyle(0xffdf91,.95).fillPoints([
+      { x: 0, y: -116 }, { x: 5, y: -110 },
+      { x: 0, y: -104 }, { x: -5, y: -110 },
     ],true);
   }
 
@@ -2227,7 +2250,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('weather',()=>this.weather?.destroy());
     release('content chunks',()=>this.contentManager?.destroy());
     release('regional enemy art',()=>this.m14Art?.destroy());
-    release('quest guide',()=>this.questGuide?.destroy());
+    release('quest guide',()=>{this.questGuide?.destroy();this.questMarker?.destroy();});
     release('terrain chunks',()=>this.chunkManager?.destroy());
     release('tree sway',()=>this.treeSway?.destroy());
     release('water surface',()=>this.waterSurface?.destroy());
@@ -2255,7 +2278,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private tidewatchGullFlyby(player:{x:number;y:number}){
     const town=TOWN_BY_ID.tidewatch.world;
     if(Math.hypot(player.x-town.x,player.y-town.y)>4500)return null;
-    const view=this.cameras.main.worldView;
+    const view=groundWorldView(this);
     if(view.width<=0||view.height<=0)return null;
     // Actual harbor water anchors the event geographically. A flying gull can
     // cross houses and shoreline; ground-only admission would exclude town views.

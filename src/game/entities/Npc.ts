@@ -1,3 +1,4 @@
+import {actorViewAim,actorViewTravel} from '../systems/actorViewDirection';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
@@ -5,7 +6,7 @@ import type { NpcDefinition, Vec2 } from '../types';
 import { ART_BY_KEY, actorScaleForHeight, artScale, type ArtTextureKey } from '../../data/art';
 import { NPC_IDLE_ART,npcDirectionalIdleTexture,npcIdleSilhouetteHeight } from '../../data/npcIdleArt';
 import { directionFrame } from '../../data/animationPacks';
-import {actorTravelDirection,type ActorDirection} from '../../data/directionalEnemyArt';
+import {actorAimDirection,type ActorDirection} from '../../data/directionalEnemyArt';
 import { npcApparentHeight } from '../../data/progression';
 import { patrolDestination } from '../systems/npcPatrol';
 import { seededRandom } from '../../utils/seededRandom';
@@ -174,7 +175,7 @@ export class Npc extends DepthSortedSprite {
       &&NPC_COMBAT_DIRECTIONS.every(d=>this.scene.anims.exists(npcCombatKey(art,'attack',d))));
   }
   get storyAttackReach(){return this.combatProfile?.reach??0;}
-  get storyFacing(){return this.walkDirection;}
+  get storyFacing(){return actorAimDirection(this.facing.x,this.facing.y,'down');}
   beginStoryGuard(){
     if(this.canStoryFight){this.storyGuard=true;this.storyGoal=null;this.stalledMs=0;this.holdStoryGuard();}
   }
@@ -192,7 +193,7 @@ export class Npc extends DepthSortedSprite {
     if(target)this.facing.set(target.x-this.x,target.y-this.y).normalize();
     const art=this.combatProfile!;
     // Direction selection expects velocity-sized inputs, not a unit vector.
-    this.walkDirection=actorTravelDirection(this.facing.x*60,this.facing.y*60,this.walkDirection);
+    this.walkDirection=actorViewTravel(this.scene,this.facing.x*60,this.facing.y*60,this.walkDirection);
     this.presentTexture(art.texture,artScale(art.texture)*this.presentationMultiplier);this.anims.stop();this.anims.timeScale=1;
     this.setFrame(NPC_COMBAT_DIRECTIONS.indexOf(this.walkDirection)*art.frames);
   }
@@ -510,6 +511,22 @@ export class Npc extends DepthSortedSprite {
 
   updatePresentation(playerX: number, playerY: number, questTarget: boolean, paused = false, cinematic=false) {
     const distance = Phaser.Math.Distance.Between(playerX,playerY,this.x,this.y);
+    if(this.storyAttack){
+      const direction=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
+      if(direction!==this.walkDirection&&this.anims.isPlaying){
+        const progress=this.anims.getProgress(),scale=this.anims.timeScale;
+        this.walkDirection=direction;this.storyAttack=npcCombatKey(this.combatProfile!,'attack',direction);
+        this.anims.play(this.storyAttack);this.anims.setProgress(progress);this.anims.timeScale=scale;
+      }
+    }else{
+      // Patrol/story movement already selects the pose. Refresh here only
+      // when camera rotation changes it, including stationary cinematic actors.
+      const direction=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
+      if(direction!==this.walkDirection){
+        if(this.storyGuard)this.holdStoryGuard();
+        else this.playDirection(this.facing.x,this.facing.y,(this.body as Phaser.Physics.Arcade.Body).velocity.lengthSq()>9);
+      }
+    }
     if (!cinematic && !this.companionControl && !this.roadRoute && !this.storyGuard && !this.storyGoal && distance > 1 && distance <= 72 && !this.escorting && !this.definition.formation) {
       this.target = null;
       this.returningHome = true;
@@ -547,9 +564,10 @@ export class Npc extends DepthSortedSprite {
 
   private playDirection(_x: number, _y: number, walking: boolean) {
     const combat=this.combatProfile;
-    if((this.roadRoute||this.companionControl)&&!walking){
+    if(!walking){
+      this.walkDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
       const body=this.body as Phaser.Physics.Arcade.Body;body.setImmovable(true);body.pushable=false;
-      if(combat&&this.canStoryFight){
+      if(combat&&this.canStoryFight&&(this.roadRoute||this.companionControl||this.storyGuard||!this.idleArt)){
         this.presentTexture(combat.texture,artScale(combat.texture)*this.presentationMultiplier);
         this.anims.stop();this.setFrame(NPC_COMBAT_DIRECTIONS.indexOf(this.walkDirection)*combat.frames);return;
       }
@@ -568,7 +586,7 @@ export class Npc extends DepthSortedSprite {
       if(walking&&combat?.walkRows&&this.canStoryWalk){
         const body=this.body as Phaser.Physics.Arcade.Body;
         body.setImmovable(false);body.pushable=true;
-        this.walkDirection=actorTravelDirection(body.velocity.x,body.velocity.y,this.walkDirection);
+        this.walkDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.walkDirection);
         this.presentTexture(combat.texture,artScale(combat.texture));
         const key=npcCombatKey(combat,'walk',this.walkDirection),previous=this.anims.currentAnim?.key;
         const preserve=this.anims.isPlaying&&previous!==key&&previous?.startsWith(`npc-combat:${combat.id}:walk:`);
@@ -583,8 +601,8 @@ export class Npc extends DepthSortedSprite {
     walking = walking && speed >= 3 && (Boolean(this.definition.formation) || this.stalledMs < 200);
     body.setImmovable(!walking);
     body.pushable=walking;
-    if(walking)this.walkDirection=actorTravelDirection(body.velocity.x,body.velocity.y,this.walkDirection);
-    else if(!this.roadRoute&&!this.companionControl)this.walkDirection='down';
+    if(walking)this.walkDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.walkDirection);
+    else this.walkDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
     const direction: WalkDirection = this.walkDirection;
     const idle = this.idleArt;
     if (!walking && idle) {

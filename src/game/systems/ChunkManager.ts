@@ -6,11 +6,11 @@ import { WORLD_CONTENT } from '../../data/content';
 import { WorldGenerator } from './WorldGenerator';
 import { chunkNeighborhood,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
 import { TerrainBaker } from './TerrainBaker';
-import { planWildernessTrees,planWildernessDetails,type SceneryTree,type SceneryDetail } from './sceneryPlan';
+import {planWildernessTreeSteps,planWildernessDetailSteps,type SceneryTree,type SceneryDetail} from './sceneryPlan';
 import {spriteBounds} from '../../data/settlementGeometry';
 import type {TreeSwaySystem} from './TreeSwaySystem';
 import type {DayNightSystem} from './DayNightSystem';
-import {planLandmarkScenery} from './LandmarkScenery';
+import {planLandmarkScenerySteps} from './LandmarkScenery';
 import type {WorldSpriteSystem} from './WorldSpriteSystem';
 import {StaticBoundsIndex} from './StaticBoundsIndex';
 import {bossArenaBounds} from './bossArenas';
@@ -73,21 +73,20 @@ export class ChunkManager {
     const centerY = Math.floor(worldY / CHUNK_SIZE);
     const camera=this.scene.cameras.main;
     const groundView=projectedGroundView(camera,worldX,worldY,128);
-    const halfW=(groundView.right-groundView.left)/2,halfH=(groundView.bottom-groundView.top)/2;
     // Screen and player are still within exactly the same streamed cells:
     // avoid constructing two sets of chunk keys on every animation frame.
     const viewKey=centerX+':'+centerY+':'
-      +Math.floor((worldX-halfW)/CHUNK_SIZE)+':'+Math.floor((worldX+halfW)/CHUNK_SIZE)+':'
-      +Math.floor((worldY-halfH)/CHUNK_SIZE)+':'+Math.floor((worldY+halfH)/CHUNK_SIZE)+':'
-      +Math.floor((worldX-halfW-384)/CHUNK_SIZE)+':'+Math.floor((worldX+halfW+384)/CHUNK_SIZE)+':'
-      +Math.floor((worldY-halfH-384)/CHUNK_SIZE)+':'+Math.floor((worldY+halfH+384)/CHUNK_SIZE);
+      +Math.floor(groundView.left/CHUNK_SIZE)+':'+Math.floor(groundView.right/CHUNK_SIZE)+':'
+      +Math.floor(groundView.top/CHUNK_SIZE)+':'+Math.floor(groundView.bottom/CHUNK_SIZE)+':'
+      +Math.floor((groundView.left-384)/CHUNK_SIZE)+':'+Math.floor((groundView.right+384)/CHUNK_SIZE)+':'
+      +Math.floor((groundView.top-384)/CHUNK_SIZE)+':'+Math.floor((groundView.bottom+384)/CHUNK_SIZE);
     if(viewKey===this.lastTravelViewKey){this.loadPendingChunk();return;}
     this.lastTravelViewKey=viewKey;
-    const visible=viewportChunks({left:worldX-halfW,right:worldX+halfW,top:worldY-halfH,bottom:worldY+halfH});
+    const visible=viewportChunks(groundView);
     const wanted=chunkNeighborhood(worldX,worldY);
-    // A bounded 512px viewport margin prepares zoomed-out travel before a
+    // A bounded 384px viewport margin prepares zoomed-out travel before a
     // chunk becomes safety-critical. Normal 3x3 walking residency is retained.
-    for(const key of viewportChunks({left:worldX-halfW,right:worldX+halfW,top:worldY-halfH,bottom:worldY+halfH},384))wanted.add(key);
+    for(const key of viewportChunks(groundView,384))wanted.add(key);
     const centerKey = `${centerX}:${centerY}:`+streamViewKey(wanted)+':'+streamViewKey(visible);
     if (centerKey === this.lastCenter) { this.loadPendingChunk(); return; }
     this.lastCenter = centerKey;
@@ -161,7 +160,7 @@ export class ChunkManager {
     const now=this.scene.time.now;
     if(this.preparedFrame===this.scene.game.loop.frame)return;
     if(!this.preparing){
-      if(!staged&&now-this.lastChunkBakedAt<95)return;
+      if(!staged&&now-this.lastChunkBakedAt<16)return;
       const next=this.pendingChunks.entries().next().value as [string,{x:number;y:number}]|undefined;
       if(!next)return;
       const [key,point]=next;
@@ -170,8 +169,15 @@ export class ChunkManager {
     }
     this.preparedFrame=this.scene.game.loop.frame;
     const job=this.preparing;
-    if(job.steps.next().done){
-      this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;
+    // Consume cheap yielded rows within a short budget instead of taking a
+    // whole frame per row. Preloads finish before walking reaches their edge;
+    // the cap still prevents draining a full bake during normal movement.
+    const deadline=performance.now()+(this.scene.game.loop.delta>24?1.5:3);
+    for(let steps=0;steps<128;steps++){
+      if(job.steps.next().done){
+        this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;break;
+      }
+      if(performance.now()>=deadline)break;
     }
     this.updateOpenSeaStatus();
   }
@@ -245,6 +251,7 @@ export class ChunkManager {
     if (!canvasTexture) return;
     let committed=false;
     const scenery: Array<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite> = [];
+    const canopies:Phaser.GameObjects.Image[]=[];
     try{
     if(!cached){
       const ctx = canvasTexture.getContext();
@@ -263,14 +270,14 @@ export class ChunkManager {
         return {...d.world,...('frame' in d?{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y)}:{}),
           ...(arena?{bounds:arena}:{})};
       });
-      const nearbyLandmarks=planLandmarkScenery(chunkX,chunkY,this.world,true);
+      const nearbyLandmarks=yield* planLandmarkScenerySteps(chunkX,chunkY,this.world,true);
       const landmarkDetails=nearbyLandmarks.filter(d=>Math.floor(d.x/CHUNK_SIZE)===chunkX&&Math.floor(d.y/CHUNK_SIZE)===chunkY);
       const landmarks=nearbyLandmarks.map(d=>({...d,bounds:spriteBounds(d.texture,d.frame,d.scale,d.x,d.y)}));
       yield;
-      const trees=planWildernessTrees(chunkX,chunkY,this.world,[...reservations,...landmarks]);
-      yield;
+      const trees=yield* planWildernessTreeSteps(chunkX,chunkY,this.world,[...reservations,...landmarks]);
       const treeReservations=trees.map(t=>({...t,bounds:spriteBounds(t.texture,t.frame,t.scale,t.x,t.y)}));
-      const details=[...landmarkDetails,...planWildernessDetails(chunkX,chunkY,this.world,[...reservations,...landmarks,...treeReservations])];
+      const wildernessDetails=yield* planWildernessDetailSteps(chunkX,chunkY,this.world,[...reservations,...landmarks,...treeReservations]);
+      const details=[...landmarkDetails,...wildernessDetails];
       plan={trees,details};this.sceneryPlans.set(cacheKey,plan);
       while(this.sceneryPlans.size>this.sceneryPlanLimit)this.sceneryPlans.delete(this.sceneryPlans.keys().next().value!);
     }
@@ -284,17 +291,21 @@ export class ChunkManager {
     for (const tree of trees) {
       const { x:wx,y:wy,texture,frame,scale } = tree;
       const image=this.scene.add.image(wx,wy,texture,frame).setOrigin(.5,1)
-        .setScale(artScale(texture)*scale).setDepth(wy).setName(tree.id);
-      scenery.push(image);this.ground.register(image,texture,frame,scale,true);
-      this.treeSway.register(image,texture,frame);
+        .setScale(artScale(texture)*scale).setDepth(wy).setName(tree.id).setVisible(false);
+      scenery.push(image);this.ground.register(image,texture,frame,scale,true,undefined,false,true);
+      const leaves=this.treeSway.register(image,texture,frame);if(leaves)canopies.push(leaves);
+      yield;
     }
     for(const detail of plan.details){
       const sprite=this.scene.add.sprite(detail.x,detail.y,detail.texture,detail.frame).setOrigin(.5,1)
-        .setScale(artScale(detail.texture)*detail.scale).setDepth(detail.y).setName(detail.id);
+        .setScale(artScale(detail.texture)*detail.scale).setDepth(detail.y).setName(detail.id).setVisible(false);
       scenery.push(sprite);
-      this.ground.register(sprite,detail.texture,detail.frame,detail.scale,detail.solid,detail.footprint);
+      this.ground.register(sprite,detail.texture,detail.frame,detail.scale,detail.solid,detail.footprint,false,true);
       this.lighting.register(sprite,detail.texture,detail.frame,detail.scale);
+      yield;
     }
+    for(const actor of scenery){actor.setVisible(true);this.ground.activate(actor);}
+    for(const leaves of canopies)leaves.setVisible(true);
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey).setOrigin(0, 0).setDepth(-1000);
     this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery });
     committed=true;

@@ -5,6 +5,7 @@ import {getGraphicEffects} from './graphicsEffects';
 /** A reusable soft density field: three parallax layers imitate depth in a
  * 2D scene. This is not a 3D volumetric/ray-marched renderer. */
 export class FogArt {
+  get densityArtwork(){return this.cloud;}
   private readonly cloud=document.createElement('canvas');
   private readonly tint=document.createElement('canvas');
   private color='';

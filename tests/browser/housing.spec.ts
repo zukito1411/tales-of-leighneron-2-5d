@@ -98,7 +98,7 @@ for(const device of ['desktop','mobile'] as const)test(`housing purchase, furnis
  });
  await page.keyboard.press('m');await expect(page.getByRole('img',{name:'Woodland Home',exact:true})).toBeVisible();
  await page.screenshot({path:`test-results/housing/${device}-map.png`});
- const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('mernondna-save-v1')!).state.housing);expect(saved.items).toHaveLength(3);
+ const saved=await page.evaluate(()=>JSON.parse(localStorage.getItem('mernondna-25d-save-v1')!).state.housing);expect(saved.items).toHaveLength(3);
  expect(errors).toEqual([]);
  }finally{await context.close();}
 });

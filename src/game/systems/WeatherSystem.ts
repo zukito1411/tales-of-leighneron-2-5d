@@ -14,6 +14,8 @@ import {AshfallArt} from './AshfallArt';
 import {REGION_MUSIC} from './regionMusic';
 import type {RegionId} from '../types';
 import {NatureAmbience,natureMix} from './NatureAmbience';
+import {groundWorldView,projectedViewOrigin,unprojectGroundPoint} from '../presentation25d/plane';
+import type {WeatherPresentation} from '../presentation25d/environment';
 type Kind='clear'|'cloudy'|'rain'|'storm'|'snow'|'fog'|'wind'|'dust'|'ash';
 const labels:Record<Kind,string>={clear:'Clear skies',cloudy:'Overcast',rain:'Light rain',storm:'Heavy rain',snow:'Snowfall',fog:'Valley mist',wind:'Windy',dust:'Dust and ash',ash:'Falling volcanic ash'};
 export function weatherFor(region:string,biome:string,day:number,minute:number):Kind{
@@ -28,11 +30,16 @@ export function weatherFor(region:string,biome:string,day:number,minute:number):
 /** One bounded screen canvas, one precipitation state, gradual transitions.
  * Weather is deterministically restored from the saved region/day/clock. */
 export class WeatherSystem {
+  readonly presentation:WeatherPresentation={kind:'clear',strength:0,elapsed:0,cloudCover:0,wind:.18,mist:0,region:'trandum',fogTint:REGION_SCENERY.trandum.fogTint};
+  get ashArtwork(){return this.ashArt;}
+  get fogArtwork(){return this.fogArt.densityArtwork;}
+  get particleSeeds(){return this.points;}
   private readonly texture:Phaser.Textures.CanvasTexture;
   private readonly overlay:Phaser.GameObjects.Image;
   private readonly tint:Phaser.GameObjects.Image;
   private kind:Kind='clear';private target:Kind='clear';private strength=0;private elapsed=0;private drawMs=100;
   private roofMs=500;private roofs:Rect[]=[];
+  private readonly groundPoint={x:0,y:0};
   private lastAmbienceUpdateAt=-Infinity;
   private lastAmbienceMuted=false;
   private readonly fogArt=new FogArt();private ambientMist=0;
@@ -58,7 +65,8 @@ export class WeatherSystem {
   get cloudCover(){return this.strength*({clear:0,cloudy:.8,rain:.65,storm:1,snow:.6,fog:.65,wind:.15,dust:.35,ash:.5}[this.kind]);}
   constructor(private readonly scene:Phaser.Scene,private readonly world:WorldGenerator){
     const viewport=overlayViewport(scene);
-    this.texture=scene.textures.createCanvas('weather-overlay',Math.max(1,Math.round(viewport.width*(this.lightweight ? 0.65 : 1))),Math.max(1,Math.round(viewport.height*(this.lightweight ? 0.65 : 1))))!;
+    const gpu=scene.game.registry.get('presentation')==='three-2.5d';
+    this.texture=scene.textures.createCanvas('weather-overlay',gpu?1:Math.max(1,Math.round(viewport.width*(this.lightweight ? 0.65 : 1))),gpu?1:Math.max(1,Math.round(viewport.height*(this.lightweight ? 0.65 : 1))))!;
     this.overlay=scene.add.image(0,0,'weather-overlay').setOrigin(0).setScrollFactor(0).setDepth(999_990).setName('regional-weather');
     if(!scene.textures.exists('weather-tint')){
       const tint=scene.textures.createCanvas('weather-tint',1,1)!;
@@ -194,9 +202,18 @@ export class WeatherSystem {
     const muted=paused||!state.weatherAudio;
     this.nature.update(delta,state.minuteOfDay,region,biome,muted||Boolean(this.musicOverride));
     this.updateMusic(Math.max(0,Math.min(100,delta)),state.minuteOfDay,muted);
+    const presentation=this.presentation;
+    presentation.kind=this.kind;presentation.strength=this.strength;presentation.elapsed=this.elapsed;
+    presentation.cloudCover=this.cloudCover;presentation.wind=this.windStrength;presentation.region=region;
+    presentation.fogTint=REGION_SCENERY[region].fogTint;
+    presentation.mist=((night>.02&&!effects.nightMist)||(night<=.02&&!effects.daytimeFog))?0:Math.max(this.ambientMist,this.kind==='fog'?this.strength:0);
+    if(this.scene.game.registry.get('presentation')==='three-2.5d'){
+      this.overlay.setVisible(false);this.tint.setVisible(false);return;
+    }
     const animatedPrecip=effects.weatherParticles&&['rain','storm','snow'].includes(this.kind);
     if(this.drawMs<(this.lightweight?(animatedPrecip?170:290):50))return;this.drawMs=0;
     const camera=this.scene.cameras.main,full=overlayViewport(this.scene);
+    const ground=groundWorldView(this.scene),origin=projectedViewOrigin(this.scene,{x:0,y:0});
     const resolution=this.lightweight ? 0.65 : 1;
     const z=full.zoom*resolution,w=Math.max(1,Math.round(full.width*resolution)),h=Math.max(1,Math.round(full.height*resolution));
     if(this.texture.width!==w||this.texture.height!==h)this.texture.setSize(w,h);
@@ -216,19 +233,19 @@ export class WeatherSystem {
     const hasEffect=hasWeatherParticles||fogAmount>.001||ashAmount>.001;
     this.overlay.setVisible(hasEffect);
     if(!hasEffect)return;
-    if(this.roofMs>(this.lightweight?850:350)){this.roofMs=0;const cx=camera.worldView.x+w/z/2,cy=camera.worldView.y+h/z/2;
-      this.roofs=authoredRoofs.query({left:cx-w/z-500,top:cy-h/z-500,right:cx+w/z+500,bottom:cy+h/z+500}).map(roof=>roof.bounds);}
+    if(this.roofMs>(this.lightweight?850:350)){this.roofMs=0;
+      this.roofs=authoredRoofs.query({left:ground.left-500,top:ground.top-500,right:ground.right+500,bottom:ground.bottom+500}).map(roof=>roof.bounds);}
     const ctx=this.texture.getContext();ctx.clearRect(0,0,w,h);
     // Uniform tint uses a one-pixel GPU image underneath the animated layer.
     // Overcast skies need no full-screen canvas uploads.
-    this.fogArt.draw(ctx,w,h,camera.worldView.x,camera.worldView.y,this.elapsed,fogAmount,REGION_SCENERY[region].fogTint,night);
-    this.ashArt.draw(ctx,w,h,camera.worldView.x,camera.worldView.y,this.elapsed,ashAmount,night);
+    this.fogArt.draw(ctx,w,h,origin.x,origin.y,this.elapsed,fogAmount,REGION_SCENERY[region].fogTint,night);
+    this.ashArt.draw(ctx,w,h,origin.x,origin.y,this.elapsed,ashAmount,night);
     if(effects.weatherParticles&&region!=='darkav'&&this.kind!=='ash'&&this.kind!=='cloudy'&&this.kind!=='clear'&&this.kind!=='fog'){
       const count=this.lightweight?(this.kind==='storm'?42:wet?30:this.kind==='snow'?28:14)
         :this.kind==='storm'?96:wet?60:this.kind==='snow'?Math.floor(32+this.strength*40):20;
       for(let i=0;i<count;i++){const p=this.points[i],px=(p.x*w+this.elapsed*(wet?.08:.018)*p.speed)%w,
         py=(p.y*h+this.elapsed*(wet?.55:this.kind==='snow'?.04:.009)*p.speed)%h;
-        const wx=camera.worldView.x+px/z,wy=camera.worldView.y+py/z;
+        const point=unprojectGroundPoint(this.scene,origin.x+px/z,origin.y+py/z,this.groundPoint),wx=point.x,wy=point.y;
         if((wet||this.kind==='snow')&&this.roofs.some(r=>wx>=r.left&&wx<=r.right&&wy>=r.top&&wy<=r.bottom))continue;
         ctx.globalAlpha=this.strength*(wet?.35:.5);ctx.strokeStyle=wet?'#b9d9ee':'#c5b287';ctx.fillStyle=this.kind==='snow'?'#e7f0f5':'#c5b287';
         if(wet){ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(px,py);ctx.lineTo(px+3,py+10);ctx.stroke();}

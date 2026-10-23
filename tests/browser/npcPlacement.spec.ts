@@ -72,7 +72,7 @@ test('every resident streams into a clear court and the shrine residents stay se
   s.cameras.main.stopFollow().setZoom(1.6).centerOn(town.world.x-280,town.world.y+240);
   (s as unknown as {chunkManager:{update(x:number,y:number,immediate:boolean):void}}).chunkManager.update(town.world.x-280,town.world.y+240,true);
   s.scene.pause();
-  const canvas=window.__mernondnaGame!.canvas;
+  const canvas=document.querySelector<HTMLCanvasElement>('.three-world-canvas')!;
   for(const el of [...document.querySelectorAll('body *')])if(el instanceof HTMLElement&&el!==canvas&&!el.contains(canvas))el.style.visibility='hidden';
   return {count:Object.keys(positions).length,missing,blocked,overlap,roads,positions};
  });
