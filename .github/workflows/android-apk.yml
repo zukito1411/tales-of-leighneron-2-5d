@@ -110,7 +110,13 @@ jobs:
           set -euo pipefail
           apk=android/app/build/outputs/apk/release/app-release.apk
           [[ -s "$apk" ]] || { echo "::error::Missing release APK"; exit 1; }
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk"
+          certificate_report="$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk")"
+          printf '%s\n' "$certificate_report"
+          certificate_sha="$(printf '%s\n' "$certificate_report" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          if [[ -z "$certificate_sha" ]]; then
+            echo "::error::APK signature certificate SHA-256 could not be verified."
+            exit 1
+          fi
           metadata="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")"
           grep -q "^package: name='com.mernondna.rpg25d'" <<< "$metadata" || { echo "::error::Wrong Android package"; exit 1; }
           if grep -q '^application-debuggable' <<< "$metadata"; then echo "::error::APK still debuggable"; exit 1; fi
@@ -127,6 +133,8 @@ jobs:
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.
+
+          Signing certificate SHA-256: \`$certificate_sha\`. Compare this value with the next APK to confirm update-compatible signing.
 
           **Experimental**: This workflow verifies compilation, package ID, APK signing
           and the non-debuggable manifest. Real-device rendering, FPS and gameplay have
