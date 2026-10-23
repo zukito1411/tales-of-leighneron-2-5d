@@ -89,6 +89,7 @@ export class ContentChunkManager<Actor> {
   private sceneryWanted=new Set<string>();
   private sceneryCandidates=new Set<string>();
   private nextAdmissionCheckAt=0;
+  private admissionBootstrapped=false;
   private nextSpawnSequence: number;
   private readonly summonOwners = new Map<string,string>();
 
@@ -186,9 +187,18 @@ export class ContentChunkManager<Actor> {
     if(changed||now>=this.nextAdmissionCheckAt){
       this.nextAdmissionCheckAt=now+150;
     const checkedGroups = new Set<string>();
-    for (const key of this.wanted) {
+    const budgeted=Boolean(view)&&this.admissionBootstrapped;
+    this.admissionBootstrapped=true;
+    const admissionStart=budgeted?performance.now():0;
+    let admitted=0,deferred=false;
+    // Bound first-time actor/material/collider construction to one short
+    // slice. Encounter groups remain atomic, but don't also create an entire
+    // settlement in the same camera-turn frame.
+    const exhausted=()=>budgeted&&(admitted>=4||performance.now()-admissionStart>=2);
+    admissions: for (const key of this.wanted) {
       for (const id of this.buckets.get(key) ?? []) {
         if (this.active.has(id)) continue;
+        if(exhausted()){deferred=true;break admissions;}
         const state = this.getState(id)!;
         if (state.defeated) continue;
         const definition = this.definitions.get(id)!;
@@ -196,23 +206,29 @@ export class ContentChunkManager<Actor> {
         if (groupKey && this.host.canActivateGroup) {
           if (checkedGroups.has(groupKey)) continue;
           checkedGroups.add(groupKey);
-          if (this.activateCreatureGroup(groupKey)) changed = true;
+          const before=this.active.size;
+          if (this.activateCreatureGroup(groupKey)) {admitted+=this.active.size-before;changed=true;}
           continue;
         }
         if (this.host.canActivate && !this.host.canActivate(definition, state)) continue;
         this.active.set(id, this.host.create(definition, { ...state }));
-        changed = true;
+        admitted++;changed = true;
       }
     }
     // A mountain's visible extent can enter view before its base chunk does.
     // Keep just those authored actors alive; terrain streaming stays bounded.
-    for(const id of this.sceneryCandidates){
-      if(this.active.has(id))continue;const state=this.getState(id)!;
+    if(!deferred)for(const id of this.sceneryCandidates){
+      if(this.active.has(id))continue;
+      if(exhausted()){deferred=true;break;}
+      const state=this.getState(id)!;
       if(state.defeated||!this.sceneryWanted.has(id)&&!this.nearOversized(id,state,x,y,view))continue;
       const definition=this.definitions.get(id)!;
       if(this.host.canActivate&&!this.host.canActivate(definition,state))continue;
-      this.active.set(id,this.host.create(definition,{...state}));changed=true;
+      this.active.set(id,this.host.create(definition,{...state}));admitted++;changed=true;
     }
+    // A deferred activation should resume next tick, not wait for another
+    // camera boundary change or the normal stationary 150 ms poll.
+    if(deferred)this.nextAdmissionCheckAt=0;
     }
     return changed;
   }

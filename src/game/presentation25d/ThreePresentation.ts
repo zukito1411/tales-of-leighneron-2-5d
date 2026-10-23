@@ -162,7 +162,7 @@ export class ThreePresentation {
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
     this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y).project(this.orbit.camera);
-    this.elevation.prepare(this.orbit.bounds,this.heightEnabled);
+    this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
@@ -363,7 +363,10 @@ export class ThreePresentation {
     if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',houseVolume?house!.depth:0))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
-    if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)&&!(object instanceof Phaser.GameObjects.Text)&&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
+    if(plane==='upright'&&!hint?.overlay&&(!hint?.anchor||hint.wall)
+      &&object.getData('presentation25dPlayerVisual')!==true
+      &&!(object instanceof Phaser.GameObjects.Text)
+      &&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
       const b=this.projectedBounds;
       if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
     }

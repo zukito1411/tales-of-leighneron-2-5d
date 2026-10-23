@@ -1,7 +1,7 @@
-import {AddEquation,Color,CustomBlending,DynamicDrawUsage,InstancedBufferAttribute,InstancedMesh,LinearFilter,Matrix4,Mesh,NormalBlending,OneMinusSrcAlphaFactor,OrthographicCamera,PlaneGeometry,Scene,ShaderMaterial,Vector2,WebGLRenderTarget,ZeroFactor,type Texture,type WebGLRenderer} from 'three';
+import {AddEquation,Color,CustomBlending,DynamicDrawUsage,InstancedBufferAttribute,InstancedMesh,LinearFilter,Matrix4,Mesh,NormalBlending,OneMinusSrcAlphaFactor,OrthographicCamera,PlaneGeometry,Scene,ShaderMaterial,Vector2,WebGLRenderTarget,ZeroFactor,Vector3,type Texture,type WebGLRenderer} from 'three';
 import type Phaser from 'phaser';
 import type {DayNightSystem} from '../systems/DayNightSystem';
-import {presentationAttachment,presentationView} from './plane';
+import {presentationAttachmentWorld,presentationView} from './plane';
 import {FOG_START,VIEW_DISTANCE} from './environment';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {getGraphicEffects} from '../systems/graphicsEffects';
@@ -29,7 +29,8 @@ export class GpuNightMask {
   private readonly uniforms={mask:{value:null as Texture|null},worldDepth:{value:null as Texture|null},darkness:{value:0},inverseVP:{value:new Matrix4()},focus:{value:new Vector2()},fogRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)}};
   private readonly material=new ShaderMaterial({uniforms:this.uniforms,vertexShader:overlayVertex,fragmentShader:overlayFragment,transparent:true,depthTest:false,depthWrite:false,blending:NormalBlending});
   private readonly overlay=new Mesh(this.overlayGeometry,this.material);
-  private target:WebGLRenderTarget|undefined;private readonly color=new Color();private readonly point={x:0,y:0};private readonly edge={x:0,y:0};
+  private target:WebGLRenderTarget|undefined;private readonly color=new Color();
+  private readonly point={x:0,y:0,z:0};private readonly edge={x:0,y:0,z:0};private readonly projected=new Vector3();
   constructor(screen:Scene){
     this.geometry.setAttribute('light',this.lights);this.holes.frustumCulled=false;this.scene.add(this.holes);
     this.overlay.frustumCulled=false;this.overlay.renderOrder=1_000_000;this.overlay.visible=false;screen.add(this.overlay);
@@ -42,13 +43,29 @@ export class GpuNightMask {
     const width=Math.max(1,Math.min(1280,Math.round(camera.width/density*(low?.65:1)))),height=Math.max(1,Math.min(960,Math.round(camera.height/density*(low?.65:1))));
     if(!this.target)this.target=new WebGLRenderTarget(width,height,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});
     else if(this.target.width!==width||this.target.height!==height)this.target.setSize(width,height);
+    const view=presentationView(scene);
+    if(!view){this.overlay.visible=false;this.release();return;}
     let count=0;
     for(const node of source.gpuLights()){
       const actor=node.actor;if(!actor.active||!actor.visible||actor.cameraFilter&camera.id)continue;
-      presentationAttachment(scene,actor,actor.x+node.x,actor.y+node.y,this.point);
-      presentationAttachment(scene,actor,actor.x+node.x+node.radius,actor.y+node.y,this.edge);
-      const x=this.point.x*camera.zoom/camera.width*2-1,y=1-this.point.y*camera.zoom/camera.height*2;
-      const rx=Math.abs(this.edge.x-this.point.x)*camera.zoom/camera.width*2,ry=rx*camera.width/camera.height;
+      const dx=actor.x-view.focusGround.x,dy=actor.y-view.focusGround.y;
+      const reach=VIEW_DISTANCE+node.radius+384;
+      if(dx*dx+dy*dy>reach*reach)continue;
+      // Never project lights behind the camera: perspective division can
+      // otherwise turn a rearward lantern into a fullscreen darkness eraser.
+      presentationAttachmentWorld(scene,actor,actor.x+node.x,actor.y+node.y,this.point);
+      this.projected.set(this.point.x,this.point.y,this.point.z).applyMatrix4(view.camera.matrixWorldInverse);
+      const depth=-this.projected.z;
+      if(!Number.isFinite(depth)||depth<=view.camera.near||depth>=view.camera.far)continue;
+      this.projected.set(this.point.x,this.point.y,this.point.z).project(view.camera);
+      const x=this.projected.x,y=this.projected.y;
+      if(!Number.isFinite(x)||!Number.isFinite(y)||this.projected.z < -1||this.projected.z > 1)continue;
+      presentationAttachmentWorld(scene,actor,actor.x+node.x+node.radius,actor.y+node.y,this.edge);
+      this.projected.set(this.edge.x,this.edge.y,this.edge.z).applyMatrix4(view.camera.matrixWorldInverse);
+      if(-this.projected.z<=view.camera.near)continue;
+      this.projected.set(this.edge.x,this.edge.y,this.edge.z).project(view.camera);
+      if(!Number.isFinite(this.projected.x))continue;
+      const rx=Math.min(1.2,Math.abs(this.projected.x-x)),ry=rx*camera.width/camera.height;
       if(rx<=0||x+rx<-1||x-rx>1||y+ry<-1||y-ry>1)continue;
       const flicker=node.fire?.96+Math.sin(source.presentationTime*.013+node.phase)*.04:1;
       this.lights.setXYZW(count++,x,y,rx*flicker,ry*flicker);
@@ -59,8 +76,8 @@ export class GpuNightMask {
     try{renderer.setRenderTarget(this.target);renderer.setClearColor(0x000000,1);renderer.clear();if(count)renderer.render(this.scene,this.camera);}
     finally{renderer.setRenderTarget(previous);renderer.setClearColor(this.color,alpha);}
     this.uniforms.mask.value=this.target.texture;this.uniforms.worldDepth.value=depth;this.uniforms.darkness.value=night*.84;
-    const view=presentationView(scene);
-    if(view){this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);}
+    this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
+    this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);
   }
   private release(){this.target?.dispose();this.target=undefined;this.uniforms.mask.value=null;this.uniforms.worldDepth.value=null;}
   destroy(){this.release();this.overlay.removeFromParent();this.holes.dispose();this.geometry.dispose();this.overlayGeometry.dispose();this.erase.dispose();this.material.dispose();this.scene.clear();}

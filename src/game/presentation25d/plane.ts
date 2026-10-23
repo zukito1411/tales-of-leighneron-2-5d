@@ -168,15 +168,26 @@ export function uprightPoint(x:number,y:number,anchorX:number,anchorY:number,out
 
 const attachmentPoint={x:0,y:0,z:0};
 /** Authored lamps share their owner's billboard or fixed house facade. */
+/** Exact 3D point of a lamp on its authored billboard or house facade.
+ * Keeping its depth lets the night renderer reject behind-camera lights. */
+export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number;z:number}){
+  const house=(owner.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
+  if(house){
+    const dx=x-owner.x;
+    out.x=owner.x+dx*Math.cos(owner.rotation);
+    out.y=worldHeight(scene,owner.x,owner.y)+owner.y-y;
+    out.z=owner.y+dx*Math.sin(owner.rotation);
+  }else uprightPoint(x,y,owner.x,owner.y,out,scene);
+  const elevation='presentationElevation' in owner&&typeof owner.presentationElevation==='number'?owner.presentationElevation:0;
+  out.y+=elevation;
+  return out;
+}
+
+/** Authored lamps share their owner's billboard or fixed house facade. */
 export function presentationAttachment(scene:Phaser.Scene,owner:Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number}){
   if(gameViews.has(scene.game)){
-    const house=(owner.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
-    if(house){const dx=x-owner.x;attachmentPoint.x=owner.x+dx*Math.cos(owner.rotation);
-      attachmentPoint.y=worldHeight(scene,owner.x,owner.y)+owner.y-y;
-      attachmentPoint.z=owner.y+dx*Math.sin(owner.rotation);
-    }else uprightPoint(x,y,owner.x,owner.y,attachmentPoint,scene);
-    const elevation='presentationElevation' in owner&&typeof owner.presentationElevation==='number'?owner.presentationElevation:0;
-    return projectWorldPoint(scene,attachmentPoint.x,attachmentPoint.y+elevation,attachmentPoint.z,out);
+    presentationAttachmentWorld(scene,owner,x,y,attachmentPoint);
+    return projectWorldPoint(scene,attachmentPoint.x,attachmentPoint.y,attachmentPoint.z,out);
   }
   const surface=groundForeshortening(scene)!==1?owner.getData(PRESENTATION_SURFACE) as PresentationSurface|undefined:undefined;
   if(surface){surface.point(x,y,attachmentPoint);projectGroundPoint(scene,attachmentPoint.x,attachmentPoint.z,out);out.y-=attachmentPoint.y*CAMERA_COS;}
