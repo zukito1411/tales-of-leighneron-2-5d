@@ -41,26 +41,41 @@ jobs:
       - name: Configure Android release APK signing
         env:
           ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_DEBUG_KEYSTORE_BASE64: ${{ secrets.ANDROID_DEBUG_KEYSTORE_BASE64 }}
           ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD || secrets.ANDROID_STORE_PASSWORD }}
           ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
           ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.android"
-          # Never publish an APK signed by an arbitrary ephemeral certificate:
-          # Android updates require an identical signing certificate every time.
-          for name in ANDROID_25D_KEYSTORE_BASE64 ANDROID_25D_STORE_PASSWORD ANDROID_25D_KEY_PASSWORD ANDROID_25D_KEY_ALIAS; do
-            if [[ -z "${!name:-}" ]]; then
-              echo "::error::Missing $name. Configure all four repository Actions secrets before building a release APK."
-              exit 1
-            fi
-          done
-          printf '%s' "$ANDROID_25D_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/leighneron25d.keystore"
-          # Fail immediately if the configured alias/password does not unlock
-          # the persistent key. Never regenerate or silently replace a keystore.
+          # A named repository secret is stable across runs. Never generate
+          # an ephemeral keystore that changes the install/update signature.
+          if [[ -n "${ANDROID_25D_KEYSTORE_BASE64:-}" ]]; then
+            signing_bytes="$ANDROID_25D_KEYSTORE_BASE64"
+            for name in ANDROID_25D_STORE_PASSWORD ANDROID_25D_KEY_PASSWORD ANDROID_25D_KEY_ALIAS; do
+              if [[ -z "${!name:-}" ]]; then
+                echo "::error::Missing $name for the permanent release keystore."
+                exit 1
+              fi
+            done
+            echo "SIGNING_MODE=persistent-release-key" >> "$GITHUB_ENV"
+          elif [[ -n "${ANDROID_DEBUG_KEYSTORE_BASE64:-}" ]]; then
+            # User-provided persistent debug keystore signs a non-debuggable
+            # RELEASE artifact. These Android SDK defaults only apply to this
+            # explicit debug-keystore secret and are overridable by secrets.
+            signing_bytes="$ANDROID_DEBUG_KEYSTORE_BASE64"
+            ANDROID_25D_STORE_PASSWORD="${ANDROID_25D_STORE_PASSWORD:-android}"
+            ANDROID_25D_KEY_PASSWORD="${ANDROID_25D_KEY_PASSWORD:-android}"
+            ANDROID_25D_KEY_ALIAS="${ANDROID_25D_KEY_ALIAS:-androiddebugkey}"
+            echo "SIGNING_MODE=persistent-debug-key" >> "$GITHUB_ENV"
+            echo "::warning::Using ANDROID_DEBUG_KEYSTORE_BASE64 for an assembleRelease APK. The APK is non-debuggable, but debug certificates are not suitable for Play Store production."
+          else
+            echo "::error::Missing signing keystore: provide ANDROID_25D_KEYSTORE_BASE64, ANDROID_KEYSTORE_BASE64, or ANDROID_DEBUG_KEYSTORE_BASE64."
+            exit 1
+          fi
+          printf '%s' "$signing_bytes" | base64 --decode > "$HOME/.android/leighneron25d.keystore"
           keytool -list -keystore "$HOME/.android/leighneron25d.keystore" \
-            -alias "$ANDROID_25D_KEY_ALIAS" -storepass "$ANDROID_25D_STORE_PASSWORD" -keypass "$ANDROID_25D_KEY_PASSWORD" >/dev/null
-          echo "SIGNING_MODE=persistent" >> "$GITHUB_ENV"
+            -alias "$ANDROID_25D_KEY_ALIAS" -storepass "$ANDROID_25D_STORE_PASSWORD" >/dev/null
           chmod 600 "$HOME/.android/leighneron25d.keystore"
           echo "ANDROID_25D_KEYSTORE=$HOME/.android/leighneron25d.keystore" >> "$GITHUB_ENV"
           echo "::add-mask::$ANDROID_25D_STORE_PASSWORD"
@@ -95,7 +110,13 @@ jobs:
           set -euo pipefail
           apk=android/app/build/outputs/apk/release/app-release.apk
           [[ -s "$apk" ]] || { echo "::error::Missing release APK"; exit 1; }
-          "$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk"
+          certificate_report="$("$ANDROID_HOME/build-tools/34.0.0/apksigner" verify --print-certs "$apk")"
+          printf '%s\n' "$certificate_report"
+          certificate_sha="$(printf '%s\n' "$certificate_report" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)"
+          if [[ -z "$certificate_sha" ]]; then
+            echo "::error::APK signature certificate SHA-256 could not be verified."
+            exit 1
+          fi
           metadata="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")"
           grep -q "^package: name='com.mernondna.rpg25d'" <<< "$metadata" || { echo "::error::Wrong Android package"; exit 1; }
           if grep -q '^application-debuggable' <<< "$metadata"; then echo "::error::APK still debuggable"; exit 1; fi
@@ -110,8 +131,10 @@ jobs:
           Known rendering fixes include projected ground chunk coverage, daytime shadow
           translucency, darkness compositing, and trimmed-frame alignment.
 
-          **Signing mode: persistent GitHub Actions secret-backed keystore only.**
-          The build refuses missing/invalid signing secrets. The APK is a non-debuggable release, not a debug or ephemeral-key artifact. Previous ephemeral-key APKs cannot be updated in place by this persistent key; export your saves first.
+          **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
+          The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.
+
+          Signing certificate SHA-256: \`$certificate_sha\`. Compare this value with the next APK to confirm update-compatible signing.
 
           **Experimental**: This workflow verifies compilation, package ID, APK signing
           and the non-debuggable manifest. Real-device rendering, FPS and gameplay have

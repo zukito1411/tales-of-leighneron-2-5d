@@ -38,13 +38,13 @@ export class GpuNightMask {
   active(night:number,interior:boolean){return night>0&&!interior&&getGraphicEffects().nightDarkness;}
   render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number){
     this.overlay.visible=this.active(night,interior)&&Boolean(source&&depth);
-    if(!this.overlay.visible||!source||!depth){this.release();return;}
+    if(!this.overlay.visible||!source||!depth){this.suspend();return;}
     const low=getEffectsQuality()==='low',camera=scene.cameras.main;
     const width=Math.max(1,Math.min(1280,Math.round(camera.width/density*(low?.65:1)))),height=Math.max(1,Math.min(960,Math.round(camera.height/density*(low?.65:1))));
     if(!this.target)this.target=new WebGLRenderTarget(width,height,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});
     else if(this.target.width!==width||this.target.height!==height)this.target.setSize(width,height);
     const view=presentationView(scene);
-    if(!view){this.overlay.visible=false;this.release();return;}
+    if(!view){this.overlay.visible=false;this.suspend();return;}
     let count=0;
     for(const node of source.gpuLights()){
       const actor=node.actor;if(!actor.active||!actor.visible||actor.cameraFilter&camera.id)continue;
@@ -79,6 +79,10 @@ export class GpuNightMask {
     this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
     this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);
   }
-  private release(){this.target?.dispose();this.target=undefined;this.uniforms.mask.value=null;this.uniforms.worldDepth.value=null;}
+  // Night/day and indoor/outdoor switches are common. Keep the allocation
+  // warm between passes; destroying/reallocating this FBO on every transition
+  // stalls tile-based mobile GPUs. Only dispose on actual game teardown.
+  private suspend(){this.uniforms.mask.value=null;this.uniforms.worldDepth.value=null;this.holes.count=0;}
+  private release(){this.target?.dispose();this.target=undefined;this.suspend();}
   destroy(){this.release();this.overlay.removeFromParent();this.holes.dispose();this.geometry.dispose();this.overlayGeometry.dispose();this.erase.dispose();this.material.dispose();this.scene.clear();}
 }

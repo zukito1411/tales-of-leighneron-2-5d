@@ -67,20 +67,23 @@ export class RasterCache {
     return cached;
   }
   prune(frame:number){
-    let idle=0,bytes=0;
+    let idle=0,bytes=0,released=0;
+    // Rasterized Phaser vectors are expensive to redraw on first appearance.
+    // Retain short camera-orbit misses; cap WebGL/Canvas disposal per frame.
     for(const [object,entry] of this.frames){
-      if(!object.scene||frame-entry.lastUsed>90)this.release(object,entry);
-      else if(entry.lastUsed<frame){
+      if(!object.scene||frame-entry.lastUsed>240){
+        if(released<2){this.release(object,entry);released++;}
+      }else if(entry.lastUsed<frame){
         idle++;const canvas=entry.texture.image as HTMLCanvasElement;bytes+=canvas.width*canvas.height*4;
       }
     }
-    // Retain brief occlusion without an unbounded collection of vector canvases.
-    if(idle<=32&&bytes<=8*1024*1024)return;
+    const MAX_IDLE=48,MAX_IDLE_BYTES=12*1024*1024;
+    if(released>=2||idle<=MAX_IDLE&&bytes<=MAX_IDLE_BYTES)return;
     const retired=[...this.frames].filter(([,entry])=>entry.lastUsed<frame).sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
     for(const [object,entry] of retired){
-      if(idle<=32&&bytes<=8*1024*1024)break;
+      if(idle<=MAX_IDLE&&bytes<=MAX_IDLE_BYTES||released>=2)break;
       const canvas=entry.texture.image as HTMLCanvasElement;bytes-=canvas.width*canvas.height*4;idle--;
-      this.release(object,entry);
+      this.release(object,entry);released++;
     }
   }
   private release(object:RasterObject,entry:RasterFrame){
