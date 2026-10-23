@@ -5,7 +5,7 @@ import {getGraphicEffects,setGraphicEffect,resetGraphicEffects,type GraphicEffec
 // LEIGHNERON_MOBILE_GRAPHICS_NPC_FIX_V1
 const OPTIONS:ReadonlyArray<{key:GraphicEffectKey;title:string;description:string}>=[
  {key:'adaptiveResolution',title:'Adaptive render resolution',description:'Reduces render resolution during sustained slow frames while retaining artwork and effects.'},
- {key:'depthOfField',title:'Depth of field',description:'Softens near and distant scenery while keeping the playable area in focus. Graphics Low uses a lighter blur.'},
+ {key:'depthOfField',title:'Depth of field',description:'Optional two-pass cinematic blur on Normal. Low skips the blur to prioritize smooth movement and camera control.'},
  {key:'depthHaze',title:'Distance haze',description:'Subtle atmospheric separation between nearby and distant scenery.'},
  {key:'cinematicColor',title:'Scenery colour and contrast',description:'Warm highlights, cool shadows and gentle detail contrast. Menus stay unchanged.'},
  {key:'combatShake',title:'Combat camera shake',description:'Brief, limited shakes on confirmed heavy hits and dodges. Respects reduced-motion preferences.'},
