@@ -40,6 +40,7 @@ export class Player extends DepthSortedSprite {
     facing.y=this.viewFacing==='up'?-1:this.viewFacing==='down'?1:0;return facing;
   }
   private jumpY=0;private jumpVelocity=0;private jumping=false;
+  private jumpQueuedUntil=0;
   get presentationElevation(){return this.jumping?Math.max(0,this.jumpY-worldHeight(this.scene,this.x,this.y)):0;}
   private readonly keys: Record<'up' | 'down' | 'left' | 'right' | 'sprint' | MobileAction, Phaser.Input.Keyboard.Key>;
   private nextAttackAt = 0;
@@ -157,8 +158,13 @@ export class Player extends DepthSortedSprite {
     const movementLocked=castingAtFrameStart||this.skills.isCasting;
     const keyboardJump=this.consumeAction('jump'),touchJump=mobileInput.consume('jump');
     const jumpPressed=keyboardJump||touchJump;
+    // Input events arriving during a cast, animation transition or a slow
+    // frame must not vanish just because jumping was temporarily locked.
+    if(jumpPressed)this.jumpQueuedUntil=time+250;
     const ground=worldHeight(scene,this.x,this.y),dt=Math.max(0,Math.min(delta,80))/1000;
-    if(jumpPressed&&!this.jumping&&!movementLocked&&this.hp>0){this.jumping=true;this.jumpY=ground;this.jumpVelocity=380;}
+    if(this.jumpQueuedUntil>=time&&!this.jumping&&!movementLocked&&this.hp>0){
+      this.jumping=true;this.jumpY=ground;this.jumpVelocity=380;this.jumpQueuedUntil=0;
+    }
     if(this.jumping){this.jumpY+=this.jumpVelocity*dt-550*dt*dt;this.jumpVelocity-=1100*dt;
       if(this.jumpY<=ground&&this.jumpVelocity<0){this.jumping=false;this.jumpVelocity=0;this.jumpY=ground;}}
 
@@ -344,7 +350,7 @@ export class Player extends DepthSortedSprite {
   }
 
   restoreAt(x: number, y: number) {
-    this.jumping=false;this.jumpVelocity=0;this.jumpY=0;
+    this.jumping=false;this.jumpVelocity=0;this.jumpY=0;this.jumpQueuedUntil=0;
     this.resetBasicAttackCombo();
     this.recovery.interrupt();
     this.skills.cancelCast(); this.skills.clearRally();
@@ -362,6 +368,7 @@ export class Player extends DepthSortedSprite {
   }
 
   resetInput() {
+    this.jumpQueuedUntil=0;
     this.resetBasicAttackCombo();
     // Menus must see current combat vitals, not the throttled HUD snapshot;
     // otherwise drinking from Bag can heal from an older health value.
