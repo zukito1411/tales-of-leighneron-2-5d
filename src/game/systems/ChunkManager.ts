@@ -14,6 +14,7 @@ import {planLandmarkScenerySteps} from './LandmarkScenery';
 import type {WorldSpriteSystem} from './WorldSpriteSystem';
 import {StaticBoundsIndex} from './StaticBoundsIndex';
 import {bossArenaBounds} from './bossArenas';
+import {getEffectsQuality} from './effectsQuality';
 
 interface ChunkRuntime {
   image: Phaser.GameObjects.Image;
@@ -61,6 +62,9 @@ export class ChunkManager {
   // Shared terrain art provides a temporary ground plane while the expensive
   // authored chunk texture and its collision scenery finish across frames.
   private readonly fallbacks=new Map<string,Phaser.GameObjects.TileSprite>();
+  private readonly retiring=new Map<string,number>();
+  private readonly mobileTerrain=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
+  private readonly maxRetirePerFrame=1;
 
   constructor(scene: Phaser.Scene, world: WorldGenerator,
     private readonly treeSway:TreeSwaySystem,private readonly lighting:DayNightSystem,private readonly ground:WorldSpriteSystem) {
@@ -85,7 +89,7 @@ export class ChunkManager {
       +Math.floor(groundView.top/CHUNK_SIZE)+':'+Math.floor(groundView.bottom/CHUNK_SIZE)+':'
       +Math.floor((groundView.left-384)/CHUNK_SIZE)+':'+Math.floor((groundView.right+384)/CHUNK_SIZE)+':'
       +Math.floor((groundView.top-384)/CHUNK_SIZE)+':'+Math.floor((groundView.bottom+384)/CHUNK_SIZE);
-    if(viewKey===this.lastTravelViewKey){this.loadPendingChunk();return;}
+    if(viewKey===this.lastTravelViewKey){this.retireExpired();this.loadPendingChunk();return;}
     this.lastTravelViewKey=viewKey;
     const visible=viewportChunks(groundView);
     this.visibleChunks=visible;
@@ -94,16 +98,14 @@ export class ChunkManager {
     // chunk becomes safety-critical. Normal 3x3 walking residency is retained.
     for(const key of viewportChunks(groundView,384))wanted.add(key);
     const centerKey = `${centerX}:${centerY}:`+streamViewKey(wanted)+':'+streamViewKey(visible);
-    if (centerKey === this.lastCenter) { this.loadPendingChunk(); return; }
+    if (centerKey === this.lastCenter) { this.retireExpired();this.loadPendingChunk(); return; }
     this.lastCenter = centerKey;
 
-    for (const [key, chunk] of this.active) {
-      if (wanted.has(key)) continue;
-      chunk.image.destroy();
-      for (const image of chunk.scenery) image.destroy();
-      this.retireTerrain(key,chunk);
-      this.active.delete(key);
-    }
+    // Do not tear down a whole village merely because its edge moved
+    // out of view during a camera turn. Keep a short re-entry grace period;
+    // destroy at most one expired chunk per frame to avoid a disposal spike.
+    this.markRetiring(wanted);
+    this.retireExpired();
     for (const key of [...this.pendingChunks.keys()]) if(!wanted.has(key))this.pendingChunks.delete(key);
     if(this.preparing&&!wanted.has(this.preparing.key))this.cancelPreparation();
     // Only the initial player's cell is permitted one blocking load, before
@@ -132,10 +134,8 @@ export class ChunkManager {
     this.bootstrapped=true;
     this.lastCenter='view:'+streamViewKey(wanted);
     this.lastTravelViewKey=''; // Explicit transition views supersede walking cache.
-    for(const [key,chunk] of this.active)if(!wanted.has(key)){
-      chunk.image.destroy();for(const image of chunk.scenery)image.destroy();
-      this.retireTerrain(key,chunk);this.active.delete(key);
-    }
+    this.markRetiring(wanted);
+    this.retireExpired();
     for(const key of this.pendingChunks.keys())if(!wanted.has(key))this.pendingChunks.delete(key);
     if(this.preparing&&!wanted.has(this.preparing.key))this.cancelPreparation();
     const ordered=[...wanted].sort((a,b)=>Number(visible.has(b))-Number(visible.has(a)));
@@ -195,6 +195,26 @@ export class ChunkManager {
       Number(this.visibleChunks.has(b[0]))-Number(this.visibleChunks.has(a[0]))||distance(a[1])-distance(b[1]));
     this.pendingChunks.clear();for(const [key,point] of ordered)this.pendingChunks.set(key,point);
   }
+  private markRetiring(wanted:ReadonlySet<string>){
+    const now=this.scene.time.now;
+    for(const key of this.active.keys()){
+      if(wanted.has(key))this.retiring.delete(key);
+      else if(!this.retiring.has(key))this.retiring.set(key,now+900);
+    }
+  }
+  private retireExpired(){
+    const now=this.scene.time.now;let count=0;
+    for(const [key,expires] of this.retiring){
+      if(expires>now)continue;
+      this.retiring.delete(key);
+      const chunk=this.active.get(key);if(!chunk)continue;
+      chunk.image.destroy();
+      for(const actor of chunk.scenery)actor.destroy();
+      this.retireTerrain(key,chunk);
+      this.active.delete(key);
+      if(++count>=this.maxRetirePerFrame)break;
+    }
+  }
   private cancelPreparation(){
     const job=this.preparing;this.preparing=null;job?.steps.return();
   }
@@ -239,7 +259,7 @@ export class ChunkManager {
     }
     this.active.clear();
     for(const key of this.fallbacks.keys())this.removeFallback(key);
-    this.visibleChunks.clear();this.bootstrapped=false;
+    this.visibleChunks.clear();this.bootstrapped=false;this.retiring.clear();
     this.pendingChunks.clear();
     for(const textureKey of this.recentTerrain.values())this.scene.textures.remove(textureKey);
     this.recentTerrain.clear();this.sceneryPlans.clear();
@@ -266,16 +286,27 @@ export class ChunkManager {
     const ocean=Array.from({length:25},(_,i)=>({x:(chunkX+i%5/4)*CHUNK_SIZE,y:(chunkY+Math.floor(i/5)/4)*CHUNK_SIZE}))
       .every(p=>this.world.getRegionAt(p.x,p.y)==='dead-sea');
     if(ocean){
-      const key='shared-ocean-chunk';if(!this.scene.textures.exists(key)){const texture=this.scene.textures.createCanvas(key,CHUNK_SIZE,CHUNK_SIZE)!;this.baker.drawOcean(texture.getContext());texture.refresh();}
-      const image=this.scene.add.image(chunkX*CHUNK_SIZE,chunkY*CHUNK_SIZE,key).setOrigin(0).setDepth(-1000);
+      const key='shared-ocean-chunk';if(!this.scene.textures.exists(key)){
+        const pixels=this.mobileTerrain?1024:CHUNK_SIZE;
+        const texture=this.scene.textures.createCanvas(key,pixels,pixels)!;
+        const ctx=texture.getContext();
+        ctx.setTransform(pixels/CHUNK_SIZE,0,0,pixels/CHUNK_SIZE,0,0);
+        this.baker.drawOcean(ctx);texture.refresh();
+      }
+      const image=this.scene.add.image(chunkX*CHUNK_SIZE,chunkY*CHUNK_SIZE,key)
+        .setOrigin(0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
       this.active.set(chunkX+':'+chunkY,{image,textureKey:key,shared:true,scenery:[]});return;
     }
     const textureKey = `chunk:${chunkX}:${chunkY}`;
     const cacheKey=`${chunkX}:${chunkY}`;
     const cached=this.recentTerrain.delete(cacheKey);
+    // Mobile GPU upload pressure: one 1536x1536 RGBA chunk costs 9 MiB.
+    // Normal mobile quality paints into 1024px (~4 MiB); low uses 768px
+    // (~2.25 MiB), with identical logical world size and collision locations.
+    const pixels=this.mobileTerrain?(getEffectsQuality()==='low'?768:1024):CHUNK_SIZE;
     const canvasTexture = cached
       ? this.scene.textures.get(textureKey) as Phaser.Textures.CanvasTexture
-      : this.scene.textures.createCanvas(textureKey, CHUNK_SIZE, CHUNK_SIZE);
+      : this.scene.textures.createCanvas(textureKey,pixels,pixels);
     if (!canvasTexture) return;
     let committed=false;
     const scenery: Array<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite> = [];
@@ -283,6 +314,8 @@ export class ChunkManager {
     try{
     if(!cached){
       const ctx = canvasTexture.getContext();
+      const ratio=canvasTexture.width/CHUNK_SIZE;
+      ctx.setTransform(ratio,0,0,ratio,0,0);
       yield* this.baker.drawSteps(ctx, this.world, chunkX, chunkY);
     }
     // The same exact authored reservations and deterministic seed yield the
@@ -332,9 +365,13 @@ export class ChunkManager {
       this.lighting.register(sprite,detail.texture,detail.frame,detail.scale);
       yield;
     }
-    for(const actor of scenery){actor.setVisible(true);this.ground.activate(actor);}
+    // Enabling static bodies, habitat listeners and optional ground blending
+    // is not cheap. Stage publication work before exposing the whole chunk.
+    for(const actor of scenery){this.ground.activate(actor);yield;}
+    for(const actor of scenery)actor.setVisible(true);
     for(const leaves of canopies)leaves.setVisible(true);
-    const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey).setOrigin(0, 0).setDepth(-1000);
+    const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
+      .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
     this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery });
     committed=true;
     }finally{

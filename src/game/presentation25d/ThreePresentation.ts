@@ -7,6 +7,7 @@ import {
 import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
 import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
+import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {createHouseGeometry} from './HouseGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
@@ -107,6 +108,12 @@ export class ThreePresentation {
   private readonly missing=new Set<string>();
   private readonly masks=new WeakMap<Phaser.GameObjects.Graphics,{id:number;rects:Vector4[]}>();
   private nextMaskId=1;
+  private frameDiagnostics=getFrameDiagnosticsEnabled();
+  private diagnosticsParent:HTMLElement|null=null;
+  private diagnosticsPanel:HTMLPreElement|null=null;
+  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0};
+  private diagnosticAt=0;
+  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
@@ -125,6 +132,8 @@ export class ThreePresentation {
     canvas.setAttribute('aria-label','Tales of Leighneron 2.5D world');
     Object.assign(canvas.style,{position:'absolute',inset:'0',width:'100%',height:'100%',touchAction:'none'});
     parent.append(canvas);
+    this.diagnosticsParent=parent;this.syncDiagnosticsPanel();
+    window.addEventListener(FRAME_DIAGNOSTICS_EVENT,this.onDiagnosticChange);
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();});
     this.originalCanvasVisibility=game.canvas.style.visibility;game.canvas.style.visibility='hidden';
     this.originalMouseEnabled=game.input.mouse?.enabled;this.originalTouchEnabled=game.input.touch?.enabled;
@@ -140,6 +149,7 @@ export class ThreePresentation {
 
   private draw(scene:Phaser.Scene,children:Phaser.GameObjects.GameObject[],camera:Phaser.Cameras.Scene2D.Camera){
     if(this.stopped)return;
+    const profStart=this.frameDiagnostics?performance.now():0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
     this.native.emit(Phaser.Renderer.Events.RENDER,scene,camera);
@@ -181,6 +191,7 @@ export class ThreePresentation {
     }
     pruneSpriteBatches(this.batches,this.frame);
     this.textures.prune(this.frame);this.rasters.prune(this.frame);
+    const profCollect=this.frameDiagnostics?performance.now():0;
     this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
     this.syncCameraEffect(this.flash,camera.flashEffect.isRunning?camera.flashEffect:undefined);
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
@@ -191,6 +202,7 @@ export class ThreePresentation {
       depthNeeded:this.gpuWeather.needsDepth||this.gpuNight.active(night,this.interior),weather:weather?.presentation,mist:this.gpuWeather.fog});
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
     this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,this.postFX.depth,night,this.interior,density);
+    const profRender=this.frameDiagnostics?performance.now():0;
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
@@ -198,6 +210,42 @@ export class ThreePresentation {
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
     if(!this.stopped)this.elevation.preload(this.orbit.bounds,this.heightEnabled&&presentation.presentationControlsEnabled===true,
       this.game.loop.delta>24 ? .4 : .8);
+    if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
+  }
+
+  private syncDiagnosticsPanel(){
+    if(!this.frameDiagnostics){this.diagnosticsPanel?.remove();this.diagnosticsPanel=null;return;}
+    if(!this.diagnosticsParent||this.diagnosticsPanel)return;
+    const panel=document.createElement('pre');
+    panel.setAttribute('aria-label','2.5D rendering diagnostics');
+    Object.assign(panel.style,{position:'absolute',left:'8px',top:'8px',zIndex:'30',
+      background:'rgba(0,0,0,.82)',color:'#ffffff',padding:'8px',
+      font:'11px/1.4 monospace',whiteSpace:'pre',pointerEvents:'none',
+      borderRadius:'4px',maxWidth:'95vw'});
+    panel.textContent='Measuring 2.5D frame pacing...';
+    this.diagnosticsPanel=panel;this.diagnosticsParent.append(panel);
+  }
+  private recordDiagnostics(start:number,collected:number,world:number,done:number){
+    const d=this.diag;
+    d.frames++;d.total+=done-start;d.collect+=collected-start;d.render+=world-collected;
+    d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.delta);
+    if(done-this.diagnosticAt<1000)return;
+    const frames=Math.max(1,d.frames);
+    const result={cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
+      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
+      longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
+      gpuTextures:this.renderer.info.memory.textures};
+    this.game.registry.set('presentationPerf',result);
+    if(this.diagnosticsPanel){
+      const n=(v:number)=>v.toFixed(1);
+      this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
+        +'Whole-frame peak: '+n(result.longestFrameMs)+'\n'
+        +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
+        +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
+        +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures;
+    }
+    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0});
+    this.diagnosticAt=done;
   }
 
   private syncCameraEffect(mesh:Mesh<PlaneGeometry,MeshBasicMaterial>,effect?:Phaser.Cameras.Scene2D.Effects.Flash|Phaser.Cameras.Scene2D.Effects.Fade){
@@ -495,6 +543,8 @@ export class ThreePresentation {
   };
   destroy(){
     if(this.stopped)return;this.stopped=true;
+    window.removeEventListener(FRAME_DIAGNOSTICS_EVENT,this.onDiagnosticChange);
+    this.diagnosticsPanel?.remove();this.diagnosticsPanel=null;this.diagnosticsParent=null;
     this.game.events.off(GAME_DISPOSING,this.destroy,this);this.game.events.off(Phaser.Core.Events.DESTROY,this.destroy,this);
     this.native.render=this.originalRender;
     this.game.canvas.style.visibility=this.originalCanvasVisibility;

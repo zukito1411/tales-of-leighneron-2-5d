@@ -1,4 +1,5 @@
 import {useState} from 'react';
+import {getFrameDiagnosticsEnabled,setFrameDiagnosticsEnabled} from '../game/presentation25d/renderDiagnostics';
 import {getGraphicEffects,setGraphicEffect,resetGraphicEffects,type GraphicEffectKey} from '../game/systems/graphicsEffects';
 
 // LEIGHNERON_MOBILE_GRAPHICS_NPC_FIX_V1
@@ -24,6 +25,7 @@ const OPTIONS:ReadonlyArray<{key:GraphicEffectKey;title:string;description:strin
 export function GraphicsEffectsControl(){
  const [effects,setEffects]=useState(getGraphicEffects);
  const [expanded,setExpanded]=useState(false);
+ const [frameDiagnostics,setFrameDiagnostics]=useState(getFrameDiagnosticsEnabled);
  return <div className="graphics-effects-control">
   <button className="graphics-effects-expand" type="button" onClick={()=>setExpanded(v=>!v)} aria-expanded={expanded}>
    Advanced graphics — individual effects {expanded?'▴':'▾'}
@@ -36,6 +38,7 @@ export function GraphicsEffectsControl(){
     }}/>
     <span><strong>{option.title}</strong><small>{option.description}</small></span>
    </label>)}
+   <label className="graphics-effect-toggle"><input type="checkbox" checked={frameDiagnostics} onChange={e=>{setFrameDiagnosticsEnabled(e.target.checked);setFrameDiagnostics(e.target.checked);}}/><span><strong>Show frame-time diagnostics</strong><small>Optional frame-time overlay to diagnose stutters.</small></span></label>
    <button type="button" className="graphics-effects-reset" onClick={()=>{
     resetGraphicEffects();setEffects({...getGraphicEffects()});
    }}>Restore recommended defaults</button>

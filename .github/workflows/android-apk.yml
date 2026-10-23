@@ -40,31 +40,27 @@ jobs:
         run: npm run cap:android:refresh
       - name: Configure Android release APK signing
         env:
-          ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 }}
-          ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD }}
-          ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD }}
-          ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS }}
+          ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD || secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.android"
-          if [[ -n "${ANDROID_25D_KEYSTORE_BASE64:-}" ]]; then
-            if [[ -z "${ANDROID_25D_STORE_PASSWORD:-}" || -z "${ANDROID_25D_KEY_PASSWORD:-}" || -z "${ANDROID_25D_KEY_ALIAS:-}" ]]; then
-              echo "::error::All four ANDROID_25D signing secrets are required for persistent signing."
+          # Never publish an APK signed by an arbitrary ephemeral certificate:
+          # Android updates require an identical signing certificate every time.
+          for name in ANDROID_25D_KEYSTORE_BASE64 ANDROID_25D_STORE_PASSWORD ANDROID_25D_KEY_PASSWORD ANDROID_25D_KEY_ALIAS; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing $name. Configure all four repository Actions secrets before building a release APK."
               exit 1
             fi
-            printf '%s' "$ANDROID_25D_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/leighneron25d.keystore"
-            echo "SIGNING_MODE=persistent" >> "$GITHUB_ENV"
-          else
-            echo "::warning::No dedicated 2.5D signing secrets. This release will be signed with an EPHEMERAL key and cannot update earlier APKs in place."
-            keytool -genkeypair -noprompt -keystore "$HOME/.android/leighneron25d.keystore" \
-              -alias leighneron25d -storepass android25d -keypass android25d \
-              -dname "CN=Tales of Leighneron 2.5D Preview, O=Independent Build" \
-              -keyalg RSA -keysize 3072 -validity 10000
-            ANDROID_25D_STORE_PASSWORD=android25d
-            ANDROID_25D_KEY_PASSWORD=android25d
-            ANDROID_25D_KEY_ALIAS=leighneron25d
-            echo "SIGNING_MODE=ephemeral" >> "$GITHUB_ENV"
-          fi
+          done
+          printf '%s' "$ANDROID_25D_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/leighneron25d.keystore"
+          # Fail immediately if the configured alias/password does not unlock
+          # the persistent key. Never regenerate or silently replace a keystore.
+          keytool -list -keystore "$HOME/.android/leighneron25d.keystore" \
+            -alias "$ANDROID_25D_KEY_ALIAS" -storepass "$ANDROID_25D_STORE_PASSWORD" -keypass "$ANDROID_25D_KEY_PASSWORD" >/dev/null
+          echo "SIGNING_MODE=persistent" >> "$GITHUB_ENV"
           chmod 600 "$HOME/.android/leighneron25d.keystore"
           echo "ANDROID_25D_KEYSTORE=$HOME/.android/leighneron25d.keystore" >> "$GITHUB_ENV"
           echo "::add-mask::$ANDROID_25D_STORE_PASSWORD"
@@ -114,8 +110,8 @@ jobs:
           Known rendering fixes include projected ground chunk coverage, daytime shadow
           translucency, darkness compositing, and trimmed-frame alignment.
 
-          **Signing mode: $SIGNING_MODE.**
-          $(if [[ "$SIGNING_MODE" == ephemeral ]]; then echo "This APK has an ephemeral signing certificate. It **cannot** update another installation signed by a different key. Export a save backup before uninstalling/reinstalling. To enable permanent in-place updates, configure the four ANDROID_25D signing secrets."; else echo "Signed using the supplied persistent 2.5D keystore."; fi)
+          **Signing mode: persistent GitHub Actions secret-backed keystore only.**
+          The build refuses missing/invalid signing secrets. The APK is a non-debuggable release, not a debug or ephemeral-key artifact. Previous ephemeral-key APKs cannot be updated in place by this persistent key; export your saves first.
 
           **Experimental**: This workflow verifies compilation, package ID, APK signing
           and the non-debuggable manifest. Real-device rendering, FPS and gameplay have
