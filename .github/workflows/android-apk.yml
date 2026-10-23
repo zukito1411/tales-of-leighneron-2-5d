@@ -40,10 +40,10 @@ jobs:
         run: npm run cap:android:refresh
       - name: Configure Android release APK signing
         env:
-          ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 }}
-          ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD }}
-          ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD }}
-          ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS }}
+          ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_25D_STORE_PASSWORD: ${{ secrets.ANDROID_25D_STORE_PASSWORD || secrets.ANDROID_STORE_PASSWORD }}
+          ANDROID_25D_KEY_PASSWORD: ${{ secrets.ANDROID_25D_KEY_PASSWORD || secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_25D_KEY_ALIAS: ${{ secrets.ANDROID_25D_KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
         run: |
           set -euo pipefail
           install -d -m 700 "$HOME/.android"
