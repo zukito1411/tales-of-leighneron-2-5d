@@ -14,7 +14,7 @@ export class ElevationField {
   private readonly samples=new Map<number,number>();
   private readonly pixels=new Float32Array(TEXTURE_SIZE*TEXTURE_SIZE);
   private sample:(x:number,y:number)=>number=()=>0;
-  private left=Infinity;private top=Infinity;private columns=0;private rows=0;
+  private left=Infinity;private top=Infinity;private columns=0;
   private centerX=Infinity;private centerY=Infinity;
   private pending:{
     centerX:number;centerY:number;left:number;top:number;
@@ -26,7 +26,7 @@ export class ElevationField {
   setSource(sample:(x:number,y:number)=>number){
     if(this.sample===sample)return;
     this.sample=sample;this.samples.clear();this.left=this.centerX=this.centerY=Infinity;
-    this.columns=this.rows=0;this.pending=undefined;
+    this.columns=0;this.pending=undefined;
   }
   private vertex(x:number,y:number){
     const key=x*1048576+y,old=this.samples.get(key);if(old!==undefined)return old;
@@ -47,7 +47,7 @@ export class ElevationField {
     const half=(TEXTURE_SIZE-1)*CELL/2;
     this.left=centerX-half;this.top=centerY-half;
     this.centerX=centerX;this.centerY=centerY;
-    this.columns=this.rows=TEXTURE_SIZE;
+    this.columns=TEXTURE_SIZE;
     this.uniforms.heightBounds.value.set(this.left,this.top,(TEXTURE_SIZE-1)*CELL,(TEXTURE_SIZE-1)*CELL);
     this.texture.needsUpdate=true;
   }
