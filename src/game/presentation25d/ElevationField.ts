@@ -6,21 +6,30 @@ export const TERRAIN_GRID_SEGMENTS=CHUNK_SIZE/ELEVATION_CELL_SIZE;
 const CELL=ELEVATION_CELL_SIZE,TEXTURE_SIZE=129,LIMIT=TEXTURE_SIZE*TEXTURE_SIZE*2;
 /** One bounded, shared height field for terrain, decals and sprite feet. The
  * illustrated terrain still supplies every visible ground pixel. */
+/** A camera-rotation-independent field. A square centered on the player
+ * covers the entire 2,400-unit visible radius in every viewing direction.
+ * Subsequent center changes prepare a complete second buffer incrementally:
+ * terrain never sees half-written samples or a moving view-edge clamp. */
 export class ElevationField {
   private readonly samples=new Map<number,number>();
   private readonly pixels=new Float32Array(TEXTURE_SIZE*TEXTURE_SIZE);
   private sample:(x:number,y:number)=>number=()=>0;
   private left=Infinity;private top=Infinity;private columns=0;private rows=0;
-  private preloadKey='';private preloading:Generator<void>|undefined;
-  // WebGL allocates immutable texture storage on first upload. Changing image
-  // dimensions later leaves the old allocation behind; only contents may move.
+  private centerX=Infinity;private centerY=Infinity;
+  private pending:{
+    centerX:number;centerY:number;left:number;top:number;
+    pixels:Float32Array;steps:Generator<void,void>
+  }|undefined;
   readonly texture=new DataTexture(this.pixels,TEXTURE_SIZE,TEXTURE_SIZE,RedFormat,FloatType);
   readonly uniforms={heightMap:{value:this.texture},heightBounds:{value:new Vector4(0,0,CELL,CELL)},heightEnabled:{value:false}};
   constructor(){this.texture.minFilter=this.texture.magFilter=NearestFilter;this.texture.generateMipmaps=false;this.texture.needsUpdate=true;}
-  setSource(sample:(x:number,y:number)=>number){if(this.sample===sample)return;this.sample=sample;this.samples.clear();this.left=Infinity;this.preloading=undefined;this.preloadKey='';}
+  setSource(sample:(x:number,y:number)=>number){
+    if(this.sample===sample)return;
+    this.sample=sample;this.samples.clear();this.left=this.centerX=this.centerY=Infinity;
+    this.columns=this.rows=0;this.pending=undefined;
+  }
   private vertex(x:number,y:number){
     const key=x*1048576+y,old=this.samples.get(key);if(old!==undefined)return old;
-    // Feet and GPU vertices use the same float samples and triangle diagonal.
     const value=Math.fround(this.sample(x*CELL,y*CELL));
     if(this.samples.size>=LIMIT)this.samples.delete(this.samples.keys().next().value!);
     this.samples.set(key,value);return value;
@@ -28,57 +37,69 @@ export class ElevationField {
   height(x:number,y:number){
     const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL),u=x/CELL-gx,v=y/CELL-gy;
     const a=this.vertex(gx,gy),b=this.vertex(gx+1,gy),c=this.vertex(gx,gy+1),d=this.vertex(gx+1,gy+1);
-    // Match the ground grid's triangle diagonal, rather than a different
-    // bilinear floor that could leave feet hovering above its triangles.
     return u+v<=1?a+(b-a)*u+(c-a)*v:d+(c-d)*(1-u)+(b-d)*(1-v);
   }
-  prepare(bounds:{left:number;top:number;right:number;bottom:number},enabled:boolean){
-    this.uniforms.heightEnabled.value=enabled;if(!enabled)return;
-    // Cover complete terrain chunks, including the vertices just outside the
-    // camera footprint. Clamping those vertices to a moving viewport edge
-    // would deform a chunk's slopes as the camera moved. The bounded 2,400-unit
-    // view fits at most five chunks per axis plus this one-cell gutter.
-    const left=Math.floor((bounds.left-192)/CHUNK_SIZE)*CHUNK_SIZE-CELL;
-    const top=Math.floor((bounds.top-192)/CHUNK_SIZE)*CHUNK_SIZE-CELL;
-    const right=Math.ceil((bounds.right+192)/CHUNK_SIZE)*CHUNK_SIZE+CELL;
-    const bottom=Math.ceil((bounds.bottom+192)/CHUNK_SIZE)*CHUNK_SIZE+CELL;
-    if(left>=this.left&&top>=this.top
-      &&right<=this.left+(this.columns-1)*CELL&&bottom<=this.top+(this.rows-1)*CELL)return;
-    const columns=Math.min(TEXTURE_SIZE,Math.round((right-left)/CELL)+1);
-    const rows=Math.min(TEXTURE_SIZE,Math.round((bottom-top)/CELL)+1);
-    for(let y=0;y<rows;y++)for(let x=0;x<columns;x++)this.pixels[y*TEXTURE_SIZE+x]=this.vertex(left/CELL+x,top/CELL+y);
-    this.left=left;this.top=top;this.columns=columns;this.rows=rows;
+  private center(focus:{x:number;y:number}){
+    return {x:Math.round(focus.x/CHUNK_SIZE)*CHUNK_SIZE,y:Math.round(focus.y/CHUNK_SIZE)*CHUNK_SIZE};
+  }
+  private publish(centerX:number,centerY:number,pixels:Float32Array){
+    this.pixels.set(pixels);
+    const half=(TEXTURE_SIZE-1)*CELL/2;
+    this.left=centerX-half;this.top=centerY-half;
+    this.centerX=centerX;this.centerY=centerY;
+    this.columns=this.rows=TEXTURE_SIZE;
+    this.uniforms.heightBounds.value.set(this.left,this.top,(TEXTURE_SIZE-1)*CELL,(TEXTURE_SIZE-1)*CELL);
     this.texture.needsUpdate=true;
-    this.uniforms.heightBounds.value.set(left,top,(columns-1)*CELL,(rows-1)*CELL);
   }
-  /** Prepare only a bounded margin of the actual camera footprint. Exact
-   * heights are cached ahead of coverage changes, without moving GPU terrain
-   * or publishing a partially sampled surface. No background loop is added. */
-  preload(bounds:{left:number;top:number;right:number;bottom:number},enabled:boolean,budgetMs:number){
-    if(!enabled){this.preloading=undefined;this.preloadKey='';return;}
-    const left=Math.floor((bounds.left-512)/CHUNK_SIZE)*CHUNK_SIZE/CELL-1;
-    const top=Math.floor((bounds.top-512)/CHUNK_SIZE)*CHUNK_SIZE/CELL-1;
-    const right=Math.ceil((bounds.right+512)/CHUNK_SIZE)*CHUNK_SIZE/CELL+1;
-    const bottom=Math.ceil((bounds.bottom+512)/CHUNK_SIZE)*CHUNK_SIZE/CELL+1;
-    const key=left+':'+top+':'+right+':'+bottom;
-    if(key!==this.preloadKey){
-      this.preloadKey=key;
-      this.preloading=this.warm(left,top,Math.min(right,left+TEXTURE_SIZE-1),Math.min(bottom,top+TEXTURE_SIZE-1));
-    }
-    const job=this.preloading;if(!job)return;
-    const deadline=performance.now()+budgetMs;
-    for(let steps=0;steps<64;steps++){
-      if(job.next().done){this.preloading=undefined;break;}
-      if(performance.now()>=deadline)break;
-    }
-  }
-  private *warm(left:number,top:number,right:number,bottom:number):Generator<void>{
-    for(let y=top;y<=bottom;y++){
-      for(let x=left;x<=right;x++)if(!this.samples.has(x*1048576+y)){this.vertex(x,y);yield;}
+  private *build(left:number,top:number,pixels:Float32Array):Generator<void,void>{
+    const gx=left/CELL,gy=top/CELL;
+    for(let y=0;y<TEXTURE_SIZE;y++){
+      for(let x=0;x<TEXTURE_SIZE;x++){
+        pixels[y*TEXTURE_SIZE+x]=this.vertex(gx+x,gy+y);
+        if((x&15)===15)yield;
+      }
       yield;
     }
   }
-  destroy(){this.preloading=undefined;this.preloadKey='';this.texture.dispose();this.samples.clear();}
+  prepare(bounds:{left:number;top:number;right:number;bottom:number},enabled:boolean,focus?:{x:number;y:number}){
+    this.uniforms.heightEnabled.value=enabled;
+    if(!enabled){this.pending=undefined;return;}
+    const point=focus??{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2};
+    const target=this.center(point);
+    if(this.columns===0){
+      // First frame is normally covered by the initial scene transition.
+      const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length);
+      const steps=this.build(target.x-half,target.y-half,pixels);
+      while(!steps.next().done){ /* Initial terrain needs a complete first buffer. */ }
+      this.publish(target.x,target.y,pixels);
+      return;
+    }
+    // Rotation cannot move the texture; only meaningful player travel does.
+    // Half-extent is 4,096 units, with >1,400 units beyond the view radius.
+    if(Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024){
+      this.pending=undefined;return;
+    }
+    if(this.pending)return;
+    if(target.x===this.centerX&&target.y===this.centerY)return;
+    const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length);
+    this.pending={centerX:target.x,centerY:target.y,left:target.x-half,top:target.y-half,
+      pixels,steps:this.build(target.x-half,target.y-half,pixels)};
+  }
+  /** One short, measured slice after presentation; expensive height queries
+   * never rebuild a texture synchronously in response to yaw or pitch. */
+  preload(_bounds:{left:number;top:number;right:number;bottom:number},enabled:boolean,budgetMs:number){
+    if(!enabled){this.pending=undefined;return;}
+    const job=this.pending;if(!job)return;
+    const deadline=performance.now()+budgetMs;
+    for(let i=0;i<64;i++){
+      if(job.steps.next().done){
+        this.publish(job.centerX,job.centerY,job.pixels);
+        this.pending=undefined;break;
+      }
+      if(performance.now()>=deadline)break;
+    }
+  }
+  destroy(){this.pending=undefined;this.texture.dispose();this.samples.clear();}
 }
 
 export const elevationShader=`
