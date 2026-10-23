@@ -49,7 +49,13 @@ export class AwakenedHeroVisual{
    .setRotation(actor.rotation).setFlip(actor.flipX,actor.flipY).setAlpha(actor.alpha).setDepth(actor.depth).setVisible(actor.visible);
   this.model.cameraFilter=actor.cameraFilter;
   const hint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined;
-  onPlane(this.model,'upright',hint?.anchor);
+  // A normal idle/walk Player sprite has no presentation hint, but does
+  // expose the real physics-independent jump elevation. Attack animations do
+  // have an owner anchor, which made jumping appear to work only on attack.
+  // Resolve the same logical owner for both idle and attack art.
+  const anchor=hint?.anchor??('presentationElevation' in actor
+    ?actor as Phaser.GameObjects.Sprite&{presentationElevation:number}:undefined);
+  onPlane(this.model,'upright',anchor);
   if(actor.tintFill)this.model.setTintFill(actor.tintTopLeft,actor.tintTopRight,actor.tintBottomLeft,actor.tintBottomRight);
   else this.model.setTint(actor.tintTopLeft,actor.tintTopRight,actor.tintBottomLeft,actor.tintBottomRight);
   this.hidden=actor;this.hiddenFilter=actor.cameraFilter;
