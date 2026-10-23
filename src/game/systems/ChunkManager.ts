@@ -56,6 +56,11 @@ export class ChunkManager {
   private lastChunkBakedAt=-Infinity;
   private preparing:{key:string;steps:Generator<void,void>}|null=null;
   private preparedFrame=-1;
+  private bootstrapped=false;
+  private visibleChunks=new Set<string>();
+  // Shared terrain art provides a temporary ground plane while the expensive
+  // authored chunk texture and its collision scenery finish across frames.
+  private readonly fallbacks=new Map<string,Phaser.GameObjects.TileSprite>();
 
   constructor(scene: Phaser.Scene, world: WorldGenerator,
     private readonly treeSway:TreeSwaySystem,private readonly lighting:DayNightSystem,private readonly ground:WorldSpriteSystem) {
@@ -83,6 +88,7 @@ export class ChunkManager {
     if(viewKey===this.lastTravelViewKey){this.loadPendingChunk();return;}
     this.lastTravelViewKey=viewKey;
     const visible=viewportChunks(groundView);
+    this.visibleChunks=visible;
     const wanted=chunkNeighborhood(worldX,worldY);
     // A bounded 384px viewport margin prepares zoomed-out travel before a
     // chunk becomes safety-critical. Normal 3x3 walking residency is retained.
@@ -100,25 +106,20 @@ export class ChunkManager {
     }
     for (const key of [...this.pendingChunks.keys()]) if(!wanted.has(key))this.pendingChunks.delete(key);
     if(this.preparing&&!wanted.has(this.preparing.key))this.cancelPreparation();
-    // Initial entry requires complete coverage. Subsequent movement staggers
-    // offscreen neighbors, but never drops visible chunks after a zoom/resize.
-    if(this.active.size===0){
-      this.pendingChunks.clear();
-      for (const key of wanted) {
-        if (!this.active.has(key)) {const [x,y]=key.split(':').map(Number);this.load(x,y);}
-      }
-    }else{
-      // The player's current chunk is safety-critical. Never leave its props
-      // pending behind offscreen bakes after a teleport or a fast boundary step.
-      for(const key of visible)if(!this.active.has(key)){
-        const [x,y]=key.split(':').map(Number);this.pendingChunks.delete(key);this.load(x,y);this.lastChunkBakedAt=this.scene.time.now;
-      }
-      for(const key of wanted)if(!this.active.has(key)&&!this.pendingChunks.has(key)){
-        const [x,y]=key.split(':').map(Number);this.pendingChunks.set(key,{x,y});
-      }
-      this.prioritizePending(worldX,worldY);
-      this.loadPendingChunk();
+    // Only the initial player's cell is permitted one blocking load, before
+    // gameplay streaming starts. Camera turns, teleports and zooms never run
+    // load() for the newly visible cells on the gameplay thread.
+    if(!this.bootstrapped){
+      this.bootstrapped=true;
+      const key=`${centerX}:${centerY}`;
+      if(wanted.has(key)&&!this.active.has(key))this.load(centerX,centerY);
     }
+    for(const key of wanted)if(!this.active.has(key)&&!this.pendingChunks.has(key)){
+      const [x,y]=key.split(':').map(Number);this.pendingChunks.set(key,{x,y});
+    }
+    this.prioritizePending(worldX,worldY);
+    this.syncFallbacks(visible);
+    this.loadPendingChunk();
     this.updateOpenSeaStatus();
   }
 
@@ -127,6 +128,8 @@ export class ChunkManager {
   updateView(view:StreamView,staged=false):boolean {
     // Covers complete mature trees beyond the edge, not just their ground anchors.
     const wanted=viewportChunks(view,768),visible=viewportChunks(view);
+    this.visibleChunks=visible;
+    this.bootstrapped=true;
     this.lastCenter='view:'+streamViewKey(wanted);
     this.lastTravelViewKey=''; // Explicit transition views supersede walking cache.
     for(const [key,chunk] of this.active)if(!wanted.has(key)){
@@ -140,9 +143,9 @@ export class ChunkManager {
     this.pendingChunks.clear();
     for(const key of ordered)if(!this.active.has(key)){
       const [x,y]=key.split(':').map(Number);
-      if(!staged&&visible.has(key)){this.pendingChunks.delete(key);this.load(x,y);}
-      else this.pendingChunks.set(key,previousPending.get(key)??{x,y});
+      this.pendingChunks.set(key,previousPending.get(key)??{x,y});
     }
+    this.syncFallbacks(visible);
     this.loadPendingChunk(staged);this.updateOpenSeaStatus();
     // Margin chunks are speculative canopy coverage. They continue loading
     // after the shot is drawable, but must not hold the transition cover up.
@@ -161,7 +164,9 @@ export class ChunkManager {
     if(this.preparedFrame===this.scene.game.loop.frame)return;
     if(!this.preparing){
       if(!staged&&now-this.lastChunkBakedAt<16)return;
-      const next=this.pendingChunks.entries().next().value as [string,{x:number;y:number}]|undefined;
+      // Stream what the camera can currently see before speculative margins.
+      const next=[...this.pendingChunks].find(([key])=>this.visibleChunks.has(key))
+        ??this.pendingChunks.entries().next().value as [string,{x:number;y:number}]|undefined;
       if(!next)return;
       const [key,point]=next;
       if(this.active.has(key)){this.pendingChunks.delete(key);return;}
@@ -175,7 +180,8 @@ export class ChunkManager {
     const deadline=performance.now()+(this.scene.game.loop.delta>24?1.5:3);
     for(let steps=0;steps<128;steps++){
       if(job.steps.next().done){
-        this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;break;
+        this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;
+        this.removeFallback(job.key);break;
       }
       if(performance.now()>=deadline)break;
     }
@@ -185,11 +191,31 @@ export class ChunkManager {
     const distance=(point:{x:number;y:number})=>
       Math.max(0,Math.abs((point.x+.5)*CHUNK_SIZE-x)-CHUNK_SIZE/2)**2
       +Math.max(0,Math.abs((point.y+.5)*CHUNK_SIZE-y)-CHUNK_SIZE/2)**2;
-    const ordered=[...this.pendingChunks].sort((a,b)=>distance(a[1])-distance(b[1]));
+    const ordered=[...this.pendingChunks].sort((a,b)=>
+      Number(this.visibleChunks.has(b[0]))-Number(this.visibleChunks.has(a[0]))||distance(a[1])-distance(b[1]));
     this.pendingChunks.clear();for(const [key,point] of ordered)this.pendingChunks.set(key,point);
   }
   private cancelPreparation(){
     const job=this.preparing;this.preparing=null;job?.steps.return();
+  }
+  private removeFallback(key:string){
+    this.fallbacks.get(key)?.destroy();
+    this.fallbacks.delete(key);
+  }
+  private syncFallbacks(visible:ReadonlySet<string>){
+    for(const key of this.fallbacks.keys())
+      if(!visible.has(key)||this.active.has(key))this.removeFallback(key);
+    for(const key of visible){
+      if(this.active.has(key)||this.fallbacks.has(key))continue;
+      const [x,y]=key.split(':').map(Number);
+      // One atlas is reused by every placeholder: no full-resolution canvas,
+      // scenery actor, texture upload or per-chunk shader compilation here.
+      const cx=(x+.5)*CHUNK_SIZE,cy=(y+.5)*CHUNK_SIZE;
+      const frame=Math.max(0,Math.min(7,this.world.getTerrainIndex(this.world.getTerrainAt(cx,cy))));
+      const tile=this.scene.add.tileSprite(x*CHUNK_SIZE,y*CHUNK_SIZE,CHUNK_SIZE,CHUNK_SIZE,'terrain',frame)
+        .setOrigin(0).setDepth(-1000).setName('streaming-ground-fallback');
+      this.fallbacks.set(key,tile);
+    }
   }
 
   private updateOpenSeaStatus(){
@@ -212,6 +238,8 @@ export class ChunkManager {
       if(!chunk.shared)this.scene.textures.remove(chunk.textureKey);
     }
     this.active.clear();
+    for(const key of this.fallbacks.keys())this.removeFallback(key);
+    this.visibleChunks.clear();this.bootstrapped=false;
     this.pendingChunks.clear();
     for(const textureKey of this.recentTerrain.values())this.scene.textures.remove(textureKey);
     this.recentTerrain.clear();this.sceneryPlans.clear();
