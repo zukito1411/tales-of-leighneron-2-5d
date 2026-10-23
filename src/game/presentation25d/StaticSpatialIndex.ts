@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import type {StreamVisibility} from './StreamVisibility';
 
 type StaticImage=Phaser.GameObjects.Image;
 interface Entry {x:number;y:number;width:number;height:number;keys:string[]}
@@ -36,12 +37,12 @@ export class StaticSpatialIndex {
     this.dirty=false;this.queryKey=key;this.visible.clear();
     for(let y=top;y<=bottom;y++)for(let x=left;x<=right;x++)for(const image of this.buckets.get(x+':'+y)??[])this.visible.add(image);
   }
-  accepts(object:Phaser.GameObjects.GameObject){
+  accepts(object:Phaser.GameObjects.GameObject,visibility?:StreamVisibility){
     const image=object as StaticImage,entry=this.entries.get(image);if(!entry)return true;
     // Housing edits or texture/scale replacements invalidate the index before
     // culling, including objects moving in from a previously excluded cell.
     if(entry.x!==image.x||entry.y!==image.y||entry.width!==image.displayWidth||entry.height!==image.displayHeight){this.add(image);return true;}
-    return this.visible.has(image);
+    return this.visible.has(image)&&(!visibility||visibility.image(image));
   }
   has(object:Phaser.GameObjects.GameObject){return this.entries.has(object as StaticImage);}
 }

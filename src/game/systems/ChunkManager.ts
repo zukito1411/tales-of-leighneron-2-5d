@@ -8,7 +8,7 @@ import { CHUNK_SIZE } from '../../data/world';
 import {projectedGroundView} from '../presentation25d/plane';
 import { artScale } from '../../data/art';
 import { WorldGenerator } from './WorldGenerator';
-import { chunkNeighborhood,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
+import { nearbyPhysicsChunks,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
 import { TerrainBaker } from './TerrainBaker';
 import type {TreeSwaySystem} from './TreeSwaySystem';
 import type {DayNightSystem} from './DayNightSystem';
@@ -20,6 +20,7 @@ interface ChunkRuntime {
   textureKey: string;
   shared?:boolean;
   scenery: Array<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite>;
+  sources?:Phaser.Textures.TextureSource[];
 }
 
 
@@ -66,6 +67,8 @@ export class ChunkManager {
   private readonly mobileTerrain=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
   private readonly maxRetirePerFrame=1;
   private nextStreamReportAt=0;
+  private nextWarmAt=0;
+  private readonly warmSources=new Set<Phaser.Textures.TextureSource>();
 
   constructor(scene: Phaser.Scene, world: WorldGenerator,
     private readonly treeSway:TreeSwaySystem,private readonly lighting:DayNightSystem,private readonly ground:WorldSpriteSystem) {
@@ -84,9 +87,13 @@ export class ChunkManager {
     const centerY = Math.floor(worldY / CHUNK_SIZE);
     const camera=this.scene.cameras.main;
     const groundView=projectedGroundView(camera,worldX,worldY,128);
+    const focus=(this.scene as Phaser.Scene&{player?:Phaser.Physics.Arcade.Sprite}).player;
+    const body=focus?.body instanceof Phaser.Physics.Arcade.Body?focus.body:undefined;
+    const vx=body?.velocity.x??0,vy=body?.velocity.y??0,lead=Math.min(1.1,512/Math.max(1,Math.hypot(vx,vy)));
+    const aheadX=worldX+vx*lead,aheadY=worldY+vy*lead;
     // Screen and player are still within exactly the same streamed cells:
     // avoid constructing two sets of chunk keys on every animation frame.
-    const viewKey=centerX+':'+centerY+':'
+    const viewKey=(groundView.key??'')+':'+Math.floor(aheadX/128)+':'+Math.floor(aheadY/128)+':'+centerX+':'+centerY+':'
       +Math.floor(groundView.left/CHUNK_SIZE)+':'+Math.floor(groundView.right/CHUNK_SIZE)+':'
       +Math.floor(groundView.top/CHUNK_SIZE)+':'+Math.floor(groundView.bottom/CHUNK_SIZE)+':'
       +Math.floor((groundView.left-384)/CHUNK_SIZE)+':'+Math.floor((groundView.right+384)/CHUNK_SIZE)+':'
@@ -95,10 +102,11 @@ export class ChunkManager {
     this.lastTravelViewKey=viewKey;
     const visible=viewportChunks(groundView);
     this.visibleChunks=visible;
-    const wanted=chunkNeighborhood(worldX,worldY);
-    // A bounded 384px viewport margin prepares zoomed-out travel before a
-    // chunk becomes safety-critical. Normal 3x3 walking residency is retained.
-    for(const key of viewportChunks(groundView,384))wanted.add(key);
+    const wanted=nearbyPhysicsChunks(worldX,worldY);
+    // Prepare a small band around the real view plus the next second of
+    // movement. Hidden chunks keep GPU-ready art until they enter the camera.
+    for(const key of viewportChunks(groundView,256))wanted.add(key);
+    for(const key of viewportChunks(projectedGroundView(camera,aheadX,aheadY,128),256))wanted.add(key);
     const centerKey = `${centerX}:${centerY}:`+streamViewKey(wanted)+':'+streamViewKey(visible);
     if (centerKey === this.lastCenter) { this.retireExpired();this.loadPendingChunk(); return; }
     this.lastCenter = centerKey;
@@ -131,7 +139,7 @@ export class ChunkManager {
    * keeps the existing staggered budget for offscreen margin chunks. */
   updateView(view:StreamView,staged=false):boolean {
     // Covers complete mature trees beyond the edge, not just their ground anchors.
-    const wanted=viewportChunks(view,768),visible=viewportChunks(view);
+    const wanted=viewportChunks(view,384),visible=viewportChunks(view);
     this.visibleChunks=visible;
     this.bootstrapped=true;
     this.lastCenter='view:'+streamViewKey(wanted);
@@ -161,6 +169,18 @@ export class ChunkManager {
   /** Sample rows and compose layers over frames; publish terrain, scenery and
    * collision together. Required visible loads can finish the same exact job. */
   private loadPendingChunk(staged=false){
+    // Keep only the small admitted/preload band GPU-ready. Culling must not
+    // turn an offscreen preload into another cold upload on its first draw.
+    if(this.scene.time.now>=this.nextWarmAt){
+      this.nextWarmAt=this.scene.time.now+150;this.warmSources.clear();
+      for(const [key,chunk] of this.active){
+        if(this.retiring.has(key))continue;
+        this.warmSources.add(chunk.image.frame.source);
+        for(const source of chunk.sources??[])this.warmSources.add(source);
+      }
+      for(const source of this.warmSources)preparePresentationSource(this.scene.game,source);
+      this.warmSources.clear();
+    }
     if(!this.pendingChunks.size)return;
     const now=this.scene.time.now;
     if(this.preparedFrame===this.scene.game.loop.frame)return;
@@ -412,7 +432,10 @@ export class ChunkManager {
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
       .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
     markStaticPresentation(image);
-    this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery });
+    const sources=new Set<Phaser.Textures.TextureSource>();
+    for(const actor of scenery)sources.add(actor.frame.source);
+    for(const leaves of canopies)sources.add(leaves.frame.source);
+    this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery,sources:[...sources] });
     committed=true;
     }finally{
       if(workerJob)this.terrainWorker.cancel(workerJob);

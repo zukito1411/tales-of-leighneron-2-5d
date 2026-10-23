@@ -75,6 +75,9 @@ uniform vec2 atmosphereFocus;
 uniform vec2 atmosphereRange;
 uniform sampler2D nightMask;
 uniform float nightOpacity;
+uniform vec2 sunUV;
+uniform float sunShafts;
+uniform float shaftSamples;
 ${depthFunctions}
 void main(){
   vec3 original=texture2D(sourceColor,vUv).rgb;
@@ -107,6 +110,21 @@ void main(){
       float distant=smoothstep(80.0,950.0,depth);
       color=mix(color,mistColor,clamp(mistAmount*(.12+density*.38)*distant*surfaceFade,0.0,.62));
     }
+  }
+  // Bounded radial depth-mask integration in the existing colour pass.
+  // No extra world render, readback, allocation or fullscreen raymarch pass.
+  if(sunShafts>.001&&texture2D(sceneDepth,sunUV).r>.999999){
+    vec2 toward=sunUV-vUv;
+    float illumination=0.0,total=0.0;
+    for(int i=0;i<8;i++){
+      if(float(i)>=shaftSamples)break;
+      float t=(float(i)+.5)/shaftSamples;
+      vec2 q=vUv+toward*t;
+      float weight=1.0-t*.45;
+      illumination+=step(.999999,texture2D(sceneDepth,q).r)*weight;total+=weight;
+    }
+    float spread=exp(-length(toward*vec2(aspect,1.0))*1.8);
+    color+=vec3(1.0,.86,.62)*sunShafts*(illumination/max(.001,total))*(.035+.075*spread);
   }
   if(gradingEnabled>0.5){
     float light=clamp(dot(color,vec3(0.2126,0.7152,0.0722)),0.0,1.0);
@@ -143,6 +161,7 @@ export class WorldPostFX {
   private readonly camera=new OrthographicCamera(-1,1,1,-1,0,1);
   private readonly geometry=new PlaneGeometry(2,2);
   private readonly focusPoint=new Vector3();
+  private readonly sunPoint=new Vector3();
   private readonly hazeDay=new Color(0x9ba9b3);
   private readonly hazeNight=new Color(0x202c46);
   private readonly common={
@@ -157,6 +176,7 @@ export class WorldPostFX {
   private readonly composite=new ShaderMaterial({
     uniforms:{...this.common,nightMask:{value:null as Texture|null},nightOpacity:{value:0},sourceColor:{value:null as Texture|null},blurredColor:{value:null as Texture|null},
       sourceTexel:{value:new Vector2()},dofEnabled:{value:1},hazeStrength:{value:.14},
+      sunUV:{value:new Vector2(.5,.5)},sunShafts:{value:0},shaftSamples:{value:8},
       mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
       gradingEnabled:{value:1},hazeColor:{value:new Color()}},
     vertexShader,fragmentShader:compositeShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
@@ -191,7 +211,7 @@ export class WorldPostFX {
   render(renderer:WebGLRenderer,frame:WorldFrame){
     // Loading/asset preparation scenes do not allocate or compile world FX.
     const focus=frame.focus,effects=focus?getGraphicEffects():undefined;
-    const environmental=Boolean(!frame.interior&&frame.weather&&(frame.weather.mist>.001||frame.weather.cloudCover>.001));
+    const environmental=Boolean(!frame.interior&&(effects?.sunRays||frame.weather&&(frame.weather.mist>.001||frame.weather.cloudCover>.001)));
     if(!focus||!effects||!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor){
       this.releaseTargets();
       frame.sky?.render(renderer);
@@ -224,6 +244,19 @@ export class WorldPostFX {
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
     this.composite.uniforms.gradingEnabled.value=Number(effects.cinematicColor);
     const weather=frame.interior?undefined:frame.weather;
+    const shafts=this.composite.uniforms;shafts.sunShafts.value=0;shafts.shaftSamples.value=low?4:8;
+    if(effects.sunRays&&!frame.interior&&frame.sky&&frame.sky.sunlight.y>.02){
+      const direction=frame.sky.sunlight;
+      this.sunPoint.set(direction.x,direction.y,direction.z).transformDirection(frame.camera.matrixWorldInverse);
+      if(this.sunPoint.z<-.01){
+        this.sunPoint.set(direction.x,direction.y,direction.z).multiplyScalar(frame.camera.far*.5).add(frame.camera.position).project(frame.camera);
+        const x=(this.sunPoint.x+1)/2,y=(this.sunPoint.y+1)/2;
+        if(x>.02&&x<.98&&y>.02&&y<.98){
+          shafts.sunUV.value.set(x,y);
+          shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.4);
+        }
+      }
+    }
     this.composite.uniforms.mistArtwork.value=frame.mist??null;
     this.composite.uniforms.mistAmount.value=frame.mist?(weather?.mist??0):0;
     this.composite.uniforms.weatherTime.value=(weather?.elapsed??0)/1000;

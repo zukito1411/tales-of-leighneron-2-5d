@@ -3,6 +3,7 @@ import {FrameTiming} from './FrameTiming';
 import {GpuTimer} from './GpuTimer';
 import {ShaderWarmup} from './ShaderWarmup';
 import {staticSpatialIndex} from './StaticSpatialIndex';
+import {StreamVisibility} from './StreamVisibility';
 import {bindResourcePreparation,clearResourcePreparation} from './resourcePreparation';
 import Phaser from 'phaser';
 import {
@@ -73,6 +74,7 @@ export class ThreePresentation {
   private readonly gpuTimer:GpuTimer;
   private readonly shaderWarmup:ShaderWarmup;
   private readonly frameTiming=new FrameTiming();
+  private readonly visibility=new StreamVisibility();
   private timingFrame=-1;
   private readonly billboardRight={value:new Vector2(1,0)};
   private readonly neutralModel=new Matrix4();
@@ -203,11 +205,12 @@ export class ThreePresentation {
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
     this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true);
+    this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
     this.pitchSin=Math.sin(this.orbit.pitch);this.pitchCos=Math.cos(this.orbit.pitch);this.pitchTan=Math.tan(this.orbit.pitch);
     if(!this.view)this.view={camera:this.orbit.camera,native:camera,yaw:this.orbit.yaw,pitch:this.orbit.pitch,
-      bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt};
+      bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt,visibility:this.visibility};
     else{this.view.native=camera;this.view.yaw=this.orbit.yaw;this.view.pitch=this.orbit.pitch;}
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
@@ -224,7 +227,7 @@ export class ThreePresentation {
     for(const batch of this.batches.values())batch.begin();
     camera.emit(Phaser.Cameras.Scene2D.Events.PRE_RENDER,camera);
     const spatial=staticSpatialIndex(scene);spatial.query(this.orbit.bounds);
-    for(const object of children)if(spatial.accepts(object))this.collect(object,camera,1,undefined,undefined);
+    for(const object of children)if(spatial.accepts(object,this.visibility))this.collect(object,camera,1,undefined,undefined);
     this.pickable.length=0;
     for(const batch of this.batches.values()){
       batch.finish();

@@ -15,10 +15,11 @@ const STORAGE_KEY='leighneron:graphics-effects:v1';
 // Restore night effects disabled by the previous performance-default migration.
 // Apply this policy once; subsequent player choices remain respected.
 const DEFAULTS_MIGRATION_KEY='leighneron:graphics-defaults:v2';
+const AMBIENCE_MIGRATION_KEY='leighneron:ambience-restored:v1';
 function recommended():GraphicEffects{
  return {nightMist:true,daytimeFog:true,weatherParticles:true,cloudShadows:true,
    sunRays:true,treeSway:true,waterMotion:true,dynamicShadows:true,
-   fireflies:true,lightBloom:false,nightDarkness:true,
+   fireflies:true,lightBloom:true,nightDarkness:true,
    // Combat rendering still independently respects reduced-motion preferences.
    combatShake:true,depthOfField:true,depthHaze:true,cinematicColor:true,adaptiveResolution:true,
    // Disable dynamic ground-skirt recoloring by default on every device.
@@ -45,6 +46,14 @@ export function getGraphicEffects():GraphicEffects {
    value.nightDarkness=true;
    localStorage.setItem(STORAGE_KEY,JSON.stringify(value));
    localStorage.setItem(DEFAULTS_MIGRATION_KEY,'1');
+  }
+  // Restore the requested ambience once after the old forced-off defaults.
+  // Subsequent individual choices remain respected, including disabling it.
+  if(localStorage.getItem(AMBIENCE_MIGRATION_KEY)!=='1'){
+   value.sunRays=true;value.weatherParticles=true;value.lightBloom=true;
+   value.fireflies=true;value.nightMist=true;value.daytimeFog=true;
+   localStorage.setItem(STORAGE_KEY,JSON.stringify(value));
+   localStorage.setItem(AMBIENCE_MIGRATION_KEY,'1');
   }
  }catch{/* Some Android WebViews restrict storage. */}
  cache=value;return value;

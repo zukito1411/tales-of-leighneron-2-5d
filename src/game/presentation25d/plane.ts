@@ -1,11 +1,14 @@
 import type Phaser from 'phaser';
 import {Raycaster,Vector2,Vector3,type PerspectiveCamera} from 'three';
 import type {HouseShape} from './HouseGeometry';
+import type {StreamVisibility} from './StreamVisibility';
+import type {StreamView} from '../systems/chunkNeighborhood';
 
 export interface PresentationView {
   camera:PerspectiveCamera;native:Phaser.Cameras.Scene2D.Camera;yaw:number;pitch:number;
   bounds:{left:number;top:number;right:number;bottom:number};focusGround:{x:number;y:number};
   height:(x:number,y:number)=>number;
+  visibility?:StreamVisibility;
 }
 const gameViews=new WeakMap<Phaser.Game,PresentationView>();
 const cameraViews=new WeakMap<Phaser.Cameras.Scene2D.Camera,PresentationView>();
@@ -214,10 +217,12 @@ export function onDirectionalSprite<T extends Phaser.GameObjects.GameObject>(obj
 export function projectedGroundView(
   camera: Pick<Phaser.Cameras.Scene2D.Camera, 'width' | 'height' | 'zoom'>,
   x: number, y: number, margin = 0,
-) {
+):StreamView {
   const live=cameraViews.get(camera as Phaser.Cameras.Scene2D.Camera);
   if(live){const b=live.bounds,dx=x-live.focusGround.x,dy=y-live.focusGround.y,pad=margin+128;
-    return {left:b.left+dx-pad,right:b.right+dx+pad,top:b.top+dy-pad,bottom:b.bottom+dy+pad};}
+    return {left:b.left+dx-pad,right:b.right+dx+pad,top:b.top+dy-pad,bottom:b.bottom+dy+pad,
+      key:(live.visibility?.key??'')+':'+Math.round(dx/128)+':'+Math.round(dy/128),
+      containsChunk:live.visibility?(cx:number,cy:number,extra:number)=>live.visibility!.chunk(cx,cy,extra+margin,dx,dy):undefined};}
   const half=projectedGroundHalfExtents(camera);
   return {left:x-half.x-margin,right:x+half.x+margin,top:y-half.y-margin,bottom:y+half.y+margin};
 }

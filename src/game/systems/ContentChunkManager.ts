@@ -1,6 +1,6 @@
 import type {FrameWorkBudget} from '../presentation25d/FrameWorkBudget';
 import type { ContentDefinition, ContentState, ContentWorldState, CreatureContentDefinition, EncounterRole, Vec2 } from '../types';
-import { chunkNeighborhood, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
+import { chunkNeighborhood,nearbyPhysicsChunks, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
 import {CHUNK_SIZE,STREAM_RADIUS,WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
 import {ENEMY_BY_ID,isWolfFamily} from '../../data/enemies';
 import {MAX_LIVE_HOSTILES,MAX_PERSISTENT_SPAWNS} from './encounterAdmission';
@@ -80,6 +80,7 @@ export class ContentChunkManager<Actor> {
   private readonly buckets = new Map<string, Set<string>>();
   private readonly locations = new Map<string, string>();
   private readonly active = new Map<string, Actor>();
+  private readonly retiring=new Map<string,number>();
   private readonly returns=new Set<string>();
   private nextReturnAt=Infinity;
   private readonly oversized=new Map<string,number>();
@@ -140,18 +141,20 @@ export class ContentChunkManager<Actor> {
     const playerCell=contentChunkKey(x,y);
     const center=view?playerCell+':view:'
       +Math.floor((view.left-768)/CHUNK_SIZE)+':'+Math.floor((view.right+768)/CHUNK_SIZE)+':'
-      +Math.floor((view.top-768)/CHUNK_SIZE)+':'+Math.floor((view.bottom+768)/CHUNK_SIZE):playerCell;
+      +Math.floor((view.top-768)/CHUNK_SIZE)+':'+Math.floor((view.bottom+768)/CHUNK_SIZE)+':'+(view.key??''):playerCell;
     let changed = center !== this.centerKey;
     if(changed){
-      this.centerKey=center;this.wanted=chunkNeighborhood(x,y);
-      if(view)for(const key of viewportChunks(view,768))this.wanted.add(key);
+      this.centerKey=center;this.wanted=view?nearbyPhysicsChunks(x,y):chunkNeighborhood(x,y);
+      if(view)for(const key of viewportChunks(view,384))this.wanted.add(key);
     }
     // Roofs and canopies may be visible while their base belongs to another
     // chunk. Query immutable drawn bounds, not a larger world neighborhood.
-    const sceneryKey=view?[view.left-768,view.right+768,view.top-768,view.bottom+768].map(v=>Math.floor(v/512)).join(':'):'';
+    const sceneryKey=view?[view.left-768,view.right+768,view.top-768,view.bottom+768].map(v=>Math.floor(v/512)).join(':')+':'+(view.key??''):'';
     if(sceneryKey!==this.sceneryKey){
       this.sceneryKey=sceneryKey;
-      this.sceneryWanted=view?new Set(this.sceneryIndex.query({left:view.left-768,right:view.right+768,top:view.top-768,bottom:view.bottom+768}).map(item=>item.id)):new Set();
+      this.sceneryWanted=view?new Set(this.sceneryIndex.query({left:view.left-768,right:view.right+768,top:view.top-768,bottom:view.bottom+768})
+        .filter(item=>!view.containsChunk||view.containsChunk(Math.floor((item.bounds.left+item.bounds.right)/2/CHUNK_SIZE),Math.floor((item.bounds.top+item.bounds.bottom)/2/CHUNK_SIZE),384))
+        .map(item=>item.id)):new Set();
       this.sceneryCandidates=new Set([...this.oversized.keys(),...this.sceneryWanted]);
       changed=true;
     }
@@ -190,9 +193,13 @@ export class ContentChunkManager<Actor> {
       this.index(id, key);
       if (!this.wanted.has(key)&&!this.sceneryWanted.has(id)&&!this.nearOversized(id,position,x,y,view)
         &&!this.host.keepActive?.(this.definitions.get(id)!,actor)) {
+        if(budgetDestruction){
+          const until=this.retiring.get(id)??now+1200;this.retiring.set(id,until);
+          if(now<until){cleanupPending=true;continue;}
+        }
         if(budgetDestruction&&(destroyed>=4||destroyed>0&&performance.now()-retireStart>=retireAllowance)){cleanupPending=true;continue;}
         const disposeStart=performance.now();this.deactivate(id);retireCost+=performance.now()-disposeStart;destroyed++;changed=true;
-      }
+      }else this.retiring.delete(id);
     }
     work?.chargeMs('retire',retireCost);
     this.cleanupPending=cleanupPending;
@@ -503,15 +510,19 @@ export class ContentChunkManager<Actor> {
   }
   private activateCreatureGroup(groupKey: string) {
     const pending: CreatureActivation[] = [];
+    const members=this.creatureGroups.get(groupKey);
+    let anchor:ContentState|undefined;
+    for(const id of members??[])if(this.wanted.has(this.locations.get(id)!)){anchor=this.getState(id);break;}
+    if(!anchor)return false;
     // Cached membership avoids searching all saved spawns for every creature.
-    for (const id of this.creatureGroups.get(groupKey) ?? []) {
+    for (const id of members ?? []) {
       if (this.active.has(id)) continue;
       const definition = this.definitions.get(id)! as CreatureContentDefinition;
       const state = this.getState(id)!;
       if (state.defeated) continue; // Restore survivors, never resurrect casualties.
-      // Do not pull distant packmates into the local physics/render budget.
-      // Wait until all pending survivors are in the streamed neighborhood.
-      if (!this.wanted.has(this.locations.get(id)!)) return false;
+      // A camera edge must not split an atomic encounter. Admit nearby
+      // offscreen packmates together; distant survivors still wait locally.
+      if (!this.wanted.has(this.locations.get(id)!)&&Math.hypot(state.x-anchor.x,state.y-anchor.y)>CHUNK_SIZE) return false;
       pending.push({ definition, state });
     }
     if (!pending.length || this.host.prepareCreatureGroup&&!this.host.prepareCreatureGroup(pending)) return false;
@@ -563,6 +574,7 @@ export class ContentChunkManager<Actor> {
     this.index(id, contentChunkKey(state.x, state.y));
   }
   private deactivate(id: string, capture = true) {
+    this.retiring.delete(id);
     const actor = this.active.get(id);
     if (!actor) return;
     if (capture) this.capture(id);

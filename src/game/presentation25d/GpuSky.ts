@@ -87,6 +87,7 @@ void main(){
  * no cube-map decoding, CPU repaint, per-cloud object or independent clock. */
 export class GpuSky {
   get artwork(){return this.texture;}
+  get sunlight():Readonly<Vector3>{return this.sun;}
   get ready(){return this.uniforms.ready.value>0;}
   readonly horizon=new Color();
   private readonly scene=new Scene();private readonly camera=new OrthographicCamera(-1,1,1,-1,0,1);

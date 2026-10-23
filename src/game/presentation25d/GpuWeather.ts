@@ -29,11 +29,12 @@ void main(){
   bool wet=kind<1.5,ash=kind>3.5,ember=particleIndex>=96.0;
   float depth=0.4+mod(particleIndex,3.0)*0.3;
   float speed=wet?360.0:ash?18.0:kind<2.5?24.0:12.0;
-  float age=fract(seed.y+time*speed*seed.z/620.0*(ember?-1.0:1.0));
+  float age=fract(seed.y+time*speed*seed.z/620.0);
   vec2 origin=floor(focus/64.0)*64.0;
   vec2 p=mod(seed.xy*1800.0+vec2(time*(12.0+wind*20.0)*seed.z,time*2.0)-origin,1800.0)-900.0+origin;
   if(!wet)p.x+=sin(time*.7+seed.w)*12.0;
-  float ground=groundHeight(p),height=age*620.0;
+  // World Y is up: precipitation descends, while hot volcanic embers rise.
+  float ground=groundHeight(p),height=(ember?age:1.0-age)*620.0;
   vec3 world=vec3(p.x,ground+height,p.y);
   float sx=wet?1.3:ash?(ember?24.0:5.0+depth*6.0):kind<2.5?3.5:6.0;
   float sy=wet?20.0:sx*(ash?1.0:.65);

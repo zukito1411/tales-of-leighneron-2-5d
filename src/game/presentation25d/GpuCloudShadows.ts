@@ -12,10 +12,11 @@ void main(){
   vec2 uv=fract((ground+vec2(time*14.0,-time*3.4))/vec2(1550.0,980.0));
   float density=texture2D(artwork,vec2(0.001,.501)+uv*.498).a;
   float shade=density*strength*clouds;
-  float beam=pow(max(0.0,sin((ground.x+ground.y*.36)*.0035+time*.006)),18.0)*rays*.035;
+  float beam=pow(max(0.0,sin((ground.x+ground.y*.36)*.0035+time*.006)),12.0)*rays*.09;
   float fade=1.0-smoothstep(fogRange.x,fogRange.y,distance(ground,fogFocus));
-  float alpha=max(shade,beam)*fade;if(alpha<.002)discard;
-  vec3 color=beam>shade?vec3(.95,.83,.62):vec3(.04,.065,.08);
+  // Both contributions survive the shared layer; cloud shade must not erase rays.
+  float total=shade+beam,alpha=min(.55,total)*fade;if(alpha<.002)discard;
+  vec3 color=mix(vec3(.04,.065,.08),vec3(.95,.83,.62),beam/max(.0001,total));
   gl_FragColor=vec4(color,alpha);
   #include <colorspace_fragment>
 }`;

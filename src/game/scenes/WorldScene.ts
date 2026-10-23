@@ -678,7 +678,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.contentManager = new ContentChunkManager(WORLD_CONTENT, logical, {
       frameWork:()=>frameWork(this.game),
       initialState: initialContentState,
-      keepActive:definition=>definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID&&aliceIsFollowing(useGameStore.getState().storyFlags),
+      keepActive:(definition,actor)=>definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID&&aliceIsFollowing(useGameStore.getState().storyFlags)
+        ||actor instanceof Enemy&&actor.active&&actor.isAlive&&Math.hypot(actor.x-this.player.x,actor.y-this.player.y)
+          <=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384),
       canActivate: (definition, runtime) => {
         if(definition.kind==='creature'&&this.storyCombatActive)return false;
         if(definition.kind==='npc'&&NPC_INTERIOR_BY_ID[definition.npcId])return false;
