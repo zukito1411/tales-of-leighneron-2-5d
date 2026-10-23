@@ -401,6 +401,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     catch(error){this.destroyContentActor(enemy);throw error;}
   }
   addInteriorContact(actor:Phaser.GameObjects.Sprite){return this.groundShadows.interiorContact(actor,y=>this.playerRenderDepth(y)-1);}
+  addInteriorFurnitureContact(actor:Phaser.GameObjects.Image,width:number,depth:number){return this.groundShadows.interiorFurnitureContact(actor,width,depth);}
   lightStorySignal(id:string){
     this.contentManager.getActor('story:signal-fire:'+id)?.setVisible(true);
     const clue=id==='mountain-signal'?'story:beacon-kit':id==='winter-signal'?'story:frost-lantern':undefined;

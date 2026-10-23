@@ -12,7 +12,7 @@ import {artScale} from '../../data/art';
 import {grandMagusFarewell} from './GrandMagusArt';
 import {TOWER_SOUTH_ENTRY} from '../../data/towerRoom';
 import {ensureBossSkillArt} from './BossSkillArt';
-import {PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {PRESENTATION_HINT,onFurniture,type PresentationHint} from '../presentation25d/plane';
 import {towerOfMightShape} from '../presentation25d/HouseGeometry';
 import {registerCameraObstacle} from '../presentation25d/CameraObstacles';
 
@@ -173,6 +173,7 @@ export class DungeonSystem {
         .setOrigin(.5,252/256).setDepth(this.scene.playerRenderDepth(point.y));
       const doorMetadata=this.northDoor.frame.customData as {visibleWidth:number};
       this.northDoor.setScale(110/doorMetadata.visibleWidth);
+      onFurniture(this.northDoor,'tower-door-closed','tower_of_might');
       this.northDoor.setInteractive({useHandCursor:true}).on('pointerdown',()=>{
         const state=useGameStore.getState();
         if(state.panel||state.dialogue||state.cinematic)return;
@@ -272,6 +273,7 @@ export class DungeonSystem {
     const d=this.session;if(!d||this.chest||d.tower&&this.portal)return;
     if(d.tower){
       this.northDoor?.setFrame('tower-door-open');
+      if(this.northDoor)onFurniture(this.northDoor,'tower-door-open','tower_of_might');
       const point=this.scene.dungeonPoint(TOWER_PORTAL);
       this.portal=this.scene.add.sprite(point.x,point.y,'effect_teleport',0).setScale(artScale('effect_teleport')*1.5)
         .setDepth(this.scene.playerRenderDepth(point.y)+1).setName('tower-return-portal');
@@ -285,6 +287,7 @@ export class DungeonSystem {
     const p=this.scene.dungeonPoint(d.tower?{x:1160,y:550}:{x:600,y:350});this.chestPoint=p;
     const claimed=useGameStore.getState().dungeons[d.id]?.claimed;
     this.chest=this.scene.add.image(p.x,p.y,'interior-furniture',claimed?'openChest':'chest').setOrigin(.5,1).setDisplaySize(72,70).setDepth(this.scene.playerRenderDepth(p.y));
+    onFurniture(this.chest,claimed?'openChest':'chest','cave_stone');
     this.chest.setInteractive({useHandCursor:true}).on('pointerdown',()=>this.interact());
     this.caption=this.scene.add.text(p.x,p.y-82,claimed?'Claimed':'War chest',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#ffe3a2',stroke:'#1b140e',strokeThickness:3})
       .setOrigin(.5).setDepth(this.scene.playerRenderDepth(p.y)+1);
@@ -320,6 +323,7 @@ export class DungeonSystem {
     if(s.panel||s.dialogue||s.cinematic||!this.scene.hasClearPath(this.scene.player.x,this.scene.player.y,this.chestPoint!.x,this.chestPoint!.y))return true;
     s.claimDungeonChest(id);if(!useGameStore.getState().dungeons[id]?.claimed)return true;
     this.chest?.setFrame('openChest');this.caption?.setText('Claimed · 20m reset');this.scene.playAudio('sfx-heal-bell',.4);
+    if(this.chest)onFurniture(this.chest,'openChest','cave_stone');
     this.scene.syncState();saveGame();return true;
   }
   private interactTower(){
@@ -332,6 +336,7 @@ export class DungeonSystem {
       s.claimDungeonChest(d.id);
       if(useGameStore.getState().dungeons[d.id]?.claimed){
         this.chest?.setFrame('openChest');this.caption?.setText('Claimed');this.scene.syncState();saveGame();
+        if(this.chest)onFurniture(this.chest,'openChest','cave_stone');
       }
       return true;
     }

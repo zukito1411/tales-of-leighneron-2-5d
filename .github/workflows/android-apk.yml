@@ -149,6 +149,12 @@ jobs:
           enemy. Locks follow combat facing, protect the enemy from focus blur,
           and release beyond range or after sustained loss of sight.
           Sun shafts now remain visible near screen edges and partial cover.
+          Interior furnishings now use fixed 3D volumes: beds, chairs, tables,
+          cabinets, counters, barrels, pots, hearths, steps, arches and regional
+          centerpieces. Original furniture artwork and saved layouts are retained.
+          Player-home rotations and weapon displays follow their furniture in
+          world space. Cave chests and tower doors retain their open/closed states.
+          Furniture shares the character cutaway and soft ground-contact artwork.
           Camera-frustum streaming now replaces the fixed walking neighborhood.
           Movement-ahead preloads, GPU preparation and delayed retirement run together.
           The full sky, sun, moon and stars remain in their separate sky pass.

@@ -18,6 +18,7 @@ import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {createHouseGeometry,createWallGeometry} from './HouseGeometry';
+import {createFurnitureGeometry,type FurnitureShape} from './FurnitureGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {RasterCache} from './RasterCache';
@@ -357,6 +358,7 @@ export class ThreePresentation {
 
   private collect(object:Phaser.GameObjects.GameObject,camera:Phaser.Cameras.Scene2D.Camera,parentAlpha:number,inherited?:PresentationHint,parentAnchor?:{x:number;y:number}){
     if(!object.active||!('visible' in object)||!object.visible||object.cameraFilter&camera.id)return;
+    if(object.name==='interior-furniture-contact'&&!getGraphicEffects().dynamicShadows)return;
     let alpha=parentAlpha*('alpha' in object&&typeof object.alpha==='number'?object.alpha:1);
     if(alpha<=.001)return;
     const explicit=object.getData(PRESENTATION_HINT) as PresentationHint|undefined;
@@ -375,11 +377,12 @@ export class ThreePresentation {
     const hint:PresentationHint|undefined=explicit??inherited??(emissionOwner?{plane:'upright',anchor:emissionOwner}:undefined);
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
+    const furniture=hint?.furniture;
     const houseVolume=Boolean(house)&&(!emissionOwner||Boolean(house?.profile.tiers))&&!hint?.overlay;
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
-      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset
+      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!furniture&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset
       &&!object.isCropped&&(plane==='ground'||plane==='upright'&&!object.input?.enabled);
     if(staticImage&&this.collectStatic(object,camera,alpha,hint))return;
     // Conservative early culling. The old code rasterized offscreen Graphics
@@ -488,6 +491,12 @@ export class ThreePresentation {
         out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t),py+(out.z-beam.y)*(1-t));
       }
       else if(plane==='ground')out.set(px,lift,py);
+      else if(hint?.fixture){
+        const f=hint.fixture,owner=f.owner,a=owner.rotation,c=Math.cos(a),s=Math.sin(a);
+        const sx=Math.hypot(this.transform.a,this.transform.b),sy=Math.hypot(this.transform.c,this.transform.d);
+        const dx=f.right+x*sx;
+        out.set(owner.x+dx*c-f.depth*s,anchorHeight+f.height-y*sy,owner.y+dx*s+f.depth*c);
+      }
       else if(house&&hint?.overlay){
         if(house.profile.tiers&&hint.anchor instanceof Phaser.GameObjects.Sprite){
           presentationAttachmentWorld(object.scene,hint.anchor,this.transform.tx,this.transform.ty,out);
@@ -540,10 +549,16 @@ export class ThreePresentation {
         0,h,0,anchorHeight+h/2,
         segment.dy,0,ux*thickness,anchorY+ux*thickness/2,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',volumeDepth))return;
+    if(furniture){
+      // Saved rotation is a heading on the floor, never a tilt of the painted
+      // sprite's vertical axis. Match the existing front-foot/footprint anchor.
+      const w=Math.hypot(this.transform.a,this.transform.b)*rect.width*furniture.width,a=object.rotation,c=Math.cos(a),s=Math.sin(a);
+      this.model.set(w*c,0,-w*s,this.transform.tx,0,w,0,anchorHeight,w*s,0,w*c,this.transform.ty,0,0,0,1);
+    }
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',volumeDepth,furniture))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
-    if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!wallDepth&&(!hint?.anchor||hint.wall)
+    if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
       &&object.getData('presentation25dPlayerVisual')!==true
       &&!(object instanceof Phaser.GameObjects.Text)
       &&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
@@ -566,9 +581,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(furniture?'furniture:'+furniture.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furniture?()=>createFurnitureGeometry(furniture):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -614,10 +629,13 @@ export class ThreePresentation {
     camera.addToRenderList(object);return true;
   }
 
-  private inView(ground:boolean,backDepth=0){
+  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape){
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
-    const count=backDepth>0?8:ground?5:4;
-    for(let i=0;i<count;i++){const [x,y]=VERTICES[backDepth>0?i%4:i];this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:0).applyMatrix4(this.model);
+    const count=furniture||backDepth>0?8:ground?5:4;
+    for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
+      if(furniture)this.projected.set(x*1.1,(y+.5)*furniture.rise*1.02,i>=4?-Math.max(furniture.depth,furniture.depth/2+.5):Math.max(.01,.5-furniture.depth/2));
+      else this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:0);
+      this.projected.applyMatrix4(this.model);
       if(ground)this.projected.y+=this.heightAt(this.projected.x,this.projected.z);
       this.projected.project(this.orbit.camera);
       left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);top=Math.min(top,this.projected.y);bottom=Math.max(bottom,this.projected.y);

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import {onPlane,onGround,groundForeshortening,projectedGroundHalfExtents} from '../presentation25d/plane';
+import {onPlane,onGround,onFurniture,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
 import {housingFor,HOME_FLOORS,HOME_ENTRANCE,FURNITURE_BY_ART,furnitureFootprint,homeWeaponMount,type HomeItem} from '../../data/housing';
 import {isPlayerHome,PLAYER_HOME_BY_ID} from '../../data/playerHomes';
 import housingArt from '../../data/housingArt.json';
@@ -226,7 +226,7 @@ export class InteriorSession {
         }
         if(isPlayerHome(entry.id))for(const [id,frame] of Object.entries(housingArt.frames)){
           const texture=this.scene.textures.get(HOME_ATLASES[frame.atlas]);
-          if(!texture.has(id))texture.add(id,0,frame.x,frame.y,frame.width,frame.height);
+          if(!texture.has(id))texture.add(id,0,frame.x,frame.y,frame.width,frame.height)!.customData={visibleWidth:frame.visibleWidth,visibleHeight:frame.visibleHeight,furnitureBottom:186};
         }
         if(!alive())return;
         this.open(entry,anchor,cinematic);settle(true);
@@ -274,7 +274,7 @@ export class InteriorSession {
       const width=pose.width*fit,height=pose.height*fit;
       const x=(index%8)*256,y=Math.floor(index/8)*256;
       atlas.getContext().drawImage(pose,x+(256-width)/2,y+252-height,width,height);
-      atlas.add(art,0,x,y,256,256)!.customData={visibleWidth:width,visibleHeight:height};
+      atlas.add(art,0,x,y,256,256)!.customData={visibleWidth:width,visibleHeight:height,furnitureBottom:252};
       pose.width=pose.height=1;
       yield;
     }
@@ -295,7 +295,7 @@ export class InteriorSession {
     for(const [index,name] of (['chest','openChest'] as const).entries()){
       const [sx,sy,sw,sh]=CAVE_ART_FRAMES[name],fit=248/Math.max(sw,sh),width=sw*fit,height=sh*fit,x=index*256;
       atlas.getContext().drawImage(source,sx,sy,sw,sh,x+(256-width)/2,252-height,width,height);
-      atlas.add(name,0,x,0,256,256)!.customData={visibleWidth:width,visibleHeight:height};
+      atlas.add(name,0,x,0,256,256)!.customData={visibleWidth:width,visibleHeight:height,furnitureBottom:252};
     }
     const doors=this.scene.textures.get(TOWER_DOOR_SOURCE).getSourceImage() as HTMLImageElement;
     const board=document.createElement('canvas');board.width=doors.width;board.height=doors.height;
@@ -306,7 +306,7 @@ export class InteriorSession {
     for(const [index,pose] of poses.entries()){
       const x=(index+2)*256,width=pose.width*fit,height=pose.height*fit;
       atlas.getContext().drawImage(pose,x+(256-width)/2,252-height,width,height);
-      atlas.add(index?'tower-door-open':'tower-door-closed',0,x,0,256,256)!.customData={visibleWidth:width,visibleHeight:height};
+      atlas.add(index?'tower-door-open':'tower-door-closed',0,x,0,256,256)!.customData={visibleWidth:width,visibleHeight:height,furnitureBottom:252};
     }
     board.width=board.height=1;atlas.refresh();
     this.scene.textures.remove(TOWER_CHEST_SOURCE);this.scene.textures.remove(TOWER_DOOR_SOURCE);
@@ -329,7 +329,19 @@ export class InteriorSession {
     const image=this.own(this.scene.add.image(this.origin.x+x,this.origin.y+y,ATLAS,art));
     if(art==='rug')onGround(image,.02);else onPlane(image,'upright');
     const dimensions=image.frame.customData as {visibleWidth:number;visibleHeight:number};
-    return image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
+    image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
+    if(art!=='rug'&&art!=='northWall'&&art!=='sideWall'){
+      onFurniture(image,art,this.entry?.kit??'');
+      if(this.entry?.profile!=='cave'&&art!=='doorway')this.addFurnitureContact(image);
+    }
+    return image;
+  }
+  private addFurnitureContact(image:Phaser.GameObjects.Image){
+    const shape=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    if(!shape||shape.art==='arch'||shape.art==='window'||shape.art==='lantern')return;
+    const width=Math.abs(image.displayWidth)*shape.width;
+    const shadow=this.own(this.scene.addInteriorFurnitureContact(image,width,width*shape.depth));
+    return shadow;
   }
   private renderWalls(){
     const plan=this.plan!,edges=new Map<string,{side:'north'|'west'|'east';axis:number;spans:Array<[number,number]>}>();
@@ -787,8 +799,10 @@ export class InteriorSession {
       const image=this.own(this.scene.add.image(this.origin.x+x,this.origin.y+y,HOME_ATLASES[frame.atlas],item.kit+':'+item.art)
         .setOrigin(.5,186/192).setScale(spec.width/frame.visibleWidth).setAngle(item.rotation)
         .setDepth(spec.walkable?DEPTH-750:depth));
-      if(item.art==='rug')onGround(image,.025);else onPlane(image,'upright');
+      if(item.art==='rug')onGround(image,.025);
+      else onFurniture(image,item.art,item.kit,spec.h*32/spec.width);
       this.homeObjects.push(image);
+      const shadow=this.addFurnitureContact(image);if(shadow)this.homeObjects.push(shadow);
       if(item.art==='bed')image.setInteractive({useHandCursor:true}).on('pointerdown',()=>{
         const state=useGameStore.getState();
         if(this.loading||this.cinematicContext||state.panel||state.dialogue||state.cinematic||state.housingEditing)return;
@@ -800,6 +814,9 @@ export class InteriorSession {
         const mount=homeWeaponMount(item);
         const sword=this.own(this.scene.add.image(this.origin.x+mount.x,this.origin.y+mount.y,SWORD_TEXTURE,item.weaponId)
           .setDisplaySize(25,58).setAngle(item.rotation).setDepth(depth+1));this.homeObjects.push(sword);
+        const shape=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+        if(shape)sword.setData(PRESENTATION_HINT,{plane:'upright',anchor:image,
+          fixture:{owner:image,right:0,height:shape.rise*spec.width*.48,depth:-shape.depth*spec.width*.32+1}} satisfies PresentationHint);
       }
     }
     // Editing may cover the player's previous feet. Always return to the

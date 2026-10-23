@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import {Raycaster,Vector2,Vector3,type PerspectiveCamera} from 'three';
 import type {HouseShape} from './HouseGeometry';
+import {furnitureShape,type FurnitureShape} from './FurnitureGeometry';
 import type {StreamVisibility} from './StreamVisibility';
 import type {StreamView} from '../systems/chunkNeighborhood';
 
@@ -47,6 +48,10 @@ export interface PresentationHint {
   plane: PresentationPlane;
   /** Fixed textured structure volume; vegetation/actors retain billboards. */
   house?:HouseShape;
+  /** Fixed room furnishing; its model uses a world-facing, floor-based basis. */
+  furniture?:FurnitureShape;
+  /** Artwork mounted on furniture, such as a player's displayed weapon. */
+  fixture?:{owner:Phaser.GameObjects.Image;right:number;height:number;depth:number};
   /** Keep attachments, names and health bars on their owner's foot plane. */
   anchor?: {x:number;y:number;depth?:number;rotation?:number;presentationElevation?:number};
   /** Project world-attached light/FX into the ordered screen compositor. */
@@ -220,6 +225,12 @@ export function onOverlay<T extends Phaser.GameObjects.GameObject>(object:T,anch
 
 export function onGround<T extends Phaser.GameObjects.GameObject>(object:T,elevation=0):T {
   object.setData(PRESENTATION_HINT,{plane:'ground',elevation} satisfies PresentationHint);
+  return object;
+}
+
+export function onFurniture<T extends Phaser.GameObjects.Image>(object:T,art:Parameters<typeof furnitureShape>[0],kit:string,depth?:number):T {
+  const furniture=furnitureShape(art,kit,object.frame,depth);
+  if(furniture)object.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
   return object;
 }
 

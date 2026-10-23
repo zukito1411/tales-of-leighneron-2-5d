@@ -4,6 +4,7 @@ import {overlayViewport,groundEffectViewport} from './renderSizing';
 import {cloudShadowStamps} from './CloudShadowArt';
 import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from './effectsQuality';
 import {getGraphicEffects} from './graphicsEffects';
+import {onGround} from '../presentation25d/plane';
 
 type Actor=Phaser.GameObjects.Sprite|Phaser.GameObjects.Image;
 export interface ShadowOptions {
@@ -171,6 +172,18 @@ export class GroundShadowSystem {
   const release=()=>image.destroy();
   this.scene.events.on(Phaser.Scenes.Events.POST_UPDATE,sync);actor.once('destroy',release);
   image.once('destroy',()=>{this.scene.events.off(Phaser.Scenes.Events.POST_UPDATE,sync);actor.off('destroy',release);});sync();return image;
+ }
+ /** Static furnishings share the actor contact artwork without adding an
+  * update listener per prop. Editing recreates the room's placed objects. */
+ interiorFurnitureContact(actor:Phaser.GameObjects.Image,width:number,depth:number){
+  const key='interior-contact-shadow';
+  if(!this.scene.textures.exists(key))this.scene.textures.addCanvas(key,this.contact);
+  const a=actor.rotation,image=this.scene.add.image(actor.x+Math.sin(a)*depth/2,actor.y-Math.cos(a)*depth/2,key)
+    .setDisplaySize(width*1.08,Math.max(8,depth*1.10)).setRotation(a).setAlpha(.38)
+    .setDepth(actor.depth-1).setName('interior-furniture-contact');
+  onGround(image,.035);
+  const release=()=>image.destroy();actor.once('destroy',release);
+  image.once('destroy',()=>actor.off('destroy',release));return image;
  }
  private visible(casters:Set<Caster>,width:number,height:number,castX:number,castY:number,
   result:Array<{caster:Caster;frame:Phaser.Textures.Frame}>){
