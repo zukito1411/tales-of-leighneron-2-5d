@@ -14,7 +14,7 @@ export class OrbitCamera {
   private readonly focus=new Vector3();private initialized=false;
   private readonly nextFocus=new Vector3();
   private readonly lookTarget=new Vector3();
-  private obstructionDistance=Infinity;private combatLocked=false;
+  private combatLocked=false;
   private wasLocked=false;private releasing=false;
   private readonly finePointer=window.matchMedia('(pointer: fine)');
   private readonly ray=new Raycaster();private readonly ndc=new Vector2();
@@ -73,7 +73,7 @@ export class OrbitCamera {
   };
   private readonly wheel=(event:WheelEvent)=>{if(!this.enabled)return;event.preventDefault();this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
-    obstruction?:(from:Vector3,to:Vector3)=>number,lockedTarget?:{x:number;y:number}){
+    lockedTarget?:{x:number;y:number}){
     if(this.enabled&&!enabled)this.release();this.enabled=enabled;
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
     this.combatLocked=enabled&&Boolean(lockedTarget);
@@ -99,18 +99,8 @@ export class OrbitCamera {
     const orbitPitch=Math.max(8*RAD,this.pitch);
     const horizontal=distance*Math.cos(orbitPitch),vertical=distance*Math.sin(orbitPitch);
     this.camera.position.set(this.focus.x+horizontal*Math.sin(this.yaw),this.focus.y+vertical,this.focus.z+horizontal*Math.cos(this.yaw));
-    // Terrain obstruction: shorten only our orbit, never move simulation feet.
-    for(let i=1;i<=8;i++){const t=i/8,x=this.focus.x+(this.camera.position.x-this.focus.x)*t,z=this.focus.z+(this.camera.position.z-this.focus.z)*t;
-      if(this.focus.y+(this.camera.position.y-this.focus.y)*t<height(x,z)+22){this.camera.position.lerp(this.focus,1-t+.08);break;}}
-    const desiredDistance=this.camera.position.distanceTo(this.focus),limit=enabled?(obstruction?.(this.focus,this.camera.position)??1):1;
-    // Keep the complete player pose in frame. Tight cases below this framing
-    // distance use the depth-tested cutaway instead of pushing into the head.
-    const safe=Math.max(180,desiredDistance*limit);
-    // Retract immediately before entering geometry; only outward recovery is
-    // damped. This avoids oscillation at wall edges and crossing a near plane.
-    if(!Number.isFinite(this.obstructionDistance)||safe<this.obstructionDistance)this.obstructionDistance=safe;
-    else this.obstructionDistance+=(safe-this.obstructionDistance)*(1-Math.exp(-Math.min(80,Math.max(0,delta))/240));
-    if(desiredDistance>0)this.camera.position.lerp(this.focus,1-Math.min(1,this.obstructionDistance/desiredDistance));
+    // Obstructions use the shared depth-tested character/target cutaway.
+    // Keep the player's chosen orbit distance instead of zooming at wall edges.
     if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
     else{
       this.lookTarget.copy(this.camera.position).add(this.nextFocus.set(-Math.sin(this.yaw)*Math.cos(this.pitch),-Math.sin(this.pitch),-Math.cos(this.yaw)*Math.cos(this.pitch)));

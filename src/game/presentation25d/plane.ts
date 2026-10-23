@@ -240,7 +240,7 @@ export function onGround<T extends Phaser.GameObjects.GameObject>(object:T,eleva
 }
 
 export function onFurniture<T extends Phaser.GameObjects.Image>(object:T,art:Parameters<typeof furnitureShape>[0],kit:string,depth?:number):T {
-  const furniture=furnitureShape(art,kit,object.frame,depth);
+  const furniture=furnitureShape(art,kit,object.frame,object.displayWidth,depth);
   if(furniture)object.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
   return object;
 }

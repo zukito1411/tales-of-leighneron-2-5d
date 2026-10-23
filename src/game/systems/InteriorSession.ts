@@ -20,7 +20,6 @@ import {INN_REST_COST,innRestAvailable} from '../../data/innRest';
 import {MAP_BLACKSMITHS} from '../../data/mapServices';
 import {CAVE_ART_PATH,CAVE_ART_FRAMES,CAVE_FLOOR} from '../../data/caveArt';
 import {TOWER_ENTRY_ID,towerKnown,towerCampaignComplete,towerEntryFloor,TOWER_CHAMBERS,TOWER_DOOR_ART,TOWER_NORTH_DOOR} from '../../data/towerOfMight';
-import {registerCameraObstacle} from '../presentation25d/CameraObstacles';
 import {TOWER_ROOM_ART,TOWER_ROOM_SIZE,TOWER_ROOM_ART_EXTENT,TOWER_SOUTH_DOOR} from '../../data/towerRoom';
 
 const DEPTH=10_000_000;
@@ -382,7 +381,6 @@ export class InteriorSession {
             const visiblePixels=(step+.5)/image.scaleX;
             image.setCrop((image.frame.realWidth-visiblePixels)/2,0,visiblePixels,image.frame.realHeight);
             image.setData('presentation25d',{plane:'upright',anchor:{x:image.x,y:image.y},wall:{axis:north?'x':'y',thickness:.06}});
-            registerCameraObstacle(image);
             // Keep the source panel's uniform scale and complete vertical extent.
             image.setName('interior-wall:'+side);
           }

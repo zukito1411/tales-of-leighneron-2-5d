@@ -1,6 +1,7 @@
 import {BufferGeometry,Float32BufferAttribute,ShapeUtils,Vector2} from 'three';
 import type Phaser from 'phaser';
 import type {HomeFurnitureArt} from '../../data/housing';
+import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 
 export type PropArt='crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant';
@@ -28,18 +29,25 @@ export function furniturePlacement(owner:Pick<Phaser.GameObjects.Image,'x'|'y'|'
 const depths:Partial<Record<FurnitureArt,number>>={bed:1.1,wardrobe:.34,bookcase:.30,chest:.45,table:.5,bench:.32,chair:.5,
   counter:.32,hearth:.30,planter:.35,barrel:.5,pantry:.34,weaponRack:.22,lantern:.22,stairs:.85,arch:.18,
   workstation:.30,signature:.35,window:.16,doorway:.22,'tower-door-closed':.22,'tower-door-open':.22,openChest:.6};
-const heights:Partial<Record<FurnitureArt,number>>={bed:.80,table:.48,bench:.40,chair:1.10,counter:.66,workstation:.66};
+// Human-scale elevations, independent of a room's authored furniture width.
+// Counter paint sits at .883 of the mesh envelope; chair seats at .383 and
+// mattresses at .424. Keep those surfaces in proportion to the standing body.
+const bodyHeights:Partial<Record<FurnitureArt,number>>={
+  bed:.72,table:.44,bench:.27,chair:.72,counter:.58/.883,workstation:.48,
+};
 
 /** Frame dimensions are authored during the existing bounded room preparation.
  * There is no pixel scan, generated image or model cache in the render loop. */
 export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open',kit:string,
-  frame:Phaser.Textures.Frame,depth?:number):FurnitureShape|undefined {
+  frame:Phaser.Textures.Frame,displayWidth:number,depth?:number):FurnitureShape|undefined {
   if(art==='rug'||art==='northWall'||art==='sideWall')return;
   const meta=frame.customData as {visibleWidth?:number;visibleHeight?:number;furnitureBottom?:number}|undefined;
   const w=meta?.visibleWidth??frame.cutWidth,h=meta?.visibleHeight??frame.cutHeight;
   const bottom=meta?.furnitureBottom??frame.cutHeight;
   const left=(frame.cutWidth-w)/2/frame.cutWidth,top=(bottom-h)/frame.cutHeight;
-  const width=w/frame.cutWidth,height=h/frame.cutHeight,rise=heights[art]??h/w;
+  const width=w/frame.cutWidth,height=h/frame.cutHeight;
+  const bodyHeight=bodyHeights[art];
+  const rise=bodyHeight===undefined?h/w:HERO_BODY_HEIGHT*bodyHeight/Math.max(.001,Math.abs(displayWidth)*width);
   const patchKey=kit+':'+(art==='openChest'?'chest':art);
   const raw=materials[patchKey as keyof typeof materials];
   const patch:Patch|undefined=raw?.length===4?[raw[0],raw[1],raw[2],raw[3]]:undefined;

@@ -143,13 +143,16 @@ jobs:
           Tower walls, ledges, crowns and roofs now use circular geometry with
           the existing artwork wrapped around them, including lit windows.
           Contract boards have thin fixed-facing frames, backs and posts.
-          The orbit camera pulls forward around buildings and uses a local
-          cutaway to keep the player and locked enemy visible in tight spaces.
+          The camera keeps your chosen zoom near walls, buildings and terrain.
+          Local cutaways still reveal the player and locked enemy behind cover.
           Press R or tap the translucent Lock button to lock/unlock a visible
           enemy. Locks follow combat facing, protect the enemy from focus blur,
           and release beyond range or after sustained loss of sight.
           Sun shafts now remain visible near screen edges and partial cover.
-          Interior furnishings now use fixed 3D volumes: beds, chairs, tables,
+          Interior dining tables, reception counters, workbenches, chairs,
+          benches and beds now use character-relative heights, independent of
+          their width. Room footprints, saved layouts and original art remain.
+          Interior furnishings use fixed 3D volumes: beds, chairs, tables,
           cabinets, counters, barrels, pots, hearths, steps, arches and regional
           centerpieces. Original furniture artwork and saved layouts are retained.
           Player-home rotations and weapon displays follow their furniture in

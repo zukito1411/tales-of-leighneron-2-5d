@@ -4,7 +4,6 @@ import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../pr
 import {houseShape,type WallSegment} from '../presentation25d/HouseGeometry';
 import {worldPropShape,shipShape} from '../presentation25d/WorldPropGeometry';
 import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
-import {registerCameraObstacle} from '../presentation25d/CameraObstacles';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
@@ -66,7 +65,6 @@ export class WorldSpriteSystem {
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
     }
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
-    if(house)registerCameraObstacle(actor);
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
         ||texture==='world_objects'&&frame<4;

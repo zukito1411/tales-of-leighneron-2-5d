@@ -14,7 +14,6 @@ import {TOWER_SOUTH_ENTRY} from '../../data/towerRoom';
 import {ensureBossSkillArt} from './BossSkillArt';
 import {PRESENTATION_HINT,onFurniture,type PresentationHint} from '../presentation25d/plane';
 import {towerOfMightShape} from '../presentation25d/HouseGeometry';
-import {registerCameraObstacle} from '../presentation25d/CameraObstacles';
 
 const EXTERIOR='cave-entrances-v1';
 const TOWER_TEXTURE='tower-of-might-v2';
@@ -89,7 +88,6 @@ export class DungeonSystem {
         const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y+12,TOWER_TEXTURE).setOrigin(.5,1)
           .setDisplaySize(380,570).setDepth(TOWER_DOOR.y-50).setName('Tower of Might');
         image.setData(PRESENTATION_HINT,{plane:'upright',house:towerOfMightShape()} satisfies PresentationHint);
-        registerCameraObstacle(image);
         this.scene.registerDungeonEntrance(image,true);
         image.setInteractive({useHandCursor:true}).on('pointerdown',()=>{
           const state=useGameStore.getState();if(state.panel||state.dialogue||state.cinematic)return;

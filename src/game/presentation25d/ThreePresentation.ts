@@ -4,7 +4,6 @@ import {GpuTimer} from './GpuTimer';
 import {ShaderWarmup} from './ShaderWarmup';
 import {staticSpatialIndex} from './StaticSpatialIndex';
 import {StreamVisibility} from './StreamVisibility';
-import {cameraObstacles} from './CameraObstacles';
 import {bindResourcePreparation,clearResourcePreparation} from './resourcePreparation';
 import Phaser from 'phaser';
 import {
@@ -210,9 +209,8 @@ export class ThreePresentation {
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
-    const obstacles=cameraObstacles(scene);obstacles.heightAt=this.heightAt;
     const lockedTarget=presentation.presentationLockedTarget;
-    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,obstacles.limit,lockedTarget);
+    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget);
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
