@@ -1,3 +1,4 @@
+import {paintContext,type PaintCanvas,type PaintContext} from './PaintCanvas';
 import {createNoise2D} from 'simplex-noise';
 import {seededRandom} from '../../utils/seededRandom';
 import {CHUNK_SIZE,TILE_SIZE} from '../../data/world';
@@ -8,11 +9,11 @@ import type {WorldGenerator} from './WorldGenerator';
 const hills=createNoise2D(seededRandom('mernondna:upland-contours'));
 /** World-space hill light/valley shade baked once with the chunk. This is
  * painted relief, not false 3D elevation or new invisible cliff collision. */
-export function drawGroundRelief(ctx:CanvasRenderingContext2D,mask:HTMLCanvasElement,world:WorldGenerator,chunkX:number,chunkY:number,terrain:Uint8Array){
+export function drawGroundRelief(ctx:PaintContext,mask:PaintCanvas,world:WorldGenerator,chunkX:number,chunkY:number,terrain:Uint8Array){
   const steps=drawGroundReliefSteps(ctx,mask,world,chunkX,chunkY,terrain);while(!steps.next().done){/* Synchronous callers only. */}
 }
-export function* drawGroundReliefSteps(ctx:CanvasRenderingContext2D,mask:HTMLCanvasElement,world:WorldGenerator,chunkX:number,chunkY:number,terrain:Uint8Array):Generator<void,void>{
-  const m=mask.getContext('2d')!,pixels=m.createImageData(TERRAIN_MASK_SIZE,TERRAIN_MASK_SIZE);
+export function* drawGroundReliefSteps(ctx:PaintContext,mask:PaintCanvas,world:WorldGenerator,chunkX:number,chunkY:number,terrain:Uint8Array):Generator<void,void>{
+  const m=paintContext(mask),pixels=m.createImageData(TERRAIN_MASK_SIZE,TERRAIN_MASK_SIZE);
   for(let row=0;row<TERRAIN_MASK_SIZE;row++){
   yield;
   for(let col=0;col<TERRAIN_MASK_SIZE;col++){

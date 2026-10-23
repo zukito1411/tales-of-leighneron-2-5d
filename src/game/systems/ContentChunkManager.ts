@@ -1,3 +1,4 @@
+import type {FrameWorkBudget} from '../presentation25d/FrameWorkBudget';
 import type { ContentDefinition, ContentState, ContentWorldState, CreatureContentDefinition, EncounterRole, Vec2 } from '../types';
 import { chunkNeighborhood, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
 import {CHUNK_SIZE,STREAM_RADIUS,WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
@@ -56,6 +57,7 @@ export interface CreatureActivation {
 export interface EncounterSpawnMember { enemyId: string; world: Vec2; role?: EncounterRole }
 
 export interface ContentHost<Actor> {
+  frameWork?:()=>FrameWorkBudget;
   keepActive?(definition:ContentDefinition,actor:Actor):boolean;
   initialState(definition: ContentDefinition): ContentState;
   canActivate?(definition: ContentDefinition, state: ContentState): boolean;
@@ -173,8 +175,10 @@ export class ContentChunkManager<Actor> {
     }
     // Destroying an entire streamed settlement in one frame can create
     // comparable hitches to spawning it. Spread teardown over live frames.
+    const work=this.host.frameWork?.(),retireStart=performance.now();
+    const retireAllowance=work?.remaining('retire',.4)??.4;
     const budgetDestruction=Boolean(view)&&this.admissionBootstrapped;
-    let destroyed=0,cleanupPending=false;
+    let destroyed=0,cleanupPending=false,retireCost=0;
     // Only near actors are inspected. Bucket migration lets moving creatures cross chunks.
     for (const [id, actor] of this.active) {
       const kind=this.definitions.get(id)!.kind;
@@ -186,10 +190,11 @@ export class ContentChunkManager<Actor> {
       this.index(id, key);
       if (!this.wanted.has(key)&&!this.sceneryWanted.has(id)&&!this.nearOversized(id,position,x,y,view)
         &&!this.host.keepActive?.(this.definitions.get(id)!,actor)) {
-        if(budgetDestruction&&destroyed>=4){cleanupPending=true;continue;}
-        this.deactivate(id);destroyed++;changed=true;
+        if(budgetDestruction&&(destroyed>=4||destroyed>0&&performance.now()-retireStart>=retireAllowance)){cleanupPending=true;continue;}
+        const disposeStart=performance.now();this.deactivate(id);retireCost+=performance.now()-disposeStart;destroyed++;changed=true;
       }
     }
+    work?.chargeMs('retire',retireCost);
     this.cleanupPending=cleanupPending;
     // Keep all active actor migration running every frame, but retry the
     // expensive inactive-world admission search only every 150 ms when still.
@@ -198,12 +203,12 @@ export class ContentChunkManager<Actor> {
     const checkedGroups = new Set<string>();
     const budgeted=Boolean(view)&&this.admissionBootstrapped;
     this.admissionBootstrapped=true;
-    const admissionStart=budgeted?performance.now():0;
+    const admissionStart=performance.now(),admissionAllowance=work?.remaining('actors',2)??2;
     let admitted=0,deferred=false;
     // Bound first-time actor/material/collider construction to one short
     // slice. Encounter groups remain atomic, but don't also create an entire
     // settlement in the same camera-turn frame.
-    const exhausted=()=>budgeted&&(admitted>=4||performance.now()-admissionStart>=2);
+    const exhausted=()=>budgeted&&(admitted>=4||admitted>0&&performance.now()-admissionStart>=admissionAllowance);
     admissions: for (const key of this.wanted) {
       for (const id of this.buckets.get(key) ?? []) {
         if (this.active.has(id)) continue;
@@ -238,6 +243,7 @@ export class ContentChunkManager<Actor> {
     // A deferred activation should resume next tick, not wait for another
     // camera boundary change or the normal stationary 150 ms poll.
     if(deferred)this.nextAdmissionCheckAt=0;
+    if(budgeted)work?.charge('actors',admissionStart);
     }
     return changed;
   }

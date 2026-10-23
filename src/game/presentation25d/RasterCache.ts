@@ -79,11 +79,12 @@ export class RasterCache {
     }
     const MAX_IDLE=48,MAX_IDLE_BYTES=12*1024*1024;
     if(released>=2||idle<=MAX_IDLE&&bytes<=MAX_IDLE_BYTES)return;
-    const retired=[...this.frames].filter(([,entry])=>entry.lastUsed<frame).sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
-    for(const [object,entry] of retired){
-      if(idle<=MAX_IDLE&&bytes<=MAX_IDLE_BYTES||released>=2)break;
-      const canvas=entry.texture.image as HTMLCanvasElement;bytes-=canvas.width*canvas.height*4;idle--;
-      this.release(object,entry);released++;
+    while((idle>MAX_IDLE||bytes>MAX_IDLE_BYTES)&&released<2){
+      let oldest:RasterFrame|undefined,oldestObject:RasterObject|undefined;
+      for(const [object,entry] of this.frames)if(entry.lastUsed<frame&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestObject=object;}
+      if(!oldest||!oldestObject)break;
+      const canvas=oldest.texture.image as HTMLCanvasElement;bytes-=canvas.width*canvas.height*4;idle--;
+      this.release(oldestObject,oldest);released++;
     }
   }
   private release(object:RasterObject,entry:RasterFrame){

@@ -1,3 +1,4 @@
+import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {houseShape} from '../presentation25d/HouseGeometry';
@@ -117,6 +118,8 @@ export class WorldSpriteSystem {
         }
       }
     }
+    if(actor instanceof Phaser.GameObjects.Image)markStaticPresentation(actor);
+    actor.once('presentation-retired',()=>{for(const layer of layers)layer.setVisible(false);});
     this.owned.set(actor,owned);
     actor.once('destroy',()=>this.release(actor));
     const bottom=point(.5,1);
@@ -135,6 +138,11 @@ export class WorldSpriteSystem {
   activate(actor:WorldActor){
     const activate=this.staged.get(actor);if(!activate)return;
     this.staged.delete(actor);activate();
+  }
+  /** Make retired scenery non-authoritative immediately; expensive listener/
+   * physics destruction can then be spread across subsequent frames. */
+  retire(actor:WorldActor){
+    for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
   }
   private release(actor:WorldActor){
     this.staged.delete(actor);

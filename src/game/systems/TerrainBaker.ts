@@ -1,4 +1,6 @@
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
+import {paintCanvas,paintContext,type PaintCanvas,type PaintContext} from './PaintCanvas';
+import type {CoverArt} from './GroundCoverBaker';
 import { CHUNK_SIZE, TILE_SIZE } from '../../data/world';
 import { WorldGenerator } from './WorldGenerator';
 import { sampleTerrainGridSteps, seamlessTerrainPixels, TERRAIN_MASK_SIZE, TERRAIN_PATTERN_SIZE } from './terrainArt';
@@ -9,13 +11,21 @@ import {PAVING_PATTERN_SIZE} from '../../data/environmentPresentation';
 import {darkavGroundPatterns,darkavGroundFrame,DARKAV_GROUND_FRAMES} from './DarkavGroundArt';
 import {insideDefense} from '../../data/settlementDefenses';
 
+export interface TerrainBakeResources {patternImages:CanvasImageSource[];cover:[string,CoverArt][]}
+
 export class TerrainBaker {
   private readonly patterns: CanvasPattern[] = [];
-  private readonly layer = document.createElement('canvas');
-  private readonly mask = document.createElement('canvas');
+  private readonly layer:PaintCanvas=paintCanvas(CHUNK_SIZE);
+  private readonly patternImages:CanvasImageSource[]=[];
+  private readonly mask:PaintCanvas=paintCanvas(TERRAIN_MASK_SIZE);
   private readonly cover:GroundCoverBaker;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene|TerrainBakeResources) {
+    if('patternImages' in scene){
+      this.cover=new GroundCoverBaker(new Map(scene.cover));
+      for(const image of scene.patternImages){this.patternImages.push(image);this.patterns.push(paintContext(this.layer).createPattern(image,'repeat')!);}
+      return;
+    }
     this.cover=new GroundCoverBaker(scene);
     this.layer.width = this.layer.height = CHUNK_SIZE;
     this.mask.width = this.mask.height = TERRAIN_MASK_SIZE;
@@ -38,24 +48,32 @@ export class TerrainBaker {
       let pattern=naturalGroundPattern(tile,frame);
       if(frame===2){pattern=document.createElement('canvas');pattern.width=pattern.height=PAVING_PATTERN_SIZE;
         pattern.getContext('2d')!.drawImage(tile,0,0,PAVING_PATTERN_SIZE,PAVING_PATTERN_SIZE);}
-      this.patterns.push(this.layer.getContext('2d')!.createPattern(pattern,'repeat')!);
+      this.patternImages.push(pattern);this.patterns.push(paintContext(this.layer).createPattern(pattern,'repeat')!);
     }
     const volcanic=darkavGroundPatterns(scene,swatches[1],swatches[2]);
     // Retire the old generic five-line lava swatch too. All molten ground uses
     // the supplied lava-pool illustration, including the dragon's rim.
-    this.patterns[10]=this.layer.getContext('2d')!.createPattern(volcanic[3],'repeat')!;
-    for(const tile of volcanic)
-      this.patterns.push(this.layer.getContext('2d')!.createPattern(tile,'repeat')!);
+    this.patternImages[10]=volcanic[3];
+    this.patterns[10]=paintContext(this.layer).createPattern(volcanic[3],'repeat')!;
+    for(const tile of volcanic){
+      this.patternImages.push(tile);this.patterns.push(paintContext(this.layer).createPattern(tile,'repeat')!);
+    }
   }
 
-  draw(ctx: CanvasRenderingContext2D, world: WorldGenerator, chunkX: number, chunkY: number) {
+  draw(ctx: PaintContext, world: WorldGenerator, chunkX: number, chunkY: number) {
     const steps=this.drawSteps(ctx,world,chunkX,chunkY);
     while(!steps.next().done){ /* Required visible coverage completes atomically. */ }
   }
   /** One owner at a time: the layer/mask canvases are shared scratch buffers. */
-  *drawSteps(ctx:CanvasRenderingContext2D,world:WorldGenerator,chunkX:number,chunkY:number):Generator<void,void>{
+  *drawSteps(ctx:PaintContext,world:WorldGenerator,chunkX:number,chunkY:number):Generator<void,void>{
     // Pattern size need not divide CHUNK_SIZE: align paving phase in world
     // coordinates so its larger stones never reset at a streaming seam.
+    // Scratch painting follows the actual output resolution, not a hidden
+    // 1536-square canvas on mobile. World-space pattern/feather coordinates stay unchanged.
+    const outputPixels=ctx.canvas.width;
+    if(this.layer.width!==outputPixels)this.layer.width=this.layer.height=outputPixels;
+    const layerScale=outputPixels/CHUNK_SIZE;
+    paintContext(this.layer).setTransform(layerScale,0,0,layerScale,0,0);
     const transform=new DOMMatrix().translate(-chunkX*CHUNK_SIZE,-chunkY*CHUNK_SIZE);
     for(const pattern of this.patterns)pattern.setTransform(transform);
     const grid = yield* sampleTerrainGridSteps(chunkX, chunkY, (x, y) => world.getTerrainIndex(world.getTerrainAt(x, y)));
@@ -75,7 +93,7 @@ export class TerrainBaker {
     }
     if(row%2===1)yield;
     }
-    const layerCtx = this.layer.getContext('2d')!, maskCtx = this.mask.getContext('2d')!;
+    const layerCtx = paintContext(this.layer), maskCtx = paintContext(this.mask);
     const pixels = maskCtx.createImageData(TERRAIN_MASK_SIZE, TERRAIN_MASK_SIZE);
     ctx.fillStyle = this.patterns[0]; ctx.fillRect(0, 0, CHUNK_SIZE, CHUNK_SIZE);
     // Roads and cultivated ground sit over the natural vegetation.
@@ -94,7 +112,7 @@ export class TerrainBaker {
       layerCtx.imageSmoothingQuality = 'low';
       layerCtx.drawImage(this.mask, -TILE_SIZE, -TILE_SIZE, TERRAIN_MASK_SIZE * TILE_SIZE, TERRAIN_MASK_SIZE * TILE_SIZE);
       layerCtx.globalCompositeOperation = 'source-over';
-      ctx.drawImage(this.layer, 0, 0);
+      ctx.drawImage(this.layer, 0, 0, CHUNK_SIZE, CHUNK_SIZE);
       yield;
     }
     yield* drawGroundReliefSteps(ctx,this.mask,world,chunkX,chunkY,grid);
@@ -102,9 +120,27 @@ export class TerrainBaker {
     yield;
   }
 
-  drawOcean(ctx:CanvasRenderingContext2D){this.patterns[7].setTransform(new DOMMatrix());ctx.fillStyle=this.patterns[7];ctx.fillRect(0,0,CHUNK_SIZE,CHUNK_SIZE);}
+  drawOcean(ctx:PaintContext){this.patterns[7].setTransform(new DOMMatrix());ctx.fillStyle=this.patterns[7];ctx.fillRect(0,0,CHUNK_SIZE,CHUNK_SIZE);}
+  async workerResources(alive:()=>boolean=()=>true):Promise<TerrainBakeResources>{
+    const bitmaps:ImageBitmap[]=[];
+    try{
+      const patternImages:ImageBitmap[]=[];
+      for(const source of this.patternImages){if(!alive())throw new Error('Terrain preparation cancelled');const bitmap=await createImageBitmap(source as ImageBitmapSource);bitmaps.push(bitmap);patternImages.push(bitmap);}
+      const cover:[string,CoverArt][]=[];
+      for(const [key,art] of this.cover.sources()){
+        if(!alive())throw new Error('Terrain preparation cancelled');
+        const canvas=new OffscreenCanvas(Math.max(1,Math.ceil(art.width)),Math.max(1,Math.ceil(art.height)));
+        const context=canvas.getContext('2d')!;
+        context.drawImage(art.source,art.sx,art.sy,art.width,art.height,0,0,canvas.width,canvas.height);
+        const source=canvas.transferToImageBitmap();bitmaps.push(source);
+        cover.push([key,{source,sx:0,sy:0,width:source.width,height:source.height,ratio:art.ratio}]);
+        await new Promise<void>(resolve=>window.setTimeout(resolve,0));
+      }
+      return {patternImages,cover};
+    }catch(error){for(const bitmap of bitmaps)bitmap.close();throw error;}
+  }
   destroy() {
-    this.patterns.length = 0;
+    this.patterns.length = 0;this.patternImages.length=0;
     this.cover.destroy();
     this.layer.width = this.layer.height = this.mask.width = this.mask.height = 1;
   }

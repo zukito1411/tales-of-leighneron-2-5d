@@ -60,6 +60,12 @@ only standing exception to the permission-only testing policy below.
 
 ## Android performance and lifecycle
 
+- After an authorized published game update, verify the automatic Android
+  workflow and deliver the direct signed, non-debuggable APK in GitHub Releases.
+  An Actions artifact alone does not satisfy delivery. Preserve the existing
+  `ANDROID_DEBUG_KEYSTORE_BASE64` signing identity; do not create a replacement
+  key or change the application ID without an explicit request.
+
 - Preserve bounded image decoding, staged boot-time atlas preparation, deferred
   optional audio and first-frame readiness. Do not move optional artwork/audio
   back onto the critical cold-start path.

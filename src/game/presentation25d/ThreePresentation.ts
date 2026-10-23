@@ -1,3 +1,9 @@
+import {frameWork,releaseFrameWork} from './FrameWorkBudget';
+import {FrameTiming} from './FrameTiming';
+import {GpuTimer} from './GpuTimer';
+import {ShaderWarmup} from './ShaderWarmup';
+import {staticSpatialIndex} from './StaticSpatialIndex';
+import {bindResourcePreparation,clearResourcePreparation} from './resourcePreparation';
 import Phaser from 'phaser';
 import {
   Matrix4,OrthographicCamera,Raycaster,Scene,Vector2,Vector3,Vector4,WebGLRenderer,
@@ -36,6 +42,12 @@ import {GAME_DISPOSING} from '../systems/gameLifetime';
 type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameObjects.Text;
 type DrawingObject=ImageObject|Phaser.GameObjects.Graphics|Phaser.GameObjects.Shape|Phaser.GameObjects.TileSprite;
 interface LocalRect {left:number;top:number;width:number;height:number}
+interface StaticPacket {
+  frame:Phaser.Textures.Frame;hint:PresentationHint|undefined;source:Phaser.Textures.TextureSource;texture:Texture;
+  x:number;y:number;scaleX:number;scaleY:number;rotation:number;originX:number;originY:number;depth:number;
+  alpha:number;flipX:boolean;flipY:boolean;fillTint:boolean;blendMode:Phaser.GameObjects.Image['blendMode'];mask:Phaser.GameObjects.Image['mask'];billboard:boolean;ground:boolean;interior:boolean;key:string;
+  matrix:Matrix4;rect:LocalRect;uv:Float64Array;colors:Uint32Array;repeat?:Float64Array;
+}
 // Phaser 3.90 exposes these fields at runtime but omits them from its declarations.
 interface CameraEffectChannels {red:number;green:number;blue:number;alpha:number}
 interface PresentedTileSprite extends Phaser.GameObjects.TileSprite {displayFrame:Phaser.Textures.Frame}
@@ -58,6 +70,13 @@ function sceneWhiteSource(scene:Phaser.Scene){return scene.textures.getFrame('__
  * CanvasRenderer prepares existing art; only Three.js draws the world. */
 export class ThreePresentation {
   private readonly renderer:WebGLRenderer;
+  private readonly gpuTimer:GpuTimer;
+  private readonly shaderWarmup:ShaderWarmup;
+  private readonly frameTiming=new FrameTiming();
+  private timingFrame=-1;
+  private readonly billboardRight={value:new Vector2(1,0)};
+  private readonly neutralModel=new Matrix4();
+  private readonly staticPackets=new WeakMap<Phaser.GameObjects.Image,StaticPacket>();
   private readonly world=new Scene();
   private readonly background=new Scene();
   private readonly screen=new Scene();
@@ -114,7 +133,7 @@ export class ThreePresentation {
   private diagnosticsPanel:HTMLPreElement|null=null;
   private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0};
   private diagnosticAt=0;
-  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.syncDiagnosticsPanel();};
+  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
@@ -123,6 +142,8 @@ export class ThreePresentation {
     // bandwidth costs on top of the world/depth postprocessing targets.
     // Low is already the mobile default; Normal preserves AA on desktop.
     this.renderer=new WebGLRenderer({alpha:false,antialias:getEffectsQuality()!=='low',powerPreference:'high-performance'});
+    const context=this.renderer.getContext();if(!('beginQuery' in context))throw new Error('2.5D requires WebGL 2');
+    this.gpuTimer=new GpuTimer(context);
     this.budget=new RenderBudget();
     // The game submits multiple Three.js render passes per frame. Keep their
     // draw call totals, rather than resetting renderer.info after each pass.
@@ -140,8 +161,12 @@ export class ThreePresentation {
     Object.assign(canvas.style,{position:'absolute',inset:'0',width:'100%',height:'100%',touchAction:'none'});
     parent.append(canvas);
     this.diagnosticsParent=parent;this.syncDiagnosticsPanel();
+    game.registry.set('presentationDiagnostics',this.frameDiagnostics);
     window.addEventListener(FRAME_DIAGNOSTICS_EVENT,this.onDiagnosticChange);
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();});
+    this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
+    void this.postFX.warm(this.renderer);
+    bindResourcePreparation(game,{request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source)});
     this.originalCanvasVisibility=game.canvas.style.visibility;game.canvas.style.visibility='hidden';
     this.originalMouseEnabled=game.input.mouse?.enabled;this.originalTouchEnabled=game.input.touch?.enabled;
     if(game.input.mouse)game.input.mouse.enabled=false;if(game.input.touch)game.input.touch.enabled=false;
@@ -159,11 +184,16 @@ export class ThreePresentation {
     const profStart=this.frameDiagnostics?performance.now():0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
+    const work=frameWork(this.game);
+    this.gpuTimer.poll();
+    if(this.frameDiagnostics&&this.timingFrame!==this.game.loop.frame){this.frameTiming.add(this.game.loop.rawDelta);this.timingFrame=this.game.loop.frame;}
+    this.gpuTimer.begin(this.frameDiagnostics&&this.frame%4===0);
+    this.textures.prepare(this.renderer,work);
     this.renderer.info.reset();
     this.native.emit(Phaser.Renderer.Events.RENDER,scene,camera);
     const width=this.game.scale.width,height=this.game.scale.height;
     const presentation=scene as PresentationScene,density=renderDensity(scene);
-    const scale=this.budget.scale(width,height,density,this.game.loop.delta,getGraphicEffects().adaptiveResolution,presentation.presentationControlsEnabled===true);
+    const scale=this.budget.scale(width,height,density,this.game.loop.rawDelta,getGraphicEffects().adaptiveResolution,presentation.presentationControlsEnabled===true);
     if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
       this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
       this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
@@ -173,6 +203,7 @@ export class ThreePresentation {
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
     this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
+    this.billboardRight.value.set(this.yawCos,-this.yawSin);
     this.pitchSin=Math.sin(this.orbit.pitch);this.pitchCos=Math.cos(this.orbit.pitch);this.pitchTan=Math.tan(this.orbit.pitch);
     if(!this.view)this.view={camera:this.orbit.camera,native:camera,yaw:this.orbit.yaw,pitch:this.orbit.pitch,
       bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt};
@@ -191,33 +222,50 @@ export class ThreePresentation {
     this.gpuWeather.update(weather,this.orbit.camera,focus,night,this.interior,this.orbit.bounds);
     for(const batch of this.batches.values())batch.begin();
     camera.emit(Phaser.Cameras.Scene2D.Events.PRE_RENDER,camera);
-    for(const object of children)this.collect(object,camera,1,undefined,undefined);
+    const spatial=staticSpatialIndex(scene);spatial.query(this.orbit.bounds);
+    for(const object of children)if(spatial.accepts(object))this.collect(object,camera,1,undefined,undefined);
     this.pickable.length=0;
     for(const batch of this.batches.values()){
       batch.finish();
       if(batch.mesh.visible&&(batch.interactive||batch.mesh.userData.presentationOccluder)&&batch.mesh.parent===this.world)this.pickable.push(batch.mesh);
     }
-    pruneSpriteBatches(this.batches,this.frame);
-    this.textures.prune(this.frame);this.rasters.prune(this.frame);
+    const retireStart=performance.now(),retireMs=work.remaining('retire',.3);
+    pruneSpriteBatches(this.batches,this.frame,80,2,retireStart+retireMs);
+    if(performance.now()-retireStart<retireMs)this.textures.prune(this.frame);
+    if(performance.now()-retireStart<retireMs)this.rasters.prune(this.frame);
+    work.charge('retire',retireStart);
     const profCollect=this.frameDiagnostics?performance.now():0;
     this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
     this.syncCameraEffect(this.flash,camera.flashEffect.isRunning?camera.flashEffect:undefined);
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
+    const nightActive=this.gpuNight.active(night,this.interior);
+    const mergeNight=nightActive&&!this.screen.children.some(object=>object.visible&&object.renderOrder<1_000_000);
+    if(nightActive){
+      const depth=this.postFX.prepareWorld(this.renderer.domElement.width,this.renderer.domElement.height);
+      this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,depth,night,this.interior,density,mergeNight);
+    }else this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,null,night,this.interior,density);
+    const nightComposition=this.gpuNight.composition;
+    this.postFX.setNight(mergeNight?nightComposition.mask:null,nightComposition.darkness);
     this.postFX.render(this.renderer,{world:this.world,camera:this.orbit.camera,background:this.background,backgroundCamera:this.screenCamera,
       width:this.renderer.domElement.width,height:this.renderer.domElement.height,density:density*this.renderScale,focus:presentation.presentationFocus,
       focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
       night,interior:this.interior,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
       depthNeeded:this.gpuWeather.needsDepth||this.gpuNight.active(night,this.interior),weather:weather?.presentation,mist:this.gpuWeather.fog});
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
-    this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,this.postFX.depth,night,this.interior,density);
+
     const profRender=this.frameDiagnostics?performance.now():0;
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
     camera.dirty=false;
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
-    if(!this.stopped)this.elevation.preload(this.orbit.bounds,this.heightEnabled&&presentation.presentationControlsEnabled===true,
-      this.game.loop.delta>24 ? .4 : .8);
+    if(!this.stopped){
+      // Uploads have a reserved share of the same allowance used by streaming.
+      const elevationStart=performance.now(),elevationMs=work.remaining('elevation',.5);
+      if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled&&presentation.presentationControlsEnabled===true,elevationMs);
+      work.charge('elevation',elevationStart);
+    }
+    this.gpuTimer.end();
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
   }
 
@@ -236,7 +284,7 @@ export class ThreePresentation {
   private recordDiagnostics(start:number,collected:number,world:number,done:number){
     const d=this.diag;
     d.frames++;d.total+=done-start;d.collect+=collected-start;d.render+=world-collected;
-    d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.delta);
+    d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.rawDelta);
     if(done-this.diagnosticAt<1000)return;
     const frames=Math.max(1,d.frames);
     const textureCache=this.textures.stats();
@@ -244,7 +292,9 @@ export class ThreePresentation {
       active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
     }|undefined;
     const renderInfo=this.renderer.info.render;
-    const result={drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
+    const pacing=this.frameTiming.stats();
+    const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
+      backgroundWork:frameWork(this.game).stats(),drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
@@ -253,13 +303,16 @@ export class ThreePresentation {
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
       this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
-        +'Whole-frame peak: '+n(result.longestFrameMs)+'\n'
+        +'Raw frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+'\n'
+        +'Raw peak: '+n(pacing.maximum)+' | >33ms '+pacing.over33+' | >50ms '+pacing.over50+' / '+pacing.samples+'\n'
+        +'Simulation CPU: '+n(result.simulationCpuMs??0)+' | GPU: '+(result.gpuMs===null?'unavailable':n(result.gpuMs))+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
         +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
           +' | cold '+textureCache.coldCreates+' | evict '+textureCache.evictions+'\n'
+        +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }
@@ -297,6 +350,10 @@ export class ThreePresentation {
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
     const houseVolume=Boolean(house)&&!emissionOwner&&!hint?.overlay;
+    const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
+      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset
+      &&!object.isCropped&&(plane==='ground'||plane==='upright'&&!object.input?.enabled);
+    if(staticImage&&this.collectStatic(object,camera,alpha,hint))return;
     // Conservative early culling. The old code rasterized offscreen Graphics
     // and calculated matrices/elevation for offscreen sprites before inView().
     // Unanchored objects can be rejected using their actual world positions;
@@ -369,6 +426,7 @@ export class ThreePresentation {
       if(flipX){u+=du;du=-du;}if(flipY){v+=dv;dv=-dv;}
       uv[0]=u;uv[1]=v;uv[2]=du;uv[3]=dv;
     }
+    if(source&&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite))this.textures.prefetch(source,this.frame);
     object.getWorldTransformMatrix(this.transform,this.parentTransform);
     if(hint?.worldDirection&&plane==='upright'){
       const d=hint.worldDirection,c=this.yawCos,s=this.yawSin;
@@ -467,16 +525,53 @@ export class ThreePresentation {
     const mask=this.rectangularMask(object);
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
-    const key=texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id:'');
+    const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(houseVolume?house!.profile.id:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!):undefined);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),houseVolume?()=>createHouseGeometry(house!):undefined,billboard,this.billboardRight);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
     }else colors.fill(0xffffff);
     if(warningArea&&warning)colors.fill(warning.color);
-    batch.add(this.model,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
+    let submitted=this.model;
+    if(billboard){
+      // Store yaw-neutral world transforms. Only one shared camera uniform
+      // changes while orbiting; static instance buffers remain unchanged.
+      this.neutralModel.copy(this.model);this.rotateModel(this.neutralModel,anchorX,anchorY,-this.orbit.yaw);submitted=this.neutralModel;
+      repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=repeat[3]=0;
+    }
+    batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
+    if(staticImage&&source)this.staticPackets.set(object,{
+      frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
+      rotation:object.rotation,originX:object.originX,originY:object.originY,depth:object.depth,
+      alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:plane==='ground',interior:this.interior,key,
+      matrix:submitted.clone(),rect:{...rect},uv:new Float64Array(uv),colors:new Uint32Array(colors),repeat:repeat?new Float64Array(repeat):undefined,
+    });
     camera.addToRenderList(object);
+  }
+
+  private rotateModel(matrix:Matrix4,x:number,z:number,angle:number){
+    const e=matrix.elements,c=Math.cos(angle),s=Math.sin(angle);
+    for(let column=0;column<3;column++){const i=column*4,a=e[i],b=e[i+2];e[i]=a*c+b*s;e[i+2]=-a*s+b*c;}
+    const a=e[12]-x,b=e[14]-z;e[12]=x+a*c+b*s;e[14]=z-a*s+b*c;
+  }
+  private collectStatic(object:Phaser.GameObjects.Image,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined){
+    const packet=this.staticPackets.get(object);
+    if(!packet||packet.billboard&&object.input?.enabled||packet.frame!==object.frame||packet.hint!==hint||packet.interior!==this.interior
+      ||packet.x!==object.x||packet.y!==object.y||packet.scaleX!==object.scaleX||packet.scaleY!==object.scaleY
+      ||packet.flipX!==object.flipX||packet.flipY!==object.flipY||packet.fillTint!==object.tintFill||packet.blendMode!==object.blendMode||packet.mask!==object.mask
+      ||packet.rotation!==object.rotation||packet.originX!==object.originX||packet.originY!==object.originY||packet.depth!==object.depth
+      ||packet.colors[0]!==object.tintTopLeft||packet.colors[1]!==object.tintTopRight||packet.colors[2]!==object.tintBottomLeft||packet.colors[3]!==object.tintBottomRight)return false;
+    this.model.copy(packet.matrix);if(packet.billboard)this.rotateModel(this.model,packet.x,packet.y,this.orbit.yaw);
+    if(!this.inView(packet.ground))return true;
+    if(packet.billboard&&object.getData('presentation25dPlayerVisual')!==true){
+      const b=this.projectedBounds;if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
+    }
+    const batch=this.batches.get(packet.key),texture=this.textures.get(packet.source,this.frame);
+    if(!batch||texture!==packet.texture||packet.alpha!==alpha*camera.alpha)return false;
+    batch.add(packet.matrix,packet.uv,packet.colors,packet.alpha,object,packet.rect,this.frame,packet.repeat);
+    camera.addToRenderList(object);return true;
   }
 
   private inView(ground:boolean,backDepth=0){
@@ -587,6 +682,7 @@ export class ThreePresentation {
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
     this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
+    clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();
     this.hits.length=0;this.pickable.length=0;this.transform.destroy();this.parentTransform.destroy();

@@ -23,6 +23,7 @@ export class TreeSwaySystem {
     leaves.setVisible(tree.visible);
     onPlane(leaves,'upright',tree);
     const entry={tree,leaves,phase:((tree.x*.013+tree.y*.021)%(Math.PI*2))};this.canopies.add(entry);
+    tree.once('presentation-retired',()=>leaves.setVisible(false));
     tree.once('destroy',()=>{this.canopies.delete(entry);leaves.destroy();});
     return leaves;
   }

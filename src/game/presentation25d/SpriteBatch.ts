@@ -23,6 +23,8 @@ attribute vec4 instanceTintBR;
 attribute vec4 tileRepeat;
 uniform bool groundSurface;
 uniform bool architecture;
+uniform bool billboard;
+uniform vec2 billboardRight;
 varying vec2 localUV;
 varying vec4 effectData;
 varying vec2 repeatUV;
@@ -41,6 +43,11 @@ void main(){
   repeatUV=uv*tileRepeat.xy+tileRepeat.zw;frameRect=atlasRect;
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
   vec4 world=instanceMatrix*vec4(position,1.0);
+  if(billboard){
+    float horizontal=world.x-tileRepeat.x;
+    world.x=tileRepeat.x+horizontal*billboardRight.x;
+    world.z=tileRepeat.y+horizontal*billboardRight.y;
+  }
   if(architecture){
     mat3 basis=mat3(instanceMatrix);
     vec3 n=normalize(basis*(normal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
@@ -150,9 +157,10 @@ export class SpriteBatch {
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
 
-  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry){
+  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2}){
+    if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({uniforms:{...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({uniforms:{billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,
@@ -244,17 +252,19 @@ export class SpriteBatch {
 
 /** Retain a small recent set across view-edge occlusion and animation gaps.
  * Destroying after two missed frames repeatedly recreates buffers/materials. */
-export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,frame:number,maxIdle=80){
-  let idle=0;
+export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,frame:number,maxIdle=80,maxReleases=2,deadline=Infinity){
+  let idle=0,released=0;
   for(const [key,batch] of batches){
     if(batch.mesh.visible)continue;
-    if(frame-batch.lastUsed>180){batch.destroy();batches.delete(key);}
+    if(frame-batch.lastUsed>180&&released<maxReleases&&performance.now()<deadline){batch.destroy();batches.delete(key);released++;}
     else idle++;
   }
-  if(idle<=maxIdle)return;
-  const retired=[...batches].filter(([,batch])=>!batch.mesh.visible).sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
-  for(const [key,batch] of retired){
-    if(idle<=maxIdle)break;
-    batch.destroy();batches.delete(key);idle--;
+  if(idle<=maxIdle||released>=maxReleases||performance.now()>=deadline)return;
+  // Select a couple of oldest idle entries without allocating/sorting a map copy.
+  while(idle>maxIdle&&released<maxReleases&&performance.now()<deadline){
+    let oldest:SpriteBatch|undefined,oldestKey='';
+    for(const [key,batch] of batches)if(!batch.mesh.visible&&(!oldest||batch.lastUsed<oldest.lastUsed)){oldest=batch;oldestKey=key;}
+    if(!oldest)break;
+    oldest.destroy();batches.delete(oldestKey);idle--;released++;
   }
 }

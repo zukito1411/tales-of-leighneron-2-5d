@@ -1,4 +1,5 @@
-import Phaser from 'phaser';
+import type Phaser from 'phaser';
+import type {PaintContext} from './PaintCanvas';
 import {CHUNK_SIZE} from '../../data/world';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {settlementAt,segmentDistance} from '../../data/settlements';
@@ -9,7 +10,7 @@ import {spriteBounds,overlaps,type Rect} from '../../data/settlementGeometry';
 import {WORLD_CONTENT} from '../../data/content';
 import type {WorldGenerator} from './WorldGenerator';
 
-interface CoverArt {source:CanvasImageSource;sx:number;sy:number;width:number;height:number;ratio:number}
+export interface CoverArt {source:CanvasImageSource;sx:number;sy:number;width:number;height:number;ratio:number}
 interface CoverPiece {texture:ArtTextureKey;frame:number;height:number}
 const meadow:CoverPiece[]=[{texture:'flora',frame:0,height:17},{texture:'flora',frame:1,height:15},
   {texture:'flora',frame:2,height:15},{texture:'woodland_props',frame:1,height:22},{texture:'woodland_props',frame:2,height:20}];
@@ -31,10 +32,11 @@ export class GroundCoverBaker {
   private readonly art=new Map<string,CoverArt>();
   private readonly roofs:Rect[]=WORLD_CONTENT.filter(d=>d.kind==='settlement-prop'||'townShrineId' in d)
     .map(d=>'frame' in d?spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y):{left:0,right:0,top:0,bottom:0});
-  constructor(private readonly scene:Phaser.Scene){}
+  constructor(private readonly source:Phaser.Scene|ReadonlyMap<string,CoverArt>){}
   private getArt(piece:CoverPiece){
     const key=piece.texture+':'+piece.frame,existing=this.art.get(key);if(existing)return existing;
-    const sheet=ART_BY_KEY[piece.texture],texture=this.scene.textures.get(piece.texture),frame=texture.get(piece.frame);
+    if(!('textures' in this.source)){const art=this.source.get(key);if(art)this.art.set(key,art);return art??null;}
+    const sheet=ART_BY_KEY[piece.texture],texture=this.source.textures.get(piece.texture),frame=texture.get(piece.frame);
     const visible=(frame.customData as {visibleBounds?:{left:number;top:number;width:number;height:number}}|undefined)?.visibleBounds;
     if(!visible||visible.height<=0)return null;
     const entry={source:texture.getSourceImage() as CanvasImageSource,
@@ -42,10 +44,10 @@ export class GroundCoverBaker {
       width:visible.width*sheet.density,height:visible.height*sheet.density,ratio:visible.width/visible.height};
     this.art.set(key,entry);return entry;
   }
-  draw(ctx:CanvasRenderingContext2D,world:WorldGenerator,chunkX:number,chunkY:number){
+  draw(ctx:PaintContext,world:WorldGenerator,chunkX:number,chunkY:number){
     const steps=this.drawSteps(ctx,world,chunkX,chunkY);while(!steps.next().done){/* Synchronous callers only. */}
   }
-  *drawSteps(ctx:CanvasRenderingContext2D,world:WorldGenerator,chunkX:number,chunkY:number):Generator<void,void>{
+  *drawSteps(ctx:PaintContext,world:WorldGenerator,chunkX:number,chunkY:number):Generator<void,void>{
     const ox=chunkX*CHUNK_SIZE,oy=chunkY*CHUNK_SIZE,step=128;
     const roofs=this.roofs.filter(r=>r.right>=ox-5&&r.left<=ox+CHUNK_SIZE+5&&r.bottom>=oy-5&&r.top<=oy+CHUNK_SIZE+5);
     let marks=0;ctx.save();ctx.imageSmoothingEnabled=true;
@@ -97,6 +99,10 @@ export class GroundCoverBaker {
         }
       }
     }finally{ctx.restore();}
+  }
+  sources(){
+    for(const piece of [...meadow,...elvenGarden,...woodland,...dry,...winter,...volcanic])this.getArt(piece);
+    return this.art;
   }
   destroy(){this.art.clear();}
 }

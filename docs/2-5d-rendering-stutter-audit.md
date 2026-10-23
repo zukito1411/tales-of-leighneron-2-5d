@@ -1,6 +1,11 @@
 # Tales of Leighneron 2.5D — frame-pacing and rendering audit
 Updated: 2026-10-23. Based on GitHub source review, not a hardware trace.
 
+Implementation update: [frame pacing implementation](FRAME_PACING_IMPLEMENTATION.md)
+records the shared budget, worker terrain, GPU preparation, static packets,
+compatible compositor merge and raw/GPU timing now applied. The vendor practices
+below explain their rationale; real-device acceptance remains pending.
+
 ## Diagnosis
 The game is Phaser 3 Canvas simulation plus a Three.js WebGL projection pass.
 The critical symptom is **a single unusually long frame** on a camera turn,
@@ -16,7 +21,7 @@ Confirmed pathways:
 | `ChunkManager.retireTerrain` | Two cached chunks previously caused near-immediate terrain rebakes while camera reverses | Increased to four normally and six on mobile Low, bounded |
 | `TextureCache.prune` | 90-frame/64 MiB eviction caused assets to be re-uploaded after orbiting | Device-aware soft budgets, longer residency, max 2 disposals/frame, metrics |
 | `SpriteBatch` | Render state/material/instance allocations when a previously culled sprite batch reappears | Recent batch retention already extended |
-| `ThreePresentation.collect` | Every visible sprite transformed and projected each frame, even if static | Still needs CPU flamegraph before optimizing |
+| `ThreePresentation.collect` | Every visible sprite transformed and projected each frame, even if static | Static packets, spatial filtering and GPU billboards applied; device profiling pending |
 | `WorldPostFX`, `GpuNightMask` | Depth FBO, optional multi-pass DOF, nighttime fullscreen mask | Effects are individually configurable; pass count and GPU time need measurement |
 | `ElevationField` | Height-map texture changes after travel | Incremental player-centered update from preceding patch |
 | `ContentChunkManager` | Actor/physics creation and destruction, plus whole-world snapshots | Incremental activation/deactivation and debounced snapshot |
@@ -28,7 +33,7 @@ Chrome's Performance panel and Android System Trace identify main-thread
 long tasks, garbage collection, shader link stalls and missed frames.
 The advanced graphics overlay exposes presentation CPU average/peak,
 whole-frame peak, cache misses/evictions, and streaming progress.
-**It does not measure GPU execution time.** Browser-to-GPU submissions can
+The updated overlay uses asynchronous GPU queries where supported and raw frame intervals. Browser-to-GPU submissions can
 block or miss deadlines even when CPU wall time appears small.
 Use representative warm and cold launches, rotate in place and run across
 terrain boundaries at both day and night.
@@ -49,7 +54,7 @@ References:
 - https://docs.unity.cn/Packages/com.unity.addressables%403.1/manual/memory-assets.html
 - https://developer.android.com/games/engines/unity/unity-reduce-memory
 
-### 3. Shader / pipeline prewarming (future controlled experiment)
+### 3. Shader / pipeline prewarming (implemented; device validation pending)
 Epic recommends PSO precaching. Three.js provides `WebGLRenderer.compileAsync`
 (using `KHR_parallel_shader_compile` where supported) and `initTexture`.
 Precompile the finite shader variants during a loading/transition cover,
@@ -63,7 +68,7 @@ References:
 - https://threejs.org/docs/pages/WebGLRenderer
 - https://developer.mozilla.org/en-US/docs/Web/API/KHR_parallel_shader_compile
 
-### 4. Move terrain generation off the gameplay thread (larger architectural phase)
+### 4. Move terrain generation off the gameplay thread (worker implemented)
 Port the deterministic terrain sampling and raster baking to a dedicated
 Worker using OffscreenCanvas and transferable ImageBitmap textures, with
 immutable seed/biome inputs. Keep all Phaser actors, physics and WebGL context

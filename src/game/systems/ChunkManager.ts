@@ -1,19 +1,18 @@
+import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
+import {frameWork} from '../presentation25d/FrameWorkBudget';
+import {preparePresentationSource} from '../presentation25d/resourcePreparation';
+import {TerrainWorker,type TerrainJob} from './TerrainWorker';
+import {planChunkScenerySteps,type ChunkSceneryPlan} from './chunkSceneryPlan';
 import Phaser from 'phaser';
 import { CHUNK_SIZE } from '../../data/world';
 import {projectedGroundView} from '../presentation25d/plane';
 import { artScale } from '../../data/art';
-import { WORLD_CONTENT } from '../../data/content';
 import { WorldGenerator } from './WorldGenerator';
 import { chunkNeighborhood,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
 import { TerrainBaker } from './TerrainBaker';
-import {planWildernessTreeSteps,planWildernessDetailSteps,type SceneryTree,type SceneryDetail} from './sceneryPlan';
-import {spriteBounds} from '../../data/settlementGeometry';
 import type {TreeSwaySystem} from './TreeSwaySystem';
 import type {DayNightSystem} from './DayNightSystem';
-import {planLandmarkScenerySteps} from './LandmarkScenery';
 import type {WorldSpriteSystem} from './WorldSpriteSystem';
-import {StaticBoundsIndex} from './StaticBoundsIndex';
-import {bossArenaBounds} from './bossArenas';
 import {getEffectsQuality} from './effectsQuality';
 
 interface ChunkRuntime {
@@ -22,8 +21,7 @@ interface ChunkRuntime {
   shared?:boolean;
   scenery: Array<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite>;
 }
-const authoredReservations=new StaticBoundsIndex(WORLD_CONTENT.map(d=>({definition:d,
-  bounds:{left:d.world.x,right:d.world.x,top:d.world.y,bottom:d.world.y}})),CHUNK_SIZE);
+
 
 export class ChunkManager {
   private readonly scene: Phaser.Scene;
@@ -37,7 +35,7 @@ export class ChunkManager {
   // Wilderness placement is deterministic for each chunk. Retain only the
   // lightweight plan records (never extra actors, bodies or textures) so
   // backtracking does not repeat hundreds of habitat/road/terrain probes.
-  private readonly sceneryPlans=new Map<string,{trees:SceneryTree[];details:SceneryDetail[]}>();
+  private readonly sceneryPlans=new Map<string,ChunkSceneryPlan>();
   private readonly sceneryPlanLimit=8;
   private retireTerrain(key:string,chunk:ChunkRuntime){
     if(chunk.shared)return;
@@ -52,6 +50,8 @@ export class ChunkManager {
   private lastTravelViewKey='';
   private lastOpenSeaStatus:boolean|null=null;
   private readonly baker: TerrainBaker;
+  private readonly terrainWorker:TerrainWorker;
+  private readonly retiredScenery:ChunkRuntime['scenery']=[];
   // LEIGHNERON_STAGGER_CHUNKS_V1: don't bake three huge neighbor chunks in one frame.
   private readonly pendingChunks = new Map<string,{x:number;y:number}>();
   private lastChunkBakedAt=-Infinity;
@@ -72,6 +72,7 @@ export class ChunkManager {
     this.scene = scene;
     this.world = world;
     this.baker = new TerrainBaker(scene);
+    this.terrainWorker=new TerrainWorker(this.baker);
   }
 
   update(worldX: number, worldY: number,viewportOnly=false) {
@@ -181,16 +182,19 @@ export class ChunkManager {
     // Leave headroom for actual animation, WebGL draw submission, and UI.
     // The old 3 ms bake allowance consumed ~18% of every 60 Hz frame before
     // rendering; when the GPU was already behind it amplified frame drops.
-    const delta=this.scene.game.loop.delta;
+    const delta=this.scene.game.loop.rawDelta;
     const budgetMs=staged?2.5:delta>30?.35:delta>20?.6:delta>16.5?1.1:1.8;
-    const deadline=performance.now()+budgetMs;
+    const work=frameWork(this.scene.game),allowance=work.remaining('terrain',budgetMs);
+    if(allowance<=0)return;
+    const started=performance.now(),deadline=started+allowance;
     for(let steps=0;steps<128;steps++){
       if(job.steps.next().done){
         this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;
         this.removeFallback(job.key);break;
       }
-      if(performance.now()>=deadline)break;
+      if(performance.now()>=deadline||this.terrainWorker.available&&!this.terrainWorker.ready)break;
     }
+    work.charge('terrain',started);
     this.updateOpenSeaStatus();
   }
   private prioritizePending(x:number,y:number){
@@ -211,15 +215,24 @@ export class ChunkManager {
   private retireExpired(){
     const now=this.scene.time.now;let count=0;
     for(const [key,expires] of this.retiring){
+      if(this.retiredScenery.length>=96)break;
       if(expires>now)continue;
       this.retiring.delete(key);
       const chunk=this.active.get(key);if(!chunk)continue;
       chunk.image.destroy();
-      for(const actor of chunk.scenery)actor.destroy();
+      for(const actor of chunk.scenery)this.retireScenery(actor);
       this.retireTerrain(key,chunk);
       this.active.delete(key);
       if(++count>=this.maxRetirePerFrame)break;
     }
+    const work=frameWork(this.scene.game),start=performance.now(),allowance=work.remaining('retire',.35);
+    let released=0;
+    while(this.retiredScenery.length&&released<4&&performance.now()-start<allowance){this.retiredScenery.pop()!.destroy();released++;}
+    work.charge('retire',start);
+  }
+  private retireScenery(actor:ChunkRuntime['scenery'][number]){
+    actor.setVisible(false).setActive(false);this.ground.retire(actor);
+    actor.emit('presentation-retired');this.retiredScenery.push(actor);
   }
   private cancelPreparation(){
     const job=this.preparing;this.preparing=null;job?.steps.return();
@@ -280,6 +293,8 @@ export class ChunkManager {
     this.recentTerrain.clear();this.sceneryPlans.clear();
     this.lastCenter = '';
     this.lastTravelViewKey='';this.lastOpenSeaStatus=null;
+    this.terrainWorker.destroy();
+    for(const actor of this.retiredScenery)actor.destroy();this.retiredScenery.length=0;
     this.baker.destroy();
     this.scene.textures.remove('shared-ocean-chunk');
   }
@@ -288,14 +303,15 @@ export class ChunkManager {
 
   private load(chunkX: number, chunkY: number) {
     const key=`${chunkX}:${chunkY}`;
-    const current=this.preparing;
-    // Shared TerrainBaker scratch buffers must never be interleaved.
-    if(current?.key!==key)this.cancelPreparation();
-    const steps=current?.key===key?current.steps:this.loadSteps(chunkX,chunkY);
+    // A required synchronous load must never drain a background generator:
+    // that generator may be waiting for a worker reply or a render upload.
+    // Restart through the synchronous painter after releasing its scratch work.
+    this.cancelPreparation();
+    const steps=this.loadSteps(chunkX,chunkY,false);
     try{while(!steps.next().done){ /* Complete required view without holes. */ }}
     finally{this.preparing=null;this.pendingChunks.delete(key);}
   }
-  private *loadSteps(chunkX:number,chunkY:number):Generator<void,void>{
+  private *loadSteps(chunkX:number,chunkY:number,background=true):Generator<void,void>{
     // Fully open sea shares a single texture. Voyages no longer allocate and
     // repaint nine identical 1536-square ocean canvases at every chunk change.
     const ocean=Array.from({length:25},(_,i)=>({x:(chunkX+i%5/4)*CHUNK_SIZE,y:(chunkY+Math.floor(i/5)/4)*CHUNK_SIZE}))
@@ -324,6 +340,8 @@ export class ChunkManager {
       : this.scene.textures.createCanvas(textureKey,pixels,pixels);
     if (!canvasTexture) return;
     let committed=false;
+    let workerJob:TerrainJob|undefined;
+    let workerPlan:ChunkSceneryPlan|undefined;
     const scenery: Array<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite> = [];
     const canopies:Phaser.GameObjects.Image[]=[];
     try{
@@ -331,36 +349,34 @@ export class ChunkManager {
       const ctx = canvasTexture.getContext();
       const ratio=canvasTexture.width/CHUNK_SIZE;
       ctx.setTransform(ratio,0,0,ratio,0,0);
-      yield* this.baker.drawSteps(ctx, this.world, chunkX, chunkY);
+      if(background&&this.terrainWorker.available){
+        while(this.terrainWorker.available&&!this.terrainWorker.ready)yield;
+        workerJob=this.terrainWorker.begin(chunkX,chunkY,pixels)??undefined;
+        if(workerJob){
+          while(!workerJob.done)yield;
+          if(workerJob.bitmap){
+            ctx.drawImage(workerJob.bitmap,0,0,CHUNK_SIZE,CHUNK_SIZE);
+            workerJob.bitmap.close();workerJob.bitmap=undefined;workerPlan=workerJob.plan;
+          }
+        }
+      }
+      if(!workerPlan)yield* this.baker.drawSteps(ctx, this.world, chunkX, chunkY);
     }
     // The same exact authored reservations and deterministic seed yield the
     // same trees/details each visit. Cache *descriptors*, never GPU artwork.
     let plan=this.sceneryPlans.get(cacheKey);
     if(plan){this.sceneryPlans.delete(cacheKey);this.sceneryPlans.set(cacheKey,plan);}
     else{
-      const cx=(chunkX+.5)*CHUNK_SIZE,cy=(chunkY+.5)*CHUNK_SIZE;
-      const sites=authoredReservations.query({left:cx-CHUNK_SIZE,right:cx+CHUNK_SIZE,top:cy-CHUNK_SIZE,bottom:cy+CHUNK_SIZE})
-        .map(item=>item.definition).filter(d=>Math.abs(d.world.x-cx)<CHUNK_SIZE&&Math.abs(d.world.y-cy)<CHUNK_SIZE);
-      const reservations=sites.map(d=>{
-        const arena=bossArenaBounds(d);
-        return {...d.world,...('frame' in d?{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y)}:{}),
-          ...(arena?{bounds:arena}:{})};
-      });
-      const nearbyLandmarks=yield* planLandmarkScenerySteps(chunkX,chunkY,this.world,true);
-      const landmarkDetails=nearbyLandmarks.filter(d=>Math.floor(d.x/CHUNK_SIZE)===chunkX&&Math.floor(d.y/CHUNK_SIZE)===chunkY);
-      const landmarks=nearbyLandmarks.map(d=>({...d,bounds:spriteBounds(d.texture,d.frame,d.scale,d.x,d.y)}));
-      yield;
-      const trees=yield* planWildernessTreeSteps(chunkX,chunkY,this.world,[...reservations,...landmarks]);
-      const treeReservations=trees.map(t=>({...t,bounds:spriteBounds(t.texture,t.frame,t.scale,t.x,t.y)}));
-      const wildernessDetails=yield* planWildernessDetailSteps(chunkX,chunkY,this.world,[...reservations,...landmarks,...treeReservations]);
-      const details=[...landmarkDetails,...wildernessDetails];
-      plan={trees,details};this.sceneryPlans.set(cacheKey,plan);
+      plan=workerPlan??(yield* planChunkScenerySteps(this.world,chunkX,chunkY));
+      this.sceneryPlans.set(cacheKey,plan);
       while(this.sceneryPlans.size>this.sceneryPlanLimit)this.sceneryPlans.delete(this.sceneryPlans.keys().next().value!);
     }
     // Upload separately from actor/collider creation, then expose both at once.
     if(!cached)canvasTexture.refresh();
     canvasTexture.setFilter(Phaser.Textures.FilterMode.LINEAR);
     yield;
+    // Keep the shared ground fallback until its painted replacement is GPU-resident.
+    if(background)while(!preparePresentationSource(this.scene.game,canvasTexture.source[0]))yield;
     // Full-detail sprites and collisions are still created from the exact
     // original plan; only the expensive placement *calculation* is reused.
     const trees=plan.trees;
@@ -383,15 +399,26 @@ export class ChunkManager {
     // Enabling static bodies, habitat listeners and optional ground blending
     // is not cheap. Stage publication work before exposing the whole chunk.
     for(const actor of scenery){this.ground.activate(actor);yield;}
+    if(background){
+      let ready=false;
+      while(!ready){
+        ready=true;
+        for(const actor of scenery)if(!preparePresentationSource(this.scene.game,actor.frame.source))ready=false;
+        for(const leaves of canopies)if(!preparePresentationSource(this.scene.game,leaves.frame.source))ready=false;
+        if(!ready)yield;
+      }
+    }
     for(const actor of scenery)actor.setVisible(true);
     for(const leaves of canopies)leaves.setVisible(true);
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
       .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
+    markStaticPresentation(image);
     this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery });
     committed=true;
     }finally{
+      if(workerJob)this.terrainWorker.cancel(workerJob);
       if(!committed){
-        for(const image of scenery)image.destroy();
+        for(const image of scenery)this.retireScenery(image);
         this.scene.textures.remove(textureKey);
       }
     }

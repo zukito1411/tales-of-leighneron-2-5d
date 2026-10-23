@@ -109,6 +109,7 @@ export class DayNightSystem {
       }
       this.emissions.add(emission);ownedEmissions.push(emission);
     }
+    actor.once('presentation-retired',()=>{for(const node of owned){node.glow.setVisible(false);node.cutout.setVisible(false);}for(const emission of ownedEmissions)emission.setVisible(false);});
     actor.once('destroy',()=>{
       for(const node of owned){this.lights.delete(node);node.glow.destroy();node.cutout.destroy();}
       for(const emission of ownedEmissions){this.emissions.delete(emission);emission.destroy();}

@@ -1,3 +1,4 @@
+import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {groundWorldView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {housingFor} from '../../data/housing';
@@ -676,6 +677,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       &&creatureFitsHabitat(ENEMY_BY_ID['goblin-stone-slinger'],this.habitatAt(x,y)));
     this.registry.set('loadingStage','Indexing saved world actors');
     this.contentManager = new ContentChunkManager(WORLD_CONTENT, logical, {
+      frameWork:()=>frameWork(this.game),
       initialState: initialContentState,
       keepActive:definition=>definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID&&aliceIsFollowing(useGameStore.getState().storyFlags),
       canActivate: (definition, runtime) => {
@@ -853,7 +855,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       });
   }
 
-  update(time: number, delta: number) {
+  update(time:number,delta:number){
+    if(!this.registry.get('presentationDiagnostics')){this.updateWorld(time,delta);return;}
+    const start=performance.now();
+    try{this.updateWorld(time,delta);}finally{this.registry.set('simulationCpuMs',performance.now()-start);}
+  }
+  private updateWorld(time: number, delta: number) {
     if(this.pendingRespawn){
       const death=this.pendingRespawn;this.pendingRespawn=null;
       this.respawnPlayer(death);

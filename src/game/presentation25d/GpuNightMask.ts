@@ -36,9 +36,10 @@ export class GpuNightMask {
     this.overlay.frustumCulled=false;this.overlay.renderOrder=1_000_000;this.overlay.visible=false;screen.add(this.overlay);
   }
   active(night:number,interior:boolean){return night>0&&!interior&&getGraphicEffects().nightDarkness;}
-  render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number){
-    this.overlay.visible=this.active(night,interior)&&Boolean(source&&depth);
-    if(!this.overlay.visible||!source||!depth){this.suspend();return;}
+  render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number,merged=false){
+    const active=this.active(night,interior)&&Boolean(source&&depth);
+    this.overlay.visible=active&&!merged;
+    if(!active||!source||!depth){this.suspend();return;}
     const low=getEffectsQuality()==='low',camera=scene.cameras.main;
     const width=Math.max(1,Math.min(1280,Math.round(camera.width/density*(low?.65:1)))),height=Math.max(1,Math.min(960,Math.round(camera.height/density*(low?.65:1))));
     if(!this.target)this.target=new WebGLRenderTarget(width,height,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});
@@ -79,6 +80,7 @@ export class GpuNightMask {
     this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
     this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);
   }
+  get composition(){return {mask:this.uniforms.mask.value,darkness:this.uniforms.darkness.value};}
   // Night/day and indoor/outdoor switches are common. Keep the allocation
   // warm between passes; destroying/reallocating this FBO on every transition
   // stalls tile-based mobile GPUs. Only dispose on actual game teardown.

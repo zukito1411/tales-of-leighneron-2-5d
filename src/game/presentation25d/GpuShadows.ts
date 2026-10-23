@@ -1,3 +1,4 @@
+import {frameWork} from './FrameWorkBudget';
 import {Matrix4,Vector3,type Scene} from 'three';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
@@ -25,7 +26,7 @@ export class GpuShadows {
     // instances every other frame. Skip no updates at all when frame time is
     // already 25+ ms or when entering an interior: collisions and player
     // animation still update normally every tick.
-    if(source&&!interior&&getEffectsQuality()==='low'&&frame%2===1&&scene.game.loop.delta<25)return;
+    if(source&&!interior&&getEffectsQuality()==='low'&&frame%2===1&&scene.game.loop.rawDelta<25)return;
     for(const batch of this.batches.values())batch.begin();
     if(source&&!interior){
       if(!this.contactSource||!this.contactSource.image){
@@ -80,7 +81,8 @@ export class GpuShadows {
       }
     }
     for(const batch of this.batches.values())batch.finish();
-    pruneSpriteBatches(this.batches,frame,16);
+    const work=frameWork(scene.game),start=performance.now();
+    pruneSpriteBatches(this.batches,frame,16,1,start+work.remaining('retire',.2));work.charge('retire',start);
   }
   private contact(actor:ShadowCaster['actor'],x:number,z:number,width:number,height:number,alpha:number,frame:number){
     if(width<=0||height<=0||!this.contactSource)return;

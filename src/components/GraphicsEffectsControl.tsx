@@ -38,7 +38,7 @@ export function GraphicsEffectsControl(){
     }}/>
     <span><strong>{option.title}</strong><small>{option.description}</small></span>
    </label>)}
-   <label className="graphics-effect-toggle"><input type="checkbox" checked={frameDiagnostics} onChange={e=>{setFrameDiagnosticsEnabled(e.target.checked);setFrameDiagnostics(e.target.checked);}}/><span><strong>Show frame-time diagnostics</strong><small>Optional frame-time overlay to diagnose stutters.</small></span></label>
+   <label className="graphics-effect-toggle"><input type="checkbox" checked={frameDiagnostics} onChange={e=>{setFrameDiagnosticsEnabled(e.target.checked);setFrameDiagnostics(e.target.checked);}}/><span><strong>Show frame-time diagnostics</strong><small>Shows raw frame times, slow frames, CPU work and GPU time where supported.</small></span></label>
    <button type="button" className="graphics-effects-reset" onClick={()=>{
     resetGraphicEffects();setEffects({...getGraphicEffects()});
    }}>Restore recommended defaults</button>

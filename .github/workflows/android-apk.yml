@@ -16,6 +16,9 @@ jobs:
   android:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      # Public fingerprint of the existing update-compatible secret-backed key.
+      EXPECTED_ANDROID_CERT_SHA256: '8d4fa69a8a10b95605d173694278d84f97b6cf98a456564417ec61b552f5b2c7'
     steps:
       - name: Checkout separate 2.5D repository
         uses: actions/checkout@v4
@@ -117,6 +120,10 @@ jobs:
             echo "::error::APK signature certificate SHA-256 could not be verified."
             exit 1
           fi
+          if [[ "${certificate_sha,,}" != "$EXPECTED_ANDROID_CERT_SHA256" ]]; then
+            echo "::error::Signing identity changed. Preserve the existing ANDROID_DEBUG_KEYSTORE_BASE64 secret so installed games can update in place."
+            exit 1
+          fi
           metadata="$("$ANDROID_HOME/build-tools/34.0.0/aapt" dump badging "$apk")"
           grep -q "^package: name='com.mernondna.rpg25d'" <<< "$metadata" || { echo "::error::Wrong Android package"; exit 1; }
           if grep -q '^application-debuggable' <<< "$metadata"; then echo "::error::APK still debuggable"; exit 1; fi
@@ -128,8 +135,12 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Known rendering fixes include projected ground chunk coverage, daytime shadow
-          translucency, darkness compositing, and trimmed-frame alignment.
+          Performance changes include background terrain painting and placement planning,
+          a shared streaming budget, GPU upload preparation, cached static scenery,
+          GPU-facing scenery billboards, bounded cleanup, and compatible night-pass merging.
+          Frame diagnostics now report raw frame percentiles, slow frames, simulation CPU
+          work and optional asynchronous GPU timing. No device FPS improvement is claimed
+          without a hardware trace.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.

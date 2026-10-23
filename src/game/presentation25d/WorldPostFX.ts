@@ -73,10 +73,13 @@ uniform float overcast;
 uniform mat4 inverseVP;
 uniform vec2 atmosphereFocus;
 uniform vec2 atmosphereRange;
+uniform sampler2D nightMask;
+uniform float nightOpacity;
 ${depthFunctions}
 void main(){
   vec3 original=texture2D(sourceColor,vUv).rgb;
-  float depth=eyeDepth(vUv);
+  float rawDepth=texture2D(sceneDepth,vUv).r;
+  float depth=clipRange.x*clipRange.y/(clipRange.y-rawDepth*(clipRange.y-clipRange.x));
   float blur=dofEnabled*circleOfConfusion(vUv,depth);
   vec3 color=original;
   if(gradingEnabled>0.5){
@@ -92,10 +95,11 @@ void main(){
   float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
   color=mix(color,hazeColor,distanceHaze*hazeStrength);
+  float surfaceFade=0.0;
   if(depth<clipRange.y-1.0){
-    vec4 p=inverseVP*vec4(vUv*2.0-1.0,texture2D(sceneDepth,vUv).r*2.0-1.0,1.0);
+    vec4 p=inverseVP*vec4(vUv*2.0-1.0,rawDepth*2.0-1.0,1.0);
     vec2 ground=p.xz/p.w;
-    float surfaceFade=1.0-smoothstep(atmosphereRange.x,atmosphereRange.y,distance(ground,atmosphereFocus));
+    surfaceFade=1.0-smoothstep(atmosphereRange.x,atmosphereRange.y,distance(ground,atmosphereFocus));
     color=mix(color,color*vec3(.78,.85,.91),overcast*surfaceFade);
     if(mistAmount>.001){
       float density=texture2D(mistArtwork,fract(ground*.0012+vec2(weatherTime*.003,-weatherTime*.001))).a;
@@ -113,6 +117,12 @@ void main(){
   }
   gl_FragColor=vec4(max(color,vec3(0.0)),1.0);
   #include <colorspace_fragment>
+  // Match the former screen overlay's blending in output colour space.
+  // Only merge when no lower-order screen object must precede darkness.
+  if(nightOpacity>0.0&&rawDepth<=.999999){
+    vec3 veil=linearToOutputTexel(vec4(.0006,.0018,.005,1.0)).rgb;
+    gl_FragColor.rgb=mix(gl_FragColor.rgb,veil,texture2D(nightMask,vUv).a*nightOpacity*surfaceFade);
+  }
 }
 `;
 
@@ -145,7 +155,7 @@ export class WorldPostFX {
     vertexShader,fragmentShader:blurShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
   });
   private readonly composite=new ShaderMaterial({
-    uniforms:{...this.common,sourceColor:{value:null as Texture|null},blurredColor:{value:null as Texture|null},
+    uniforms:{...this.common,nightMask:{value:null as Texture|null},nightOpacity:{value:0},sourceColor:{value:null as Texture|null},blurredColor:{value:null as Texture|null},
       sourceTexel:{value:new Vector2()},dofEnabled:{value:1},hazeStrength:{value:.14},
       mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
       gradingEnabled:{value:1},hazeColor:{value:new Color()}},
@@ -159,6 +169,22 @@ export class WorldPostFX {
   constructor(){
     this.quad.frustumCulled=false;this.scene.add(this.quad);
     window.addEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);
+  }
+  async warm(renderer:WebGLRenderer){
+    const scene=new Scene();scene.add(new Mesh(this.geometry,this.blur),new Mesh(this.geometry,this.composite));
+    try{await renderer.compileAsync(scene,this.camera);}catch{/* Actual render initialization retains its normal error path. */}
+    finally{scene.clear();}
+  }
+  setNight(mask:Texture|null,darkness:number){this.composite.uniforms.nightMask.value=mask;this.composite.uniforms.nightOpacity.value=mask?darkness:0;}
+  prepareWorld(width:number,height:number){
+    if(!this.targets){
+      const depth=new DepthTexture(width,height,UnsignedIntType);depth.name='world-focus-depth';
+      const world=new WebGLRenderTarget(width,height,{minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false,
+        depthBuffer:true,stencilBuffer:false,depthTexture:depth});
+      world.texture.name='world-focus-color';this.targets={world};
+    }
+    if(this.targets.world.width!==width||this.targets.world.height!==height)this.targets.world.setSize(width,height);
+    return this.targets.world.depthTexture;
   }
   get depth(){return this.targets?.world.depthTexture??null;}
 
@@ -225,14 +251,8 @@ export class WorldPostFX {
   }
 
   private prepareTargets(width:number,height:number,bw:number,bh:number,dof:boolean):Targets {
-    if(!this.targets){
-      const depth=new DepthTexture(width,height,UnsignedIntType);depth.name='world-focus-depth';
-      const world=new WebGLRenderTarget(width,height,{minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false,
-        depthBuffer:true,stencilBuffer:false,depthTexture:depth});
-      world.texture.name='world-focus-color';this.targets={world};
-    }
-    const targets=this.targets;
-    if(targets.world.width!==width||targets.world.height!==height)targets.world.setSize(width,height);
+    this.prepareWorld(width,height);
+    const targets=this.targets!;
     if(dof){
       if(!targets.horizontal)targets.horizontal=new WebGLRenderTarget(bw,bh,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});
       if(!targets.vertical)targets.vertical=targets.horizontal.clone();
