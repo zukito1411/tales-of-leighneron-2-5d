@@ -117,6 +117,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   targeting!:TargetingSystem;
   private readonly worldGenerator = new WorldGenerator();
   private chunkManager!: ChunkManager;
+  private nextStreamingSnapshotAt=0;
   private dayNight!: DayNightSystem;
   private weather!:WeatherSystem;
   private treeSway!:TreeSwaySystem;
@@ -960,7 +961,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.chunkManager.update(this.player.x, this.player.y);
     if (this.contentManager.update(this.player.x, this.player.y,
       projectedGroundView(this.cameras.main,this.player.x,this.player.y))) {
-      useGameStore.getState().setContentWorld(this.contentManager.snapshot());
+      // A camera turn can activate dozens of actors over multiple frames.
+      // Rebuilding the complete persistent world record on *each* admission
+      // caused main-thread stalls and cascading store subscribers. Explicit
+      // saves still call syncState() and always capture the newest state.
+      if(time>=this.nextStreamingSnapshotAt){
+        useGameStore.getState().setContentWorld(this.contentManager.snapshot());
+        this.nextStreamingSnapshotAt=time+1000;
+      }
     }
     if (!uiBlocked) this.dayNight.update(delta, this.player.x, this.player.y);
     this.weather.update(uiBlocked?0:delta,this.player.x,this.player.y,uiBlocked);
