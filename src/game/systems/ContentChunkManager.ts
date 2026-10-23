@@ -90,6 +90,7 @@ export class ContentChunkManager<Actor> {
   private sceneryCandidates=new Set<string>();
   private nextAdmissionCheckAt=0;
   private admissionBootstrapped=false;
+  private cleanupPending=false;
   private nextSpawnSequence: number;
   private readonly summonOwners = new Map<string,string>();
 
@@ -170,18 +171,26 @@ export class ContentChunkManager<Actor> {
       this.returns.delete(id);changed=true;
     }
     }
+    // Destroying an entire streamed settlement in one frame can create
+    // comparable hitches to spawning it. Spread teardown over live frames.
+    const budgetDestruction=Boolean(view)&&this.admissionBootstrapped;
+    let destroyed=0,cleanupPending=false;
     // Only near actors are inspected. Bucket migration lets moving creatures cross chunks.
     for (const [id, actor] of this.active) {
       const kind=this.definitions.get(id)!.kind;
       // Authored scenery does not migrate between chunks every physics frame.
       // Oversized landmarks still depend on distance inside the same chunk.
-      if(!changed&&kind!=='npc'&&kind!=='creature'&&!this.oversized.has(id))continue;
+      if(!changed&&!this.cleanupPending&&kind!=='npc'&&kind!=='creature'&&!this.oversized.has(id))continue;
       const position = this.host.position(actor);
       const key = contentChunkKey(position.x, position.y);
       this.index(id, key);
       if (!this.wanted.has(key)&&!this.sceneryWanted.has(id)&&!this.nearOversized(id,position,x,y,view)
-        &&!this.host.keepActive?.(this.definitions.get(id)!,actor)) { this.deactivate(id); changed = true; }
+        &&!this.host.keepActive?.(this.definitions.get(id)!,actor)) {
+        if(budgetDestruction&&destroyed>=4){cleanupPending=true;continue;}
+        this.deactivate(id);destroyed++;changed=true;
+      }
     }
+    this.cleanupPending=cleanupPending;
     // Keep all active actor migration running every frame, but retry the
     // expensive inactive-world admission search only every 150 ms when still.
     if(changed||now>=this.nextAdmissionCheckAt){
