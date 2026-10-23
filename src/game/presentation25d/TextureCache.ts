@@ -2,15 +2,24 @@ import Phaser from 'phaser';
 import {LinearFilter,SRGBColorSpace,Texture} from 'three';
 
 interface Entry {texture:Texture;lastUsed:number;bytes:number;restore:()=>void}
-const IDLE_FRAMES=90,MAX_RESIDENT_BYTES=64*1024*1024,MAX_IDLE_ENTRIES=32;
+// Brief camera turns must not cause the same PNG/canvas to be reuploaded.
+// Bounded, device-aware residency avoids runaway Android WebView memory use.
+const IDLE_FRAMES=300;
+const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
+const MAX_RESIDENT_BYTES=(MOBILE?80:160)*1024*1024;
+const MAX_IDLE_ENTRIES=MOBILE?48:80;
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
   private readonly entries=new Map<Phaser.Textures.TextureSource,Entry>();
   private bytes=0;
+  private coldCreates=0;
+  private evictions=0;
+  stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions};}
   get(source:Phaser.Textures.TextureSource,frame:number){
     let entry=this.entries.get(source);
     if(!entry){
+      this.coldCreates++;
       const texture=new Texture(source.image);
       texture.colorSpace=SRGBColorSpace;texture.minFilter=texture.magFilter=LinearFilter;
       texture.generateMipmaps=false;texture.needsUpdate=true;
@@ -33,20 +42,25 @@ export class TextureCache {
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
     entry.lastUsed=frame;return entry.texture;
   }
-  private release(source:Phaser.Textures.TextureSource,entry:Entry){entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);}
+  private release(source:Phaser.Textures.TextureSource,entry:Entry){entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.evictions++;}
   prune(frame:number){
-    let idle=0;
+    let idle=0,retired=0;
+    // Destroy a maximum of two GPU resources per frame. A camera turn can
+    // retire an entire biome's textures; disposing all of them at once causes
+    // a second spike after the original upload.
     for(const [source,entry] of this.entries){
-      if(!source.image||frame-entry.lastUsed>IDLE_FRAMES)this.release(source,entry);
-      else if(entry.lastUsed<frame)idle++;
+      if(entry.lastUsed<frame)idle++;
+      if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
+        this.release(source,entry);retired++;idle--;
+      }
     }
-    // Brief view-edge reuse prevents repeated large atlas uploads during orbit.
-    // Current-frame textures are required; only unused entries may be evicted.
-    if(!idle||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
-    const retired=[...this.entries].filter(([,entry])=>entry.lastUsed<frame).sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
-    for(const [source,entry] of retired){
-      if(this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)break;
-      this.release(source,entry);idle--;
+    if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
+    // Evict only idle resources, oldest first; never drop visible assets.
+    const candidates=[...this.entries].filter(([,entry])=>entry.lastUsed<frame)
+      .sort((a,b)=>a[1].lastUsed-b[1].lastUsed);
+    for(const [source,entry] of candidates){
+      if(this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES||retired>=2)break;
+      this.release(source,entry);retired++;idle--;
     }
   }
   destroy(){for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.bytes=0;}
