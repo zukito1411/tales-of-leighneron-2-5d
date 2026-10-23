@@ -48,6 +48,9 @@ export class GpuNightMask {
     let count=0;
     for(const node of source.gpuLights()){
       const actor=node.actor;if(!actor.active||!actor.visible||actor.cameraFilter&camera.id)continue;
+      const dx=actor.x-view.focusGround.x,dy=actor.y-view.focusGround.y;
+      const reach=VIEW_DISTANCE+node.radius+384;
+      if(dx*dx+dy*dy>reach*reach)continue;
       // Never project lights behind the camera: perspective division can
       // otherwise turn a rearward lantern into a fullscreen darkness eraser.
       presentationAttachmentWorld(scene,actor,actor.x+node.x,actor.y+node.y,this.point);
