@@ -21,6 +21,8 @@ export class AwakenedHeroVisual{
  private abort:AbortController|null=null;
  constructor(private readonly scene:Phaser.Scene,private readonly beforeSwap:()=>void=()=>{}){
   this.model=scene.add.sprite(0,0,'leigneron',0).setVisible(false).setName('awakened-hero');
+   // This is the player's own appearance, not an obstruction in front of them.
+   this.model.setData('presentation25dPlayerVisual',true);
  }
  get readyForm(){return this.current?.slug??null;}
  private restore(){if(this.hidden?.active)this.hidden.cameraFilter=this.hiddenFilter;this.hidden=null;}
