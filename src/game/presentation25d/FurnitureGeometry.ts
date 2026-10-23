@@ -60,11 +60,12 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
  * mattresses lie horizontally; backs/doors stand vertically, and legs leave
  * open space underneath. All parts share one instanced atlas draw per style. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
-  const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],repeats:number[]=[];
+  const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],repeats:number[]=[],roundNormals:number[]=[];
   const {art,kit,rise:H,depth:D}=shape;
   const uv=(u:number,v:number):UV=>shape.quarterTurnUV?[shape.left+(1-v)*shape.width,1-shape.top-u*shape.height]:[shape.left+u*shape.width,1-shape.top-v*shape.height];
-  const tri=(a:Point,b:Point,c:Point,ta:UV,tb:UV,tc:UV,patch?:Patch,painted=false)=>{
+  const tri=(a:Point,b:Point,c:Point,ta:UV,tb:UV,tc:UV,patch?:Patch,painted=false,normals?:readonly Point[])=>{
     if(emission&&patch&&!painted)return;
+    if(normals)for(let i=0;i<3;i++)roundNormals.push(positions.length/3+i,...normals[i]);
     positions.push(...a,...b,...c);uvs.push(...ta,...tb,...tc);
     const p=patch?[shape.left+patch[0]*shape.width,1-shape.top-patch[3]*shape.height,
       (patch[2]-patch[0])*shape.width*(painted?-1:1),(patch[3]-patch[1])*shape.height]:[0,0,0,0];
@@ -102,6 +103,10 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     // Fine hinges, books, carvings and detached trim retain their original face.
     front(-.5,.5,0,H,.003,[0,0,1,1]);
     box(-.47,.47,H*.88,H*.93,-D-.02,.015);
+    // Plinth and rear stiles finish the non-painted elevations with the same
+    // sampled timber/stone. Never mirror doors or books onto a cabinet back.
+    box(-.46,.46,0,H*.07,-D-.015,.005);
+    for(const x of [-.42,.42])box(x-.02,x+.02,H*.07,H*.90,-D-.025,-D+.015);
   };
   const cylinder=(rings:readonly (readonly [number,number])[],centre=-D/2,source?:Patch,cx=0)=>{
     const segments=24;
@@ -109,18 +114,24 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       const a=i/segments*Math.PI*2,b=(i+1)/segments*Math.PI*2,[y,r]=rings[j-1],[t,s]=rings[j];
       const aa:Point=[cx+Math.sin(a)*r,y,centre+Math.cos(a)*r],bb:Point=[cx+Math.sin(b)*r,y,centre+Math.cos(b)*r];
       const cc:Point=[cx+Math.sin(a)*s,t,centre+Math.cos(a)*s],dd:Point=[cx+Math.sin(b)*s,t,centre+Math.cos(b)*s];
+      const slope=(r-s)/Math.max(.0001,t-y),length=Math.hypot(1,slope);
+      const na:Point=[Math.sin(a)/length,slope/length,Math.cos(a)/length],nb:Point=[Math.sin(b)/length,slope/length,Math.cos(b)/length];
       if(source){
         const paint=(angle:number,height:number):UV=>uv((source[0]+source[2])/2+Math.sin(angle)*(source[2]-source[0])*.48,
           source[3]-(height-rings[0][0])/(rings[rings.length-1][0]-rings[0][0])*(source[3]-source[1]));
-        tri(aa,bb,cc,paint(a,y),paint(b,y),paint(a,t),shape.patch,true);tri(bb,dd,cc,paint(b,y),paint(b,t),paint(a,t),shape.patch,true);
-      }else face(aa,bb,cc,dd);
+        tri(aa,bb,cc,paint(a,y),paint(b,y),paint(a,t),shape.patch,true,[na,nb,na]);tri(bb,dd,cc,paint(b,y),paint(b,t),paint(a,t),shape.patch,true,[nb,nb,na]);
+      }else{
+        const start=positions.length/3;face(aa,bb,cc,dd);
+        if(positions.length/3===start+6)for(const [i,n] of [na,nb,na,nb,nb,na].entries())roundNormals.push(start+i,...n);
+      }
     }
     for(const index of [0,rings.length-1]){
       const [y,r]=rings[index],center:Point=[cx,y,centre];
       for(let i=0;i<segments;i++){
         const a=i/segments*Math.PI*2,b=(i+1)/segments*Math.PI*2;
-        tri(center,[cx+Math.sin(a)*r,y,centre+Math.cos(a)*r],[cx+Math.sin(b)*r,y,centre+Math.cos(b)*r],
-          uv(.5,.23),uv(.5+Math.sin(a)*.34,.23+Math.cos(a)*.15),uv(.5+Math.sin(b)*.34,.23+Math.cos(b)*.15),shape.patch,true);
+        const first=index===0?b:a,last=index===0?a:b;
+        tri(center,[cx+Math.sin(first)*r,y,centre+Math.cos(first)*r],[cx+Math.sin(last)*r,y,centre+Math.cos(last)*r],
+          uv(.5,.23),uv(.5+Math.sin(first)*.34,.23+Math.cos(first)*.15),uv(.5+Math.sin(last)*.34,.23+Math.cos(last)*.15),shape.patch,true);
       }
     }
   };
@@ -139,6 +150,20 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   const slopingRoof=(peak:number,eave:number,source:Patch)=>{
     face([-.52,eave,.02],[0,peak,.02],[-.52,eave,-D-.02],[0,peak,-D-.02],source);
     face([0,peak,.02],[.52,eave,.02],[0,peak,-D-.02],[.52,eave,-D-.02],source);
+    // End grain and a slim underside close the roof from rear/low cameras.
+    const lip=Math.min(.025,H*.025);
+    for(const z of [.02,-D-.02]){
+      if(z>0){
+        face([-.52,eave-lip,z],[0,peak-lip,z],[-.52,eave,z],[0,peak,z]);
+        face([0,peak-lip,z],[.52,eave-lip,z],[0,peak,z],[.52,eave,z]);
+      }else{
+        face([0,peak-lip,z],[-.52,eave-lip,z],[0,peak,z],[-.52,eave,z]);
+        face([.52,eave-lip,z],[0,peak-lip,z],[.52,eave,z],[0,peak,z]);
+      }
+    }
+    face([-.52,eave-lip,-D-.02],[0,peak-lip,-D-.02],[-.52,eave-lip,.02],[0,peak-lip,.02]);
+    face([0,peak-lip,-D-.02],[.52,eave-lip,-D-.02],[0,peak-lip,.02],[.52,eave-lip,.02]);
+    for(const x of [-.52,.52])box(x-.012,x+.012,eave-lip,eave,-D-.02,.02);
   };
   const pole=(x:number,z:number,t:number,r=.04)=>box(x-r,x+r,0,t,z-r,z+r);
   const crate=(l:number,r:number,y:number,t:number,back:number,z:number,source:Patch)=>{
@@ -287,6 +312,8 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     box(-.49,.49,H*.80,H*.88,-D-.02,.02);
     top(-.49,.49,.02,-D-.02,H*.883,[.03,.03,.97,.48]);
     front(-.49,.49,0,H*.80,.023,[.03,.36,.97,1]);
+    box(-.48,.48,0,H*.075,-D-.012,.012);
+    for(const x of [-.44,.44])box(x-.018,x+.018,H*.075,H*.79,-D-.012,-D+.012);
   }else if(art==='chair'||art==='signature'&&['highmere_noble','rindass_orcan','frostlands_longhouse'].includes(kit)){
     legs(H*.32,-D+.05,-.045,.12);
     box(-.43,.43,H*.30,H*.38,-D+.03,0);
@@ -338,6 +365,9 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   }else if(art==='chest'||art==='openChest'){
     box(-.46,.46,0,H*.56,-D,0);
     front(-.5,.5,0,H*.6,.003,[0,.43,1,1]);
+    // Continue the lid rim and base around the rear and both side elevations.
+    box(-.475,.475,0,H*.065,-D-.012,.012);
+    box(-.475,.475,H*.50,H*.56,-D-.012,.012);
     if(art==='openChest'){
       box(-.46,.46,H*.55,H,-D,-D+.065);
       front(-.5,.5,H*.55,H,-D+.068,[0,0,1,.48]);
@@ -361,5 +391,8 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   geometry.setAttribute('uv',new Float32BufferAttribute(uvs,2));
   geometry.setAttribute('surfaceRect',new Float32BufferAttribute(surfaces,4));
   geometry.setAttribute('surfaceUV',new Float32BufferAttribute(repeats,2));
-  geometry.computeVertexNormals();return geometry;
+  geometry.computeVertexNormals();
+  const normals=geometry.getAttribute('normal');
+  for(let i=0;i<roundNormals.length;i+=4)normals.setXYZ(roundNormals[i],roundNormals[i+1],roundNormals[i+2],roundNormals[i+3]);
+  return geometry;
 }

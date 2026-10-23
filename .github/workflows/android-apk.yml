@@ -167,6 +167,16 @@ jobs:
           its deck, boarding and combat coordinates. Circular towers are retained.
           Clear mornings have less mist/haze, later outdoor focus blur and stronger
           sunlight. Normal adds edge smoothing within the existing compositor.
+          Houses retain their wall material on side elevations, with separate
+          corner posts and complete side/rear window framing. Round towers,
+          barrels, lamps and other cylinder parts gain smooth surface normals.
+          Cabinet backs, counter bases, chest rims and small roof undersides
+          gain finishing geometry within their existing instanced models.
+          Structure lighting follows the shared sun/moon direction and weather,
+          with warm interior fill. Emissive windows retain their own brightness.
+          Normal adds soft highlight bloom through the existing bounded focus
+          buffers. Low keeps its painted halos and avoids fullscreen blur work.
+          A lighter vignette and wider indoor focus range improve clarity.
           View radius, streaming/preload scheduling and render budgets are unchanged.
           Camera-frustum streaming now replaces the fixed walking neighborhood.
           Movement-ahead preloads, GPU preparation and delayed retirement run together.

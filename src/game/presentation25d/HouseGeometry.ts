@@ -147,12 +147,13 @@ type Vertex=readonly [number,number,number];
  * material patches repeat at their original texel scale, rather than stretching
  * a tiny stripe over an entire roof/wall. Geometry is built once per active batch. */
 export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
-  const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],surfaceUVs:number[]=[];
+  const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],surfaceUVs:number[]=[],roundNormals:number[]=[];
   const {profile,left,top,width,height,depth}=shape;
   const point=(x:number,y:number,z:number):Vertex=>[left+x*width-.5,.5-top-y*height,z];
   const uv=(x:number,y:number):Point=>[left+x*width,1-top-y*height];
-  const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch,painted=false)=>{
+  const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch,painted=false,normals?:readonly Vertex[])=>{
     if(emission&&patch&&!painted)return;
+    if(normals)for(let i=0;i<3;i++)roundNormals.push(positions.length/3+i,...normals[i]);
     positions.push(...a,...b,...c);
     if(patch&&!painted){const center=uv((patch[0]+patch[2])/2,(patch[1]+patch[3])/2);uvs.push(...center,...center,...center);}
     else uvs.push(...ta,...tb,...tc);
@@ -200,7 +201,8 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       // Reuse the authored facade on both halves of the actual cylinder.
       // The stone/timber fallback closes any transparent foliage/window edge.
       const ua=circularUV(tier,a,tier.bottom),ub=circularUV(tier,b,tier.bottom),va=circularUV(tier,a,tier.top),vb=circularUV(tier,b,tier.top);
-      tri(ab,bb,at,ua,ub,va,patch,true);tri(bb,bt,at,ub,vb,va,patch,true);
+      const na:Vertex=[Math.sin(a),0,Math.cos(a)],nb:Vertex=[Math.sin(b),0,Math.cos(b)];
+      tri(ab,bb,at,ua,ub,va,patch,true,[na,nb,na]);tri(bb,bt,at,ub,vb,va,patch,true,[nb,nb,na]);
       tri(center,at,bt,[.5,.5],[Math.sin(a)*2,Math.cos(a)*2],[Math.sin(b)*2,Math.cos(b)*2],patch);
     }
   };
@@ -277,8 +279,10 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
         // Foundation courses, corner framing and an eave fascia give the
         // formerly featureless elevations coherent depth and scale.
         solidBox(first[0]-.008,last[0]+.008,base-.065,base,-.003,-depth-proud,profile.wall);
-        solidBox(first[0]-.014,first[0]+.014,eave,base,-.003,-depth-proud,profile.tiles);
-        solidBox(last[0]-.014,last[0]+.014,eave,base,-.003,-depth-proud,profile.tiles);
+        // Four corner posts, not a full-depth roof-textured slab covering each
+        // side wall. Keep the original plaster/masonry between the corners.
+        for(const x of [first[0],last[0]])for(const z of [0,-depth+.025])
+          solidBox(x-.014,x+.014,eave,base,z+proud,z-.025-proud,profile.wall);
         solidBox(first[0]-.018,last[0]+.018,eave-.018,eave+.018,-.003,-depth-proud,profile.tiles);
         const painted=(a:Vertex,b:Vertex,c:Vertex,d:Vertex)=>{
           if(!window)return;
@@ -291,14 +295,17 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
           painted(point(r,sill,-depth-.003),point(l,sill,-depth-.003),point(r,head,-depth-.003),point(l,head,-depth-.003));
           solidBox(l-frame,r+frame,sill,sill+.025,-depth-proud,-depth-proud*3,profile.wall);
           solidBox(l-frame,r+frame,head-.02,head,-depth-proud,-depth-proud*3,profile.tiles);
+          for(const x of [l,r])solidBox(x-frame*.5,x+frame*.5,head,sill,-depth-proud,-depth-proud*3,profile.tiles);
         }
         const sideCount=Math.max(1,Math.min(3,Math.round(sideSpan/.30)));
         const sidePoint=(x:number,y:number,z:number,dx:number):Vertex=>{const p=point(x,y,z);return [p[0]+dx,p[1],p[2]];};
         if(window)for(const x of [first[0],last[0]])for(let i=0;i<sideCount;i++){
           const z=-depth*(i+.5)/sideCount,half=Math.min(depth/sideCount*.27,width*.085),dx=x===first[0]?-proud:proud;
-          painted(sidePoint(x,sill,z+half,dx),sidePoint(x,sill,z-half,dx),sidePoint(x,head,z+half,dx),sidePoint(x,head,z-half,dx));
+          const front=x===first[0]?z-half:z+half,back=x===first[0]?z+half:z-half;
+          painted(sidePoint(x,sill,front,dx),sidePoint(x,sill,back,dx),sidePoint(x,head,front,dx),sidePoint(x,head,back,dx));
           solidBox(x-frame,x+frame,sill,sill+.025,z+half+frame,z-half-frame,profile.wall);
           solidBox(x-frame,x+frame,head-.02,head,z+half+frame,z-half-frame,profile.tiles);
+          for(const edge of [z-half,z+half])solidBox(x-frame,x+frame,head,sill,edge+proud,edge-proud,profile.tiles);
         }
         // The authored roof slopes keep their shape; raised ridge/eave strips
         // finish their seams instead of exposing raw extrusion edges.
@@ -313,7 +320,10 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
   geometry.setAttribute('uv',new Float32BufferAttribute(uvs,2));
   geometry.setAttribute('surfaceRect',new Float32BufferAttribute(surfaces,4));
   geometry.setAttribute('surfaceUV',new Float32BufferAttribute(surfaceUVs,2));
-  geometry.computeVertexNormals();return geometry;
+  geometry.computeVertexNormals();
+  const normals=geometry.getAttribute('normal');
+  for(let i=0;i<roundNormals.length;i+=4)normals.setXYZ(roundNormals[i],roundNormals[i+1],roundNormals[i+2],roundNormals[i+3]);
+  return geometry;
 }
 
 /** Closed interior panels share original art and do not acquire town-wall

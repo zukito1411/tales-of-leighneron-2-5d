@@ -50,22 +50,34 @@ float circleOfConfusion(vec2 uv,float depth){
 const blurShader=`
 uniform sampler2D sourceColor;
 uniform vec2 direction;
+uniform float bloomEnabled;
+uniform float bloomFirstPass;
 ${depthFunctions}
+float highlight(vec3 color,float depth){
+  if(depth>clipRange.y-1.0)return 0.0;
+  float peak=max(color.r,max(color.g,color.b));
+  float chroma=peak-min(color.r,min(color.g,color.b));
+  // Soft-knee highlights, excluding the sky and ordinary pale masonry.
+  return smoothstep(.58,.96,peak)*(.25+.75*smoothstep(.06,.32,chroma));
+}
 void main(){
   float depth=eyeDepth(vUv),blur=circleOfConfusion(vUv,depth);
-  if(blur<0.01){gl_FragColor=texture2D(sourceColor,vUv);return;}
-  vec3 sum=vec3(0.0);float total=0.0;
+  if(blur<0.01&&bloomEnabled<.5){gl_FragColor=texture2D(sourceColor,vUv);return;}
+  vec3 sum=vec3(0.0);float total=0.0,glow=0.0;
   for(int i=-2;i<=2;i++){
     float tap=float(i);
-    vec2 uv=clamp(vUv+direction*(tap*0.5)*blur,vec2(0.0),vec2(1.0));
+    vec2 uv=clamp(vUv+direction*(tap*0.5)*(bloomEnabled>.5?1.0:blur),vec2(0.0),vec2(1.0));
     float neighborDepth=eyeDepth(uv);
     // Reject unrelated surfaces to avoid dark roof/tree halos bleeding onto
     // a sharp actor or foreground colors smearing over distant scenery.
     float edge=1.0-smoothstep(focusRange*0.18,focusRange*0.65,abs(neighborDepth-depth));
     float weight=exp(-tap*tap*0.65)*edge;
-    sum+=texture2D(sourceColor,uv).rgb*weight;total+=weight;
+    vec4 sampleColor=texture2D(sourceColor,uv);
+    sum+=sampleColor.rgb*weight;total+=weight;
+    if(bloomEnabled>.5)glow+=(bloomFirstPass>.5?highlight(sampleColor.rgb,neighborDepth):sampleColor.a)*weight;
   }
-  gl_FragColor=vec4(sum/max(total,0.0001),1.0);
+  // RGB retains focus filtering; unused alpha carries highlight energy.
+  gl_FragColor=vec4(sum/max(total,0.0001),glow/max(total,0.0001));
 }
 `;
 const compositeShader=`
@@ -76,6 +88,7 @@ uniform float dofEnabled;
 uniform float hazeStrength;
 uniform float gradingEnabled;
 uniform float edgeSmoothing;
+uniform float bloomStrength;
 uniform vec3 hazeColor;
 uniform sampler2D mistArtwork;
 uniform float mistAmount;
@@ -119,7 +132,12 @@ void main(){
     // focus. It never adds noise, outlines or replacement artwork.
     if(gradingEnabled>.5)color+=clamp(original-neighborhood,vec3(-0.025),vec3(0.025))*.12*(1.0-smoothstep(.07,.25,contrast));
   }
-  if(dofEnabled>0.5)color=mix(color,texture2D(blurredColor,vUv).rgb,blur*0.55);
+  if(dofEnabled>0.5||bloomStrength>.001){
+    vec4 filtered=texture2D(blurredColor,vUv);
+    if(dofEnabled>0.5)color=mix(color,filtered.rgb,blur*0.45);
+    // Screen-like blending retains highlight detail rather than clipping it.
+    color+=vec3(1.0,.86,.65)*filtered.a*bloomStrength*(1.0-clamp(color,0.0,1.0))*(1.0-protection*.8);
+  }
   float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
   color=mix(color,hazeColor,distanceHaze*hazeStrength*(1.0-protection));
@@ -155,9 +173,9 @@ void main(){
   if(gradingEnabled>0.5){
     float light=clamp(dot(color,vec3(0.2126,0.7152,0.0722)),0.0,1.0);
     color*=mix(vec3(0.97,0.99,1.025),vec3(1.035,1.01,0.975),smoothstep(0.06,0.65,light));
-    color=(color-0.18)*1.035+0.18;
+    color=(color-0.18)*1.025+0.18;
     vec2 edge=(vUv-0.5)*2.0;
-    color*=1.0-0.09*smoothstep(0.45,1.65,dot(edge,edge));
+    color*=1.0-0.045*smoothstep(0.45,1.65,dot(edge,edge));
   }
   gl_FragColor=vec4(max(color,vec3(0.0)),1.0);
   #include <colorspace_fragment>
@@ -198,12 +216,12 @@ export class WorldPostFX {
     lockUV:{value:new Vector2()},lockRadius:{value:new Vector2(.1,.1)},lockDepth:{value:0},lockDepthRange:{value:100},lockEnabled:{value:0},
   };
   private readonly blur=new ShaderMaterial({
-    uniforms:{...this.common,sourceColor:{value:null as Texture|null},direction:{value:new Vector2()}},
+    uniforms:{...this.common,sourceColor:{value:null as Texture|null},direction:{value:new Vector2()},bloomEnabled:{value:0},bloomFirstPass:{value:1}},
     vertexShader,fragmentShader:blurShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
   });
   private readonly composite=new ShaderMaterial({
     uniforms:{...this.common,nightMask:{value:null as Texture|null},nightOpacity:{value:0},sourceColor:{value:null as Texture|null},blurredColor:{value:null as Texture|null},
-      sourceTexel:{value:new Vector2()},dofEnabled:{value:1},hazeStrength:{value:.14},
+      sourceTexel:{value:new Vector2()},dofEnabled:{value:1},bloomStrength:{value:0},hazeStrength:{value:.14},
       sunUV:{value:new Vector2(.5,.5)},sunShafts:{value:0},shaftSamples:{value:8},
       mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
       gradingEnabled:{value:1},edgeSmoothing:{value:1},hazeColor:{value:new Color()}},
@@ -240,7 +258,7 @@ export class WorldPostFX {
     // Loading/asset preparation scenes do not allocate or compile world FX.
     const focus=frame.focus,effects=focus?getGraphicEffects():undefined;
     const environmental=Boolean(!frame.interior&&(effects?.sunRays||frame.weather&&(frame.weather.mist>.001||frame.weather.cloudCover>.001)));
-    if(!focus||!effects||!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor){
+    if(!focus||!effects||!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor&&!(effects.lightBloom&&this.quality!=='low')){
       this.releaseTargets();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);return;
@@ -250,16 +268,20 @@ export class WorldPostFX {
     // optional fullscreen blur passes. Depth, lighting, haze and silhouettes
     // stay enabled. Normal quality retains authored depth of field.
     const blurEnabled=effects.depthOfField&&!low;
+    // Normal packs bloom into the existing bounded focus buffers. Low keeps
+    // the painted lamp/window halos without introducing fullscreen blur work.
+    const bloomEnabled=effects.lightBloom&&!low;
+    const filterEnabled=blurEnabled||bloomEnabled;
     const scale=Math.min(low ? .5 : .7,960/cssWidth,960/cssHeight,Math.sqrt(650000/(cssWidth*cssHeight)));
     const bw=Math.max(1,Math.floor(cssWidth*scale)),bh=Math.max(1,Math.floor(cssHeight*scale));
-    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,blurEnabled);
+    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,filterEnabled);
     this.common.sceneDepth.value=targets.world.depthTexture;
     this.common.clipRange.value.set(frame.camera.near,frame.camera.far);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
     this.common.focusDistance.value=-this.focusPoint.z;
     const depthSpan=this.common.focusDistance.value*.9;
-    this.common.focusRange.value=frame.interior?Math.max(95,Math.min(180,depthSpan*.20)):Math.max(320,depthSpan*.65);
-    this.common.focusFalloff.value=frame.interior?Math.max(180,depthSpan*.42):Math.max(900,depthSpan*1.2);
+    this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(320,depthSpan*.65);
+    this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(900,depthSpan*1.2);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
     this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
     this.common.aspect.value=frame.width/frame.height;
@@ -281,6 +303,7 @@ export class WorldPostFX {
     this.composite.uniforms.blurredColor.value=targets.vertical?.texture??targets.world.texture;
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
     this.composite.uniforms.dofEnabled.value=Number(blurEnabled);
+    this.composite.uniforms.bloomStrength.value=bloomEnabled ? .12+frame.night*.04 : 0;
     this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .035+(frame.weather?.mist??0)*.09)*(1-frame.night*.45):0;
     this.composite.uniforms.hazeColor.value.copy(this.hazeDay).lerp(this.hazeNight,frame.night);
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
@@ -312,12 +335,14 @@ export class WorldPostFX {
       renderer.setRenderTarget(targets.world);renderer.clear();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);
-      if(blurEnabled&&targets.horizontal&&targets.vertical){
+      if(filterEnabled&&targets.horizontal&&targets.vertical){
         const radius=low?3:5;
         this.quad.material=this.blur;this.blur.uniforms.sourceColor.value=targets.world.texture;
+        this.blur.uniforms.bloomEnabled.value=Number(bloomEnabled);this.blur.uniforms.bloomFirstPass.value=1;
         this.blur.uniforms.direction.value.set(radius/cssWidth,0);this.blur.uniformsNeedUpdate=true;
         renderer.setRenderTarget(targets.horizontal);renderer.render(this.scene,this.camera);
         this.blur.uniforms.sourceColor.value=targets.horizontal.texture;
+        this.blur.uniforms.bloomFirstPass.value=0;
         this.blur.uniforms.direction.value.set(0,radius/cssHeight);this.blur.uniformsNeedUpdate=true;
         renderer.setRenderTarget(targets.vertical);renderer.render(this.scene,this.camera);
       }

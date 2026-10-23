@@ -105,7 +105,8 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
+  private readonly atmosphere={fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+    structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly rasters:RasterCache;
   private readonly transform=new Phaser.GameObjects.Components.TransformMatrix();
   private readonly parentTransform=new Phaser.GameObjects.Components.TransformMatrix();
@@ -229,6 +230,15 @@ export class ThreePresentation {
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
+    const light=this.atmosphere,cover=this.interior?0:weather?.cloudCover??0;
+    if(this.interior){
+      light.structureLightDirection.value.set(-.4,.85,.3).normalize();
+      light.structureFill.value.setRGB(.77,.75,.71);light.structureKey.value.setRGB(.23,.25,.27);
+    }else{
+      light.structureLightDirection.value.copy(this.sky.sunlight).multiplyScalar(this.sky.sunlight.y<0?-1:1);
+      light.structureFill.value.setRGB(.73+cover*.04,.76+cover*.03,.80+cover*.02);
+      light.structureKey.value.setRGB(.27-night*.15,.24-night*.10,.20-night*.03).multiplyScalar(1-cover*.7);
+    }
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
     this.atmosphere.fogRange.value.set(this.interior?0:FOG_START,this.interior?0:VIEW_DISTANCE);
     this.gpuShadows.update(scene,presentation.presentationShadows,minute,weather?.cloudCover??0,this.orbit.yaw,this.frame,this.interior,this.orbit.bounds);
