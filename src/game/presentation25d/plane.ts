@@ -1,7 +1,7 @@
 import type Phaser from 'phaser';
 import {Raycaster,Vector2,Vector3,type PerspectiveCamera} from 'three';
 import type {HouseShape} from './HouseGeometry';
-import {furnitureShape,type FurnitureShape} from './FurnitureGeometry';
+import {furnitureShape,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import type {StreamVisibility} from './StreamVisibility';
 import type {StreamView} from '../systems/chunkNeighborhood';
 
@@ -58,6 +58,8 @@ export interface PresentationHint {
   overlay?: boolean;
   /** Small ground separation for layered floors and decals. */
   elevation?: number;
+  /** Waterline decals stay level instead of following the submerged bed. */
+  absoluteGround?:boolean;
   /** Camera-depth separation for attached artwork sharing one body plane. */
   depthOffset?: number;
   /** A world-aligned vertical wall, rather than a camera-facing actor plane. */
@@ -175,12 +177,21 @@ export function uprightPoint(x:number,y:number,anchorX:number,anchorY:number,out
 }
 
 const attachmentPoint={x:0,y:0,z:0};
+const attachmentFurniture={x:0,y:0,width:0,heading:0,lift:0};
 /** Authored lamps share their owner's billboard or fixed house facade. */
 /** Exact 3D point of a lamp on its authored billboard or house facade.
  * Keeping its depth lets the night renderer reject behind-camera lights. */
 export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number;z:number}){
-  const house=(owner.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
-  if(house){
+  const hint=owner.getData(PRESENTATION_HINT) as PresentationHint|undefined,house=hint?.house,furniture=hint?.furniture;
+  if(furniture){
+    const f=furniture,p=furniturePlacement(owner,f,attachmentFurniture);
+    const sourceX=((x-owner.x)/Math.abs(owner.displayWidth)+owner.originX-f.left)/f.width;
+    const sourceY=((y-owner.y)/Math.abs(owner.displayHeight)+owner.originY-f.top)/f.height;
+    const dx=(sourceX-.5+(f.paintOffset??0))*p.width,z=-f.depth*p.width*.12;
+    out.x=p.x+dx*Math.cos(p.heading)-z*Math.sin(p.heading);
+    out.y=worldHeight(scene,p.x,p.y)+p.lift+(1-sourceY)*f.rise*p.width;
+    out.z=p.y+dx*Math.sin(p.heading)+z*Math.cos(p.heading);
+  }else if(house){
     const dx=x-owner.x;
     let localX=dx,localZ=0;
     if(house.profile.tiers){
@@ -218,8 +229,8 @@ export function presentationAttachment(scene:Phaser.Scene,owner:Phaser.GameObjec
 
 export function onOverlay<T extends Phaser.GameObjects.GameObject>(object:T,anchor?:{x:number;y:number;depth?:number}):T {
   const owner=anchor as {getData?:(key:string)=>unknown}|undefined;
-  const house=(owner?.getData?.(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
-  object.setData(PRESENTATION_HINT,{plane:'upright',anchor,overlay:true,...(house?{house}:{})} satisfies PresentationHint);
+  const hint=owner?.getData?.(PRESENTATION_HINT) as PresentationHint|undefined,house=hint?.house,furniture=hint?.furniture;
+  object.setData(PRESENTATION_HINT,{plane:'upright',anchor,overlay:true,...(house?{house}:{}),...(furniture?{furniture}:{})} satisfies PresentationHint);
   return object;
 }
 

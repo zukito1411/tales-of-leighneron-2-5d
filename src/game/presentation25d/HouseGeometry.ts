@@ -25,6 +25,17 @@ const arch=(id:string,roof:readonly Point[],opening:readonly Point[],wall:Patch,
   ...house(id,roof,wall,tiles,depth),opening,
 });
 const curtain=(id:string,wall:Patch,tiles:Patch):HouseProfile=>({id,roof:[],wall,tiles,depth:.18,curtain:true});
+// Authored window crops from the existing facade, reused as framed windows on
+// side/rear elevations. Circular towers and open ruins never enter this path.
+const houseWindows:Record<string,Patch>={
+  'old-cottage':[.28,.57,.43,.77],'old-inn':[.49,.48,.62,.67],
+  cottage:[.30,.61,.44,.82],inn:[.69,.65,.85,.84],
+  hall:[.58,.51,.70,.74],manor:[.58,.58,.72,.77],chapel:[.37,.43,.59,.76],
+  storehouse:[.38,.20,.53,.42],castle:[.51,.42,.59,.60],
+  'elven-cottage':[.47,.58,.62,.79],'elven-manor':[.44,.53,.59,.73],
+  'elven-chapel':[.39,.48,.59,.78],'elven-guildhall':[.45,.50,.60,.72],
+  'elven-estate':[.43,.51,.58,.74],'elven-palace':[.46,.57,.59,.76],
+};
 const profiles:Partial<Record<ArtTextureKey,Readonly<Record<number,HouseProfile>>>>={
   world_objects:{
     0:house('old-cottage',[[.07,.57],[.22,.09],[.64,.08],[.89,.55]],[.53,.60,.60,.83],[.35,.25,.48,.33]),
@@ -135,12 +146,13 @@ type Vertex=readonly [number,number,number];
 /** Shared low-poly meshes use only the already prepared source atlas. Opaque
  * material patches repeat at their original texel scale, rather than stretching
  * a tiny stripe over an entire roof/wall. Geometry is built once per active batch. */
-export function createHouseGeometry(shape:HouseShape,inflate=0){
+export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
   const positions:number[]=[],uvs:number[]=[],surfaces:number[]=[],surfaceUVs:number[]=[];
   const {profile,left,top,width,height,depth}=shape;
   const point=(x:number,y:number,z:number):Vertex=>[left+x*width-.5,.5-top-y*height,z];
   const uv=(x:number,y:number):Point=>[left+x*width,1-top-y*height];
   const tri=(a:Vertex,b:Vertex,c:Vertex,ta:Point,tb:Point,tc:Point,patch?:Patch,painted=false)=>{
+    if(emission&&patch&&!painted)return;
     positions.push(...a,...b,...c);
     if(patch&&!painted){const center=uv((patch[0]+patch[2])/2,(patch[1]+patch[3])/2);uvs.push(...center,...center,...center);}
     else uvs.push(...ta,...tb,...tc);
@@ -248,9 +260,52 @@ export function createHouseGeometry(shape:HouseShape,inflate=0){
       extrude([[.79,.72],[.88,.72],[.88,.97],[.79,.97]],-depth);
       const roof=profile.roof;extrude([...roof,[roof[roof.length-1][0],.25],[roof[0][0],.25]],-depth,roof.length-1);
     }else{
-      const roof=profile.roof,first=roof[0],last=roof[roof.length-1],base=Math.max(.96,...(profile.opening??[]).map(p=>p[1]));
+      const roof=profile.roof,first=roof[0],last=roof[roof.length-1],base=Math.max(.96,shape.ground??.96,...(profile.opening??[]).map(p=>p[1]));
       const path:Point[]=[...roof,[last[0],base],...(profile.opening??[]),[first[0],base]];
       extrude(path,-depth,roof.length-1);
+      const window=houseWindows[profile.id];
+      if((window||/smithy|stable/.test(profile.id))&&!profile.opening?.length){
+        const eave=Math.max(first[1],last[1]),sill=eave+(base-eave)*.67,head=eave+(base-eave)*.22;
+        const frame=.018,proud=.006,sideSpan=depth/width;
+        const solidBox=(l:number,r:number,t:number,b:number,z:number,back:number,patch:Patch)=>{
+          quad(point(l,b,z),point(r,b,z),point(l,t,z),point(r,t,z),patch);
+          quad(point(r,b,back),point(l,b,back),point(r,t,back),point(l,t,back),patch);
+          quad(point(l,b,back),point(l,b,z),point(l,t,back),point(l,t,z),patch);
+          quad(point(r,b,z),point(r,b,back),point(r,t,z),point(r,t,back),patch);
+          quad(point(l,t,z),point(r,t,z),point(l,t,back),point(r,t,back),patch);
+        };
+        // Foundation courses, corner framing and an eave fascia give the
+        // formerly featureless elevations coherent depth and scale.
+        solidBox(first[0]-.008,last[0]+.008,base-.065,base,-.003,-depth-proud,profile.wall);
+        solidBox(first[0]-.014,first[0]+.014,eave,base,-.003,-depth-proud,profile.tiles);
+        solidBox(last[0]-.014,last[0]+.014,eave,base,-.003,-depth-proud,profile.tiles);
+        solidBox(first[0]-.018,last[0]+.018,eave-.018,eave+.018,-.003,-depth-proud,profile.tiles);
+        const painted=(a:Vertex,b:Vertex,c:Vertex,d:Vertex)=>{
+          if(!window)return;
+          const [l,t,r,bottom]=window,aa=uv(l,bottom),bb=uv(r,bottom),cc=uv(l,t),dd=uv(r,t);
+          tri(a,b,c,aa,bb,cc,profile.wall,true);tri(b,d,c,bb,dd,cc,profile.wall,true);
+        };
+        const count=Math.max(1,Math.min(3,Math.round((last[0]-first[0])/.30)));
+        if(window)for(let i=0;i<count;i++){
+          const cx=first[0]+(last[0]-first[0])*(i+.5)/count,half=Math.min(.085,(last[0]-first[0])/count*.25),l=cx-half,r=cx+half;
+          painted(point(r,sill,-depth-.003),point(l,sill,-depth-.003),point(r,head,-depth-.003),point(l,head,-depth-.003));
+          solidBox(l-frame,r+frame,sill,sill+.025,-depth-proud,-depth-proud*3,profile.wall);
+          solidBox(l-frame,r+frame,head-.02,head,-depth-proud,-depth-proud*3,profile.tiles);
+        }
+        const sideCount=Math.max(1,Math.min(3,Math.round(sideSpan/.30)));
+        const sidePoint=(x:number,y:number,z:number,dx:number):Vertex=>{const p=point(x,y,z);return [p[0]+dx,p[1],p[2]];};
+        if(window)for(const x of [first[0],last[0]])for(let i=0;i<sideCount;i++){
+          const z=-depth*(i+.5)/sideCount,half=Math.min(depth/sideCount*.27,width*.085),dx=x===first[0]?-proud:proud;
+          painted(sidePoint(x,sill,z+half,dx),sidePoint(x,sill,z-half,dx),sidePoint(x,head,z+half,dx),sidePoint(x,head,z-half,dx));
+          solidBox(x-frame,x+frame,sill,sill+.025,z+half+frame,z-half-frame,profile.wall);
+          solidBox(x-frame,x+frame,head-.02,head,z+half+frame,z-half-frame,profile.tiles);
+        }
+        // The authored roof slopes keep their shape; raised ridge/eave strips
+        // finish their seams instead of exposing raw extrusion edges.
+        for(let i=1;i<roof.length-1;i++){
+          const [x,y]=roof[i];solidBox(x-.009,x+.009,y-.010,y+.006,.003,-depth-.003,profile.tiles);
+        }
+      }
     }
   }
   const geometry=new BufferGeometry();

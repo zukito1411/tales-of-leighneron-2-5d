@@ -18,7 +18,7 @@ import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {createHouseGeometry,createWallGeometry} from './HouseGeometry';
-import {createFurnitureGeometry,type FurnitureShape} from './FurnitureGeometry';
+import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {RasterCache} from './RasterCache';
@@ -115,6 +115,7 @@ export class ThreePresentation {
   private readonly projected=new Vector3();
   private readonly subject=new Vector3();
   private readonly protectionPoint=new Vector3();
+  private readonly furniturePosition={x:0,y:0,width:0,heading:0,lift:0};
   private readonly cutaway={cutawayViewport:{value:new Vector2(1,1)},cutawaySubject:{value:new Vector4()},cutawayTarget:{value:new Vector4()}};
   private readonly projectedBounds={left:0,right:0,top:0,bottom:0,depth:0};
   private readonly localRect:LocalRect={left:0,top:0,width:0,height:0};
@@ -377,8 +378,9 @@ export class ThreePresentation {
     const hint:PresentationHint|undefined=explicit??inherited??(emissionOwner?{plane:'upright',anchor:emissionOwner}:undefined);
     const plane=hint?.plane??this.defaultPlane(object);
     const house=hint?.house??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
-    const furniture=hint?.furniture;
-    const houseVolume=Boolean(house)&&(!emissionOwner||Boolean(house?.profile.tiers))&&!hint?.overlay;
+    const furniture=hint?.furniture??(emissionOwner?.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    const furnitureVolume=Boolean(furniture)&&!hint?.overlay;
+    const houseVolume=Boolean(house)&&!hint?.overlay;
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
@@ -491,6 +493,10 @@ export class ThreePresentation {
         out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t),py+(out.z-beam.y)*(1-t));
       }
       else if(plane==='ground')out.set(px,lift,py);
+      else if(furniture&&hint?.overlay&&hint.anchor instanceof Phaser.GameObjects.Sprite){
+        presentationAttachmentWorld(object.scene,hint.anchor,this.transform.tx,this.transform.ty,out);
+        out.x+=x*Math.hypot(this.transform.a,this.transform.b)*this.yawCos;out.y-=y*Math.hypot(this.transform.c,this.transform.d);out.z-=x*Math.hypot(this.transform.a,this.transform.b)*this.yawSin;
+      }
       else if(hint?.fixture){
         const f=hint.fixture,owner=f.owner,a=owner.rotation,c=Math.cos(a),s=Math.sin(a);
         const sx=Math.hypot(this.transform.a,this.transform.b),sy=Math.hypot(this.transform.c,this.transform.d);
@@ -549,13 +555,14 @@ export class ThreePresentation {
         0,h,0,anchorHeight+h/2,
         segment.dy,0,ux*thickness,anchorY+ux*thickness/2,0,0,0,1);
     }
-    if(furniture){
+    if(furniture&&furnitureVolume&&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite)){
       // Saved rotation is a heading on the floor, never a tilt of the painted
       // sprite's vertical axis. Match the existing front-foot/footprint anchor.
-      const w=Math.hypot(this.transform.a,this.transform.b)*rect.width*furniture.width,a=object.rotation,c=Math.cos(a),s=Math.sin(a);
-      this.model.set(w*c,0,-w*s,this.transform.tx,0,w,0,anchorHeight,w*s,0,w*c,this.transform.ty,0,0,0,1);
+      const p=furniturePlacement(emissionOwner??object,furniture,this.furniturePosition),w=p.width,c=Math.cos(p.heading),s=Math.sin(p.heading);
+      const offset=emissionOwner?.018:0;
+      this.model.set(w*c,0,-w*s,p.x-offset*s,0,w,0,(furniture.fixedGround??this.heightAt(p.x,p.y))+p.lift,w*s,0,w*c,p.y+offset*c,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground',volumeDepth,furniture))return;
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground'&&!hint?.absoluteGround,volumeDepth,furnitureVolume?furniture:undefined))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -581,9 +588,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+(furniture?'furniture:'+furniture.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(Boolean(hint?.absoluteGround))+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furniture?()=>createFurnitureGeometry(furniture):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay&&!hint?.absoluteGround,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)&&!house!.profile.tiers):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -600,7 +607,7 @@ export class ThreePresentation {
     if(staticImage&&source)this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
       rotation:object.rotation,originX:object.originX,originY:object.originY,depth:object.depth,
-      alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:plane==='ground',interior:this.interior,key,
+      alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:plane==='ground'&&!hint?.absoluteGround,interior:this.interior,key,
       matrix:submitted.clone(),rect:{...rect},uv:new Float64Array(uv),colors:new Uint32Array(colors),repeat:repeat?new Float64Array(repeat):undefined,
     });
     camera.addToRenderList(object);
@@ -633,7 +640,9 @@ export class ThreePresentation {
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
     const count=furniture||backDepth>0?8:ground?5:4;
     for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
-      if(furniture)this.projected.set(x*1.1,(y+.5)*furniture.rise*1.02,i>=4?-Math.max(furniture.depth,furniture.depth/2+.5):Math.max(.01,.5-furniture.depth/2));
+      if(furniture){const b=furniture.bounds;
+        this.projected.set(b?(x<0?b.left:b.right):x*1.1,b?(y<0?b.bottom:b.top):(y+.5)*furniture.rise*1.06,
+          b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
       else this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:0);
       this.projected.applyMatrix4(this.model);
       if(ground)this.projected.y+=this.heightAt(this.projected.x,this.projected.z);
@@ -723,8 +732,9 @@ export class ThreePresentation {
         }
       }
       if(entry&&object instanceof Phaser.GameObjects.GameObject&&object.active&&object.input?.enabled&&hit.uv){
-        const x=entry.rect.left+hit.uv.x*entry.rect.width+('displayOriginX' in object?object.displayOriginX:0);
-        const y=entry.rect.top+(1-hit.uv.y)*entry.rect.height+('displayOriginY' in object?object.displayOriginY:0);
+        const volume=solidSurface&&Boolean((object.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture);
+        const x=entry.rect.left+(volume?.5:hit.uv.x)*entry.rect.width+('displayOriginX' in object?object.displayOriginX:0);
+        const y=entry.rect.top+(volume?.5:1-hit.uv.y)*entry.rect.height+('displayOriginY' in object?object.displayOriginY:0);
         if(!object.input.hitAreaCallback(object.input.hitArea,x,y,object))continue;
         // Scene callbacks retain their existing proximity, menu and story guards.
         object.emit(Phaser.Input.Events.GAMEOBJECT_POINTER_DOWN,this.game.input.activePointer,x,y,event);break;

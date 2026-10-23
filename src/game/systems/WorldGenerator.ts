@@ -15,6 +15,7 @@ import {dragonLairTerrain,onDragonTrail} from '../../data/dragonLair';
 import {ASHEN_DOCK_ROAD,onPortDeck} from '../../data/ports';
 import {onFlagshipBoarding,flagshipWalkable} from '../../data/pirateFlagship';
 import {inTowerClearing,onTowerApproach} from '../../data/towerOfMight';
+import {RIVER_BED,SEA_BED} from '../../data/waterLevels';
 
 const noise2D = createNoise2D(seededRandom(WORLD_SEED));
 const mainlandRegions=REGIONS.filter(region=>!['darkav','frostlands','portquill'].includes(region.id));
@@ -50,6 +51,15 @@ export class WorldGenerator {
   getElevationAt(x:number,y:number):number {
     if(onPortDeck(x,y)||onHighmereBridge(x,y)||onWildernessBridge(x,y))return 8;
     if(inTowerClearing(x,y)||onTowerApproach(x,y)||onFlagshipBoarding(x,y))return 0;
+    const terrain=this.getTerrainAt(x,y);
+    // Water is carved before town foundation flattening. Otherwise settlement
+    // rivers are silently raised back to the same plane as their streets.
+    if(terrain==='water')return this.getRegionAt(x,y)==='dead-sea'||harborBay(x,y)?SEA_BED:RIVER_BED;
+    const bank=drainageDistance(x,y);
+    // A narrow brook can lie between two 64-unit terrain vertices. Give its
+    // immediate banks a shallow shoulder so it is not lost at that sampling
+    // alignment. The existing grid/cache/budget are unchanged.
+    if(bank>=0&&bank<48&&terrain!=='ice'&&terrain!=='lava')return RIVER_BED*.65*(1-bank/48)**2;
     let foundation=1;
     for(const f of foundations){
       const dx=Math.abs(x-f.x),dy=Math.abs(y-f.y);
@@ -58,9 +68,8 @@ export class WorldGenerator {
       if(outside<=0)return 0;
       const t=Math.min(1,outside/384);foundation=Math.min(foundation,t*t*(3-2*t));
     }
-    const terrain=this.getTerrainAt(x,y);
-    if(terrain==='water'||terrain==='lava'||terrain==='ice'||terrain==='farmland')return 0;
-    const coast=Math.max(0,Math.min(1,(this.distanceToWater(x,y)-120)/700));
+    if(terrain==='lava'||terrain==='ice'||terrain==='farmland')return 0;
+    const coast=Math.max(0,Math.min(1,(Math.min(bank,harborShoreDistance(x,y),lakeShoreDistance(x,y))-120)/700));
     const biome=this.getBiomeAt(x,y),amplitude=biome==='highland'?165:biome==='snowfield'?115:biome==='volcanic'?95:biome==='forest'?58:biome==='coast'?14:36;
     const hill=Math.max(0,noise2D(x*.0008,y*.0008)*.55+noise2D(x*.00032,y*.00032)*.30+noise2D(x*.0018,y*.0018)*.15+.35);
     return hill*amplitude*coast*coast*(3-2*coast)*foundation;

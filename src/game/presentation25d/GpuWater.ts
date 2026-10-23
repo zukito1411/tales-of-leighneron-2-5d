@@ -4,9 +4,10 @@ import type {WaterSurfaceSystem} from '../systems/WaterSurfaceSystem';
 import type {TextureCache} from './TextureCache';
 import {elevationShader,type ElevationField} from './ElevationField';
 import type {DistanceAtmosphere} from './SpriteBatch';
+import {WATER_SURFACE} from '../../data/waterLevels';
 
 const vertex=`${elevationShader}uniform vec2 focus;varying vec2 ground;
-void main(){ground=vec2(position.x,-position.y)*5120.0+floor(focus/64.0)*64.0;vec3 p=vec3(ground.x,groundHeight(ground)+.035,ground.y);gl_Position=projectionMatrix*viewMatrix*vec4(p,1.0);}`;
+void main(){ground=vec2(position.x,-position.y)*5120.0+floor(focus/64.0)*64.0;vec3 p=vec3(ground.x,${WATER_SURFACE.toFixed(1)},ground.y);gl_Position=projectionMatrix*viewMatrix*vec4(p,1.0);}`;
 const fragment=`uniform sampler2D shore;uniform sampler2D foam;uniform vec4 frames[4];uniform vec4 bounds;uniform vec2 maskTexel;uniform float time;uniform bool openSea;
 uniform vec2 fogFocus;uniform vec2 fogRange;varying vec2 ground;
 vec4 art(vec2 p,int frame){vec4 r=frames[frame];return texture2D(foam,r.xy+clamp(p,vec2(.002),vec2(.998))*r.zw);}
@@ -24,7 +25,11 @@ void main(){
   vec4 pixel=mix(art(uv,a),art(uv,b),blend);
   if(bank>.01){vec4 edge=art(fract(ground/38.0),a);pixel=mix(pixel,edge,bank*.7);}
   float fade=1.0-smoothstep(fogRange.x,fogRange.y,distance(ground,fogFocus));
-  gl_FragColor=vec4(pixel.rgb,pixel.a*land*mix(.18,.28,bank)*fade);
+  // The painted bed remains below a separate, level water surface. Shallow
+  // turquoise banks transition to deeper blue; the original foam supplies detail.
+  vec3 water=mix(vec3(.025,.105,.16),vec3(.075,.24,.26),bank);
+  water=mix(water,pixel.rgb,pixel.a*mix(.10,.32,bank));
+  gl_FragColor=vec4(water,land*mix(.82,.72,bank)*fade);
   #include <colorspace_fragment>
 }`;
 

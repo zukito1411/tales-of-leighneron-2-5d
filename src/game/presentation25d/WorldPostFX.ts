@@ -75,6 +75,7 @@ uniform vec2 sourceTexel;
 uniform float dofEnabled;
 uniform float hazeStrength;
 uniform float gradingEnabled;
+uniform float edgeSmoothing;
 uniform vec3 hazeColor;
 uniform sampler2D mistArtwork;
 uniform float mistAmount;
@@ -97,16 +98,28 @@ void main(){
   float protection=lockedProtection(vUv,depth);
   float blur=dofEnabled*circleOfConfusion(vUv,depth);
   vec3 color=original;
-  if(gradingEnabled>0.5){
-    vec3 neighborhood=(texture2D(sourceColor,vUv+vec2(sourceTexel.x,0.0)).rgb
-      +texture2D(sourceColor,vUv-vec2(sourceTexel.x,0.0)).rgb
-      +texture2D(sourceColor,vUv+vec2(0.0,sourceTexel.y)).rgb
-      +texture2D(sourceColor,vUv-vec2(0.0,sourceTexel.y)).rgb)*0.25;
+  if(gradingEnabled>0.5||edgeSmoothing>0.5){
+    vec3 east=texture2D(sourceColor,vUv+vec2(sourceTexel.x,0.0)).rgb;
+    vec3 west=texture2D(sourceColor,vUv-vec2(sourceTexel.x,0.0)).rgb;
+    vec3 north=texture2D(sourceColor,vUv+vec2(0.0,sourceTexel.y)).rgb;
+    vec3 south=texture2D(sourceColor,vUv-vec2(0.0,sourceTexel.y)).rgb;
+    vec3 neighborhood=(east+west+north+south)*.25;
+    vec3 luma=vec3(.299,.587,.114);
+    float center=dot(original,luma),e=dot(east,luma),w=dot(west,luma),n=dot(north,luma),s=dot(south,luma);
+    float high=max(center,max(max(e,w),max(n,s))),low=min(center,min(min(e,w),min(n,s)));
+    float contrast=high-low;
+    // Render-target edges bypass default framebuffer MSAA. Reuse these four
+    // existing detail taps and filter only strong silhouette edges in this pass.
+    if(edgeSmoothing>.5&&contrast>max(.055,high*.19)){
+      vec2 tangent=abs(n+s-2.0*center)>abs(e+w-2.0*center)?vec2(sourceTexel.x,0.0):vec2(0.0,sourceTexel.y);
+      vec3 aa=(texture2D(sourceColor,vUv+tangent*.5).rgb+texture2D(sourceColor,vUv-tangent*.5).rgb)*.5;
+      color=mix(original,aa,.65);
+    }
     // Small bounded detail contrast retains painted timber/stone texture in
     // focus. It never adds noise, outlines or replacement artwork.
-    color+=clamp(original-neighborhood,vec3(-0.035),vec3(0.035))*0.30;
+    if(gradingEnabled>.5)color+=clamp(original-neighborhood,vec3(-0.025),vec3(0.025))*.12*(1.0-smoothstep(.07,.25,contrast));
   }
-  if(dofEnabled>0.5)color=mix(color,texture2D(blurredColor,vUv).rgb,blur*0.94);
+  if(dofEnabled>0.5)color=mix(color,texture2D(blurredColor,vUv).rgb,blur*0.55);
   float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
   color=mix(color,hazeColor,distanceHaze*hazeStrength*(1.0-protection));
@@ -193,7 +206,7 @@ export class WorldPostFX {
       sourceTexel:{value:new Vector2()},dofEnabled:{value:1},hazeStrength:{value:.14},
       sunUV:{value:new Vector2(.5,.5)},sunShafts:{value:0},shaftSamples:{value:8},
       mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
-      gradingEnabled:{value:1},hazeColor:{value:new Color()}},
+      gradingEnabled:{value:1},edgeSmoothing:{value:1},hazeColor:{value:new Color()}},
     vertexShader,fragmentShader:compositeShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
   });
   private readonly quad=new Mesh(this.geometry,this.composite);
@@ -245,8 +258,8 @@ export class WorldPostFX {
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
     this.common.focusDistance.value=-this.focusPoint.z;
     const depthSpan=this.common.focusDistance.value*.9;
-    this.common.focusRange.value=Math.max(95,Math.min(180,depthSpan*.20));
-    this.common.focusFalloff.value=Math.max(180,depthSpan*.42);
+    this.common.focusRange.value=frame.interior?Math.max(95,Math.min(180,depthSpan*.20)):Math.max(320,depthSpan*.65);
+    this.common.focusFalloff.value=frame.interior?Math.max(180,depthSpan*.42):Math.max(900,depthSpan*1.2);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
     this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
     this.common.aspect.value=frame.width/frame.height;
@@ -268,10 +281,11 @@ export class WorldPostFX {
     this.composite.uniforms.blurredColor.value=targets.vertical?.texture??targets.world.texture;
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
     this.composite.uniforms.dofEnabled.value=Number(blurEnabled);
-    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .15)*(1-frame.night*.45):0;
+    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .035+(frame.weather?.mist??0)*.09)*(1-frame.night*.45):0;
     this.composite.uniforms.hazeColor.value.copy(this.hazeDay).lerp(this.hazeNight,frame.night);
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
     this.composite.uniforms.gradingEnabled.value=Number(effects.cinematicColor);
+    this.composite.uniforms.edgeSmoothing.value=Number(!low);
     const weather=frame.interior?undefined:frame.weather;
     const shafts=this.composite.uniforms;shafts.sunShafts.value=0;shafts.shaftSamples.value=low?4:8;
     if(effects.sunRays&&!frame.interior&&frame.sky&&frame.sky.sunlight.y>.02){
@@ -280,9 +294,9 @@ export class WorldPostFX {
       if(this.sunPoint.z<-.01){
         this.sunPoint.set(direction.x,direction.y,direction.z).multiplyScalar(frame.camera.far*.5).add(frame.camera.position).project(frame.camera);
         const x=(this.sunPoint.x+1)/2,y=(this.sunPoint.y+1)/2;
-        if(x>-.25&&x<1.25&&y>-.25&&y<1.25){
+        if(x>-.65&&x<1.65&&y>-.65&&y<1.65){
           shafts.sunUV.value.set(x,y);
-          shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.4)*Math.max(0,1-Math.max(0,-x,x-1,-y,y-1)/.25);
+          shafts.sunShafts.value=Math.min(1,direction.y*3)*(1-frame.night)*Math.max(0,1-(weather?.cloudCover??0)*1.15)*Math.max(0,1-Math.max(0,-x,x-1,-y,y-1)/.65);
         }
       }
     }

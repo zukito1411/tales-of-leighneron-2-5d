@@ -2,6 +2,8 @@ import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {houseShape,type WallSegment} from '../presentation25d/HouseGeometry';
+import {worldPropShape,shipShape} from '../presentation25d/WorldPropGeometry';
+import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
 import {registerCameraObstacle} from '../presentation25d/CameraObstacles';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
@@ -56,9 +58,14 @@ export class WorldSpriteSystem {
     const layers:Phaser.GameObjects.Image[]=[];
     onPlane(actor,profile?.floor||texture==='port_dock'||texture==='pirate_flagship'?'ground':'upright');
     const house=houseShape(texture,actor.frame,frame,wallSegment);
-    if(house?.profile.tiers)house.ground=(actor.originY-house.top)/house.height;
+    if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
     if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
+    if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
+      const furniture=texture==='pirate_flagship'?shipShape('ship'):worldPropShape(actor,texture,frame);
+      if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
+    }
+    const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
     if(house)registerCameraObstacle(actor);
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
@@ -68,13 +75,18 @@ export class WorldSpriteSystem {
       const groundPoint={
         x:(visible.left+visible.width*(source&&surveyed?(surveyed[0]-source[0])/source[2]:.5))/sheet.frameWidth,
         y:(visible.top+visible.height*(source&&surveyed?(surveyed[1]-source[1])/source[3]:groundY))/sheet.frameHeight};
-      const contacts=profile?.solids.map(polygon=>{
+      let contacts=profile?.solids.map(polygon=>{
         const points=polygon.map(([x,y])=>point(x,y));
         const left=Math.min(...points.map(p=>p.x)),right=Math.max(...points.map(p=>p.x));
         const top=Math.min(...points.map(p=>p.y)),bottom=Math.max(...points.map(p=>p.y));
         return {x:(left+right)/2-actor.x,y:(top+bottom)/2-actor.y,
           width:Math.min(440,(right-left)*1.12),height:Math.min(100,Math.max(8,(bottom-top)*1.05))};
       });
+      if(furniture){
+        const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0}),depth=p.width*furniture.depth;
+        contacts=[{x:p.x-actor.x+Math.sin(p.heading)*depth/2,y:p.y-actor.y-Math.cos(p.heading)*depth/2,
+          width:Math.min(440,p.width),height:Math.max(8,Math.min(220,depth))}];
+      }
       this.shadows?.register(actor,true,{groundPoint,contactOpacity:.65,
         projection:profile&&!profile.solids.length&&texture!=='royal_walls'?0:1,
         projectionBottom:(visible.top+visible.height*(building ? .86 : tree ? .92 : .9))/sheet.frameHeight,
@@ -136,6 +148,17 @@ export class WorldSpriteSystem {
         }):[[dx(l),-depth],[dx(r),-depth],[dx(r),-4],[dx(l),-4]];
         const footprint=outline.map(([x,y])=>[actor.x+x*cos-y*sin,actor.y+x*sin+y*cos] as GroundPoint);
         for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
+      }
+      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','keepsake','banner'].includes(furniture.art)){
+        // Deeper props need matching clearance, as buildings already do.
+        // Add the body behind its existing front contact; keep old surveyed
+        // stoops/details and open fence/arch passages intact. These bodies use
+        // the same staged activation, spatial physics lookup and retirement.
+        const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0}),c=Math.cos(p.heading),s=Math.sin(p.heading);
+        const footprint:GroundPoint[]=[[-.46,-furniture.depth],[.46,-furniture.depth],[.46,-.01],[-.46,-.01]]
+          .map(([x,y])=>[p.x+(x*c-y*s)*p.width,p.y+(x*s+y*c)*p.width] as GroundPoint);
+        if(Math.abs(c)<.0001||Math.abs(s)<.0001)add(Math.min(...footprint.map(p=>p[0])),Math.min(...footprint.map(p=>p[1])),Math.max(...footprint.map(p=>p[0])),Math.max(...footprint.map(p=>p[1])));
+        else for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
       }
     }
     if(actor instanceof Phaser.GameObjects.Image)markStaticPresentation(actor);

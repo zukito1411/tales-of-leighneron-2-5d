@@ -12,7 +12,7 @@ void main(){
   vec2 uv=fract((ground+vec2(time*14.0,-time*3.4))/vec2(1550.0,980.0));
   float density=texture2D(artwork,vec2(0.001,.501)+uv*.498).a;
   float shade=density*strength*clouds;
-  float beam=pow(max(0.0,sin((ground.x+ground.y*.36)*.0035+time*.006)),12.0)*rays*.09;
+  float beam=pow(max(0.0,sin((ground.x+ground.y*.36)*.0035+time*.006)),12.0)*rays*.16*(1.0-density*.75);
   float fade=1.0-smoothstep(fogRange.x,fogRange.y,distance(ground,fogFocus));
   // Both contributions survive the shared layer; cloud shade must not erase rays.
   float total=shade+beam,alpha=min(.55,total)*fade;if(alpha<.002)discard;
@@ -35,7 +35,7 @@ export class GpuCloudShadows {
     this.mesh.visible=!interior&&ready&&day>.05&&(effects.cloudShadows||effects.sunRays);
     if(!this.mesh.visible)return;
     const u=this.uniforms;u.artwork.value=artwork;u.focus.value.set(focus.x,focus.y);
-    u.time.value=this.reduced.matches?0:(weather?.elapsed??0)/1000;u.strength.value=day*(.13+(weather?.cloudCover??0)*.19);
+    u.time.value=this.reduced.matches?0:(weather?.elapsed??0)/1000;u.strength.value=day*(.045+(weather?.cloudCover??0)*.25);
     u.clouds.value=Number(effects.cloudShadows);u.rays.value=Number(effects.sunRays)*day*(1-(weather?.cloudCover??0));
   }
   destroy(){this.mesh.removeFromParent();this.geometry.dispose();this.material.dispose();}

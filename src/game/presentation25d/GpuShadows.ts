@@ -11,6 +11,7 @@ import type {ElevationField} from './ElevationField';
 import {sunDirection} from './environment';
 import {PRESENTATION_HINT,type PresentationHint} from './plane';
 import {createHouseGeometry,type HouseShape} from './HouseGeometry';
+import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 
 /** Draw the existing caster registry directly from shared original atlases.
  * No shadow canvas repaint, silhouette readback, duplicate actors or loop. */
@@ -19,6 +20,7 @@ export class GpuShadows {
   private readonly matrix=new Matrix4();private readonly sun=new Vector3();
   private readonly uv=new Float64Array(4);private readonly color=[0x111916,0x111916,0x111916,0x111916];
   private readonly repeat=[1,0,0,0];private readonly rect={left:0,top:0,width:1,height:1};
+  private readonly furniturePosition={x:0,y:0,width:0,heading:0,lift:0};
   private contactSource:Phaser.Textures.TextureSource|undefined;
   constructor(private readonly world:Scene,private readonly textures:TextureCache,private readonly elevation:ElevationField,private readonly atmosphere:DistanceAtmosphere){}
   update(scene:Phaser.Scene,source:GroundShadowSystem|undefined,minute:number,cloud:number,yaw:number,frame:number,interior:boolean,bounds:{left:number;right:number;top:number;bottom:number}){
@@ -40,7 +42,7 @@ export class GpuShadows {
         const owner=caster.actor as ShadowCaster['actor']&{readonly presentationShadowVisual?:Phaser.GameObjects.Sprite;readonly presentationElevation?:number};
         const actor=owner.presentationShadowVisual??owner;
         const hint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined;
-        const wall=hint?.wall,house=hint?.house;
+        const wall=hint?.wall,house=hint?.house,furniture=hint?.furniture;
         const rightX=house?Math.cos(actor.rotation):wall?(wall.axis==='x'?1:0):viewRightX;
         const rightZ=house?Math.sin(actor.rotation):wall?(wall.axis==='y'?1:0):viewRightZ;
         if(!owner.active||!owner.visible||!actor.active||!actor.visible||actor.alpha<.01||caster.enabled===false||actor.cameraFilter&scene.cameras.main.id||!dynamic&&!caster.texture)continue;
@@ -81,10 +83,15 @@ export class GpuShadows {
             0,0,.01,.065,
             segment.dy,h*lightZ,ux*t,owner.y+ux*t/2+h*lightZ/2,0,0,0,1);
         }
+        if(furniture){
+          const p=furniturePlacement(actor,furniture,this.furniturePosition),w=p.width,c=Math.cos(p.heading),s=Math.sin(p.heading);
+          this.matrix.set(w*c,w*lightX,-w*s,p.x+p.lift*lightX,
+            0,.0001*w,0,.065,w*s,w*lightZ,w*c,p.y+p.lift*lightZ,0,0,0,1);
+        }
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
         this.repeat[0]=caster.projectionBottom??1;
-        this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house);
+        this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house,furniture);
       }
     }
     for(const batch of this.batches.values())batch.finish();
@@ -97,10 +104,10 @@ export class GpuShadows {
     this.uv[0]=this.uv[1]=0;this.uv[2]=this.uv[3]=1;this.repeat[0]=1;
     this.add(this.contactSource,actor,alpha,frame,false);
   }
-  private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape){
-    const texture=this.textures.get(source,frame),key=texture.uuid+':'+Number(projected)+':'+(house?.profile.id??'')+(house?.segment?':surveyed':'');
+  private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape){
+    const texture=this.textures.get(source,frame),key=texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,-9.94,[],true,false,false,true,false,this.elevation,false,this.atmosphere,true,false,house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,-9.94,[],true,false,false,true,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
   destroy(){for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}

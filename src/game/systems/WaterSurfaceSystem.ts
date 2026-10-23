@@ -46,9 +46,11 @@ export class WaterSurfaceSystem {
     this.waterCells.set(key,water);return water;
   }
   update(delta:number){
+    // A disabled animation must not remove the new lowered water surface.
+    // Keep the same worker/mask pipeline and simply freeze its animation clock.
+    if(this.geography){if(getGraphicEffects().waterMotion&&!this.reducedMotion.matches)this.elapsed+=Math.min(delta,100);this.updateGpuWater();return;}
     if(!getGraphicEffects().waterMotion){this.presentation.enabled=false;this.overlay.setVisible(false);this.ocean.setVisible(false);this.base.zoom=0;this.drawMs=100;this.cancelGpuJob();return;}
     if(!this.reducedMotion.matches)this.elapsed+=Math.min(delta,100);
-    if(this.geography){this.updateGpuWater();return;}
     this.drawMs+=delta;
     const viewport=groundEffectViewport(this.scene),z=viewport.zoom,zy=viewport.zoomY,view=viewport.view;
     const w=viewport.width+OVERSCAN*2,h=viewport.height+OVERSCAN*2;

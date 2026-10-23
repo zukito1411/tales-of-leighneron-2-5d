@@ -155,6 +155,16 @@ jobs:
           Player-home rotations and weapon displays follow their furniture in
           world space. Cave chests and tower doors retain their open/closed states.
           Furniture shares the character cutaway and soft ground-contact artwork.
+          Rivers and seas now have separate lowered surfaces over deeper beds,
+          with bank slopes and shallow/deep color. Bridge/deck routes are retained.
+          House sides and backs gain foundations, framing, eaves and windows.
+          Regional cargo, benches, fences, lamps, wells, stalls, tents, carts and
+          other selected props use shared 3D shapes with the existing artwork.
+          The flagship gains hull, rail, cabin and mast volume while preserving
+          its deck, boarding and combat coordinates. Circular towers are retained.
+          Clear mornings have less mist/haze, later outdoor focus blur and stronger
+          sunlight. Normal adds edge smoothing within the existing compositor.
+          View radius, streaming/preload scheduling and render budgets are unchanged.
           Camera-frustum streaming now replaces the fixed walking neighborhood.
           Movement-ahead preloads, GPU preparation and delayed retirement run together.
           The full sky, sun, moon and stars remain in their separate sky pass.

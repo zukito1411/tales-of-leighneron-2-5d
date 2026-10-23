@@ -193,8 +193,9 @@ export class WeatherSystem {
     else {const goal=this.kind==='clear'?0:this.kind==='snow'&&(state.day+Math.floor(state.minuteOfDay/480))%2?.55:1;
       this.strength+=Math.max(-step,Math.min(step,goal-this.strength));}
     this.elapsed+=delta;this.drawMs+=delta;this.roofMs+=delta;
-    const night=nightStrength(state.minuteOfDay),dawn=state.minuteOfDay>=240&&state.minuteOfDay<540;
-    const mistTarget=((night>.02&&!effects.nightMist)||(night<=.02&&!effects.daytimeFog))?0:region==='darkav'?.14:(dawn||night>.5)&&(biome==='forest'||biome==='wetland'||this.world.distanceToWater(x,y)<300)?(dawn ? .32 : .1):0;
+    const night=nightStrength(state.minuteOfDay),dawn=state.minuteOfDay>=300&&state.minuteOfDay<450;
+    const dawnFade=dawn?Math.min(1,(450-state.minuteOfDay)/60):0;
+    const mistTarget=((night>.02&&!effects.nightMist)||(night<=.02&&!effects.daytimeFog))?0:region==='darkav'?.10:(dawn||night>.5)&&(biome==='forest'||biome==='wetland'||this.world.distanceToWater(x,y)<300)?(dawn ? .12*dawnFade : .08):0;
     this.ambientMist+=Math.max(-step,Math.min(step,mistTarget-this.ambientMist));
     const weatherLabel=region==='darkav'?labels.ash:labels[this.kind];
     if(state.weatherLabel!==weatherLabel)state.hydrate({weatherLabel});
