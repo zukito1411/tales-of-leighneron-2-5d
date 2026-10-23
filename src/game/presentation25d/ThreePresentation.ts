@@ -162,7 +162,7 @@ export class ThreePresentation {
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
     this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y).project(this.orbit.camera);
-    this.elevation.prepare(this.orbit.bounds,this.heightEnabled);
+    this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
