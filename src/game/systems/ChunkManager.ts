@@ -33,7 +33,7 @@ export class ChunkManager {
   // prevents expensive rebakes on backtracking without accumulating an
   // unbounded GPU texture cache on Android.
   private readonly recentTerrain=new Map<string,string>();
-  private readonly recentTerrainLimit=2;
+  private get recentTerrainLimit(){return this.mobileTerrain&&getEffectsQuality()==='low'?6:4;}
   // Wilderness placement is deterministic for each chunk. Retain only the
   // lightweight plan records (never extra actors, bodies or textures) so
   // backtracking does not repeat hundreds of habitat/road/terrain probes.
@@ -65,6 +65,7 @@ export class ChunkManager {
   private readonly retiring=new Map<string,number>();
   private readonly mobileTerrain=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
   private readonly maxRetirePerFrame=1;
+  private nextStreamReportAt=0;
 
   constructor(scene: Phaser.Scene, world: WorldGenerator,
     private readonly treeSway:TreeSwaySystem,private readonly lighting:DayNightSystem,private readonly ground:WorldSpriteSystem) {
@@ -177,7 +178,12 @@ export class ChunkManager {
     // Consume cheap yielded rows within a short budget instead of taking a
     // whole frame per row. Preloads finish before walking reaches their edge;
     // the cap still prevents draining a full bake during normal movement.
-    const deadline=performance.now()+(this.scene.game.loop.delta>24?1.5:3);
+    // Leave headroom for actual animation, WebGL draw submission, and UI.
+    // The old 3 ms bake allowance consumed ~18% of every 60 Hz frame before
+    // rendering; when the GPU was already behind it amplified frame drops.
+    const delta=this.scene.game.loop.delta;
+    const budgetMs=staged?2.5:delta>30?.35:delta>20?.6:delta>16.5?1.1:1.8;
+    const deadline=performance.now()+budgetMs;
     for(let steps=0;steps<128;steps++){
       if(job.steps.next().done){
         this.pendingChunks.delete(job.key);this.preparing=null;this.lastChunkBakedAt=now;
@@ -239,6 +245,15 @@ export class ChunkManager {
   }
 
   private updateOpenSeaStatus(){
+    if(this.scene.time.now>=this.nextStreamReportAt){
+      this.nextStreamReportAt=this.scene.time.now+1000;
+      this.scene.registry.set('presentationStreamPerf',{
+        active:this.active.size,pending:this.pendingChunks.size,
+        visibleMissing:[...this.visibleChunks].filter(key=>!this.active.has(key)).length,
+        fallbacks:this.fallbacks.size,terrainCache:this.recentTerrain.size,
+        retiring:this.retiring.size,
+      });
+    }
     if(this.pendingChunks.size!==0){
       if(this.lastOpenSeaStatus!==false){this.lastOpenSeaStatus=false;this.scene.registry.set('openSeaView',false);}
       return;
