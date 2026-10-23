@@ -6,7 +6,7 @@ import type {AttackArea} from './attackWarning';
 import {BOSS_SKILL_CONTENT,BOSS_SKILL_FRAMES,BOSS_SKILL_ACCENTS,BOSS_SKILL_TEXTURE,
  BOSS_MOTION_TEXTURE,BOSS_MOTION_START,BOSS_MOTION_GROUND_Y,BOSS_MOTION_SEA_SWEEP,type BossSkillFamily} from '../../data/bossSkillEffects';
 import {ensureBossSkillArt} from './BossSkillArt';
-import {onPlane,onGround} from '../presentation25d/plane';
+import {onPlane,onGround,onDirectionalSprite} from '../presentation25d/plane';
 
 interface Glow {
  sprite:Phaser.GameObjects.Sprite;active:boolean;age:number;duration:number;size:number;
@@ -130,7 +130,8 @@ export class BossSkillVisual {
   if(!glow)return;
   glow.travelling=true;glow.moveX=Math.cos(area.angle)*(area.range??0);glow.moveY=Math.sin(area.angle)*(area.range??0);
   glow.age=Math.max(0,Math.min(duration,age));
-  onPlane(glow.sprite,'upright',{get x(){return glow.sprite.x;},get y(){return glow.sprite.y+24;}});
+  onDirectionalSprite(glow.sprite,{x:Math.cos(area.angle),y:Math.sin(area.angle)},
+   {get x(){return glow.sprite.x;},get y(){return glow.sprite.y+24;}});
   const p=glow.age/duration;
   glow.sprite.setOrigin(.8,.5).setPosition(glow.x+glow.moveX*p,glow.y+glow.moveY*p);
  }

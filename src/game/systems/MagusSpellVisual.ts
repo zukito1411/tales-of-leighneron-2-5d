@@ -4,7 +4,7 @@ import type {WorldScene} from '../scenes/WorldScene';
 import type {BossMove} from '../../data/bossCombatProfiles';
 import type {AttackArea} from './attackWarning';
 import {GRAND_MAGUS_SPELL_TEXTURE} from '../../data/m14Art';
-import {onPlane} from '../presentation25d/plane';
+import {onPlane,onDirectionalSprite} from '../presentation25d/plane';
 
 const FRAMES={fire:0,ice:1,thunder:2,shadow:3} as const;
 const COLORS={fire:0xffa448,ice:0x99eaff,thunder:0xffe69a,shadow:0xb675ff} as const;
@@ -29,7 +29,9 @@ export class MagusSpellVisual {
   private angle=0;
   private launched=false;
   private sourceFootY=0;
+  private sourceFootX=0;
   private projectileFoot={x:0,y:0};
+  private projectileDirection={x:1,y:0};
   constructor(private readonly scene:WorldScene){}
   private add(move:BossMove,x:number,y:number,size:number,anchored=false){
     const sprite=this.scene.add.sprite(x,y,GRAND_MAGUS_SPELL_TEXTURE,FRAMES[move.spell!])
@@ -52,7 +54,11 @@ export class MagusSpellVisual {
     if(move.projectileMs)this.destination.y-=32;
     this.angle=Math.atan2(this.destination.y-this.source.y,this.destination.x-this.source.x);
     this.projectile=this.add(move,this.source.x,this.source.y,42,true).setAlpha(0);
-    this.projectileFoot={x:enemy.x,y:enemy.y};onPlane(this.projectile,'upright',this.projectileFoot);
+    this.projectileFoot={x:enemy.x,y:enemy.y};
+    // Each retiring tail retains its own anchor/heading when the next cast starts.
+    this.projectileDirection={x:Math.cos(area.angle),y:Math.sin(area.angle)};
+    if(move.projectileMs)onDirectionalSprite(this.projectile,this.projectileDirection,this.projectileFoot);
+    else onPlane(this.projectile,'upright',this.projectileFoot);
   }
   alignProjectileLane(enemy:Enemy,area:AttackArea,target:{x:number;y:number}){
     this.registerSource(enemy,true);
@@ -62,7 +68,7 @@ export class MagusSpellVisual {
     area.angle=Math.atan2(target.y-area.y,target.x-area.x);
   }
   private registerSource(enemy:Enemy,release=false){
-    this.sourceFootY=enemy.y;
+    this.sourceFootX=enemy.x;this.sourceFootY=enemy.y;
     const number=Number(enemy.frame.name);
     const frame=release&&number>=44&&number<=50&&number%2===0?enemy.texture.get(number+1):enemy.frame;
     const data=frame.customData as {castOrigin?:{x:number;y:number}};
@@ -82,6 +88,7 @@ export class MagusSpellVisual {
       this.angle=Math.atan2(this.destination.y-this.source.y,this.destination.x-this.source.x);
     }
     const travel=move.projectileMs||move.spell==='thunder'||move.kind==='ring'?0:Math.max(0,Math.min(1,(progress-.7)/.3));
+    this.projectileFoot.x=this.sourceFootX+(this.destination.x-this.sourceFootX)*travel;
     this.projectileFoot.y=this.sourceFootY+(this.destination.y+(move.projectileMs?32:0)-this.sourceFootY)*travel;
     if(move.spell==='thunder'){
       // Charge at the palm; the full bolt is grounded only at the actual strike.
@@ -99,7 +106,9 @@ export class MagusSpellVisual {
   travel(progress:number,area:AttackArea){
     const sprite=this.projectile;if(!sprite)return;
     const endX=area.x+Math.cos(area.angle)*(area.range??0),endY=area.y+Math.sin(area.angle)*(area.range??0)-32;
+    this.projectileFoot.x=this.sourceFootX+(endX-this.sourceFootX)*progress;
     this.projectileFoot.y=this.sourceFootY+(endY+32-this.sourceFootY)*progress;
+    this.projectileDirection.x=Math.cos(area.angle);this.projectileDirection.y=Math.sin(area.angle);
     const angle=Math.atan2(endY-this.source.y,endX-this.source.x);
     sprite.setPosition(this.source.x+(endX-this.source.x)*progress,this.source.y+(endY-this.source.y)*progress)
       .setRotation(angle).setAlpha(1).setDepth(this.scene.playerRenderDepth(area.y+Math.sin(area.angle)*(area.range??0)*progress)+2);

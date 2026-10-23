@@ -17,6 +17,7 @@ import type {BossPhaseSnapshot} from '../types';
 import {TOWER_ROUND_FLOOR} from '../../data/towerRoom';
 import {BossSkillVisual} from './BossSkillVisual';
 import {onPlane} from '../presentation25d/plane';
+import {actorViewFlip} from './actorViewDirection';
 
 type Phase='rest'|'stomp-windup'|'breath-windup'|'breath'|'flight'|'landing'|'recover';
 const smooth=(value:number)=>{const p=Phaser.Math.Clamp(value,0,1);return p*p*(3-2*p);};
@@ -33,7 +34,8 @@ export class DragonCombat {
   private breathTick=0;
   private breathSoundPlayed=false;
   private flightStart={x:0,y:0};private landingPoint={...DRAGON_LAIR};
-  private lastFlightX=0;
+  private lastFlightX=0;private lastFlightY=0;
+  private readonly flightAim=new Phaser.Math.Vector2(1,0);
   private flightPurpose:'slam'|'breath'='slam';
   private readonly effects:BossSkillVisual;
   private readonly home:{x:number;y:number};
@@ -47,6 +49,7 @@ export class DragonCombat {
   private readonly aftershockWarning:AttackTelegraph;
   private breathRange:number=DRAGON_BREATH.range;
   private readonly breathOrigin=new Phaser.Math.Vector2();
+  private readonly paintedMouth=new Phaser.Math.Vector2();
   private breathDirection=dragonBreathDirection(false);
   private breathFlipped=false;
   constructor(private readonly enemy:Enemy,private readonly scene:WorldScene,private currentProfile?:BossCombatProfile){
@@ -170,7 +173,7 @@ export class DragonCombat {
         body.setVelocity(0,0);this.aim.set(player.x-e.x,player.y-e.y).normalize();
         if(this.aim.lengthSq()===0)this.aim.set(e.flipX?-1:1,0);
         e.useVisualTexture('enemy_dragon');
-        e.setFlipX(this.aim.x<0);
+        e.faceAttack(this.aim.angle());
         e.playMonsterVocal('attack');
         e.playMonsterAttackFoley('windup');
         if(!this.combo.length){this.combo=bossPattern(this.profile,this.sequence,this.rage.phase===2?0:1);this.step=0;}
@@ -183,6 +186,7 @@ export class DragonCombat {
         else this.startBreath();
       }
     }else if(this.phase==='stomp-windup'){
+      e.faceAttack(this.aim.angle());
       this.drawCircle(e.x,e.y,this.impactRadius,this.age/this.stompWindupMs);
       if(this.age>=this.stompWindupMs){e.setFrame(enemyAnimation(5,'attack').frames[2]);this.slam(e.x,e.y,this.impactRadius,this.move?.damage??1);this.recover();}
     }else if(this.phase==='breath-windup'){
@@ -223,7 +227,7 @@ export class DragonCombat {
       this.drawCircle(this.landingPoint.x,this.landingPoint.y,this.impactRadius,this.age/(this.flightTravelMs+this.flightLandingMs));
       if(t>=1){
         body.reset(this.landingPoint.x,this.landingPoint.y);
-        if(breathHop){e.setFlipX(this.breathFlipped);this.breathPose(0);}
+        if(breathHop)this.breathPose(0);
         this.enter('landing');this.drawCircle(e.x,e.y,this.impactRadius,this.flightTravelMs/(this.flightTravelMs+this.flightLandingMs));
       }
     }else if(this.phase==='landing'){
@@ -254,7 +258,7 @@ export class DragonCombat {
   private recover(){this.enter('recover');}
   private startBreath(){
     const e=this.enemy,p=this.scene.player;
-    const preferred=Math.abs(p.x-e.x)<1?e.flipX:p.x<e.x;
+    const preferred=Math.abs(p.x-e.x)<1?this.aim.x<0:p.x<e.x;
     // Do not commit a horizontal breath simply because the FEET are close.
     // First check the real release-mouth cone, including its height offset.
     for(const flipped of [preferred,!preferred]){
@@ -271,7 +275,7 @@ export class DragonCombat {
         if(!this.safeBreathLanding(point.x,point.y))continue;
         const origin={x:point.x+offset.x,y:point.y+offset.y};
         if(this.breathCanReach(origin,flipped)<=0)continue;
-        this.breathFlipped=flipped;e.setFlipX(flipped);this.breathPose(0);
+        this.breathFlipped=flipped;this.breathPose(0);
         this.impactRadius=(e.definition.bodyRadius??64)+16;
         this.launchFlight(point,'breath');
         this.scene.notify('Varkhul beats his wings and moves to your flank!');
@@ -324,7 +328,7 @@ export class DragonCombat {
     this.enemy.useVisualTexture('enemy_dragon');
     this.enemy.anims.stop();this.enemy.anims.timeScale=1;
     this.enemy.setFrame(enemyAnimation(5,'attack').frames[pose]);
-    if(this.phase==='breath-windup'||this.phase==='breath')this.enemy.setFlipX(this.breathFlipped);
+    this.enemy.faceAttack(dragonBreathDirection(this.breathFlipped).angle);
   }
   private breathRangeAt(origin:{x:number;y:number},flipped:boolean,minimum=72):number{
     if(!this.tower)return DRAGON_BREATH.range;
@@ -359,6 +363,10 @@ export class DragonCombat {
   }
   private drawCone(burning:boolean){
     const e=this.enemy,origin=this.breathOrigin,angle=this.breathDirection.angle,half=DRAGON_BREATH.halfAngle,r=this.breathRange;
+    // Camera-facing art may mirror while the warned world cone stays fixed.
+    // Register the visible release mouth independently from the damage origin.
+    e.faceAttack(angle);
+    const mouth=this.releaseMouthOffset(e.flipX);this.paintedMouth.set(e.x+mouth.x,e.y+mouth.y);
     const pulse=!burning&&this.age>this.breathWindupMs*.72?(1+Math.sin(this.age*.025))*.5:0;
     const warningWidth=r*Math.cos(half),warningHeight=2*r*Math.sin(half);
     this.warningArt.setTexture(ATTACK_WARNING_TEXTURE,ATTACK_WARNING_FRAMES.cone.name).setOrigin(0,.5)
@@ -367,8 +375,8 @@ export class DragonCombat {
     if(burning)this.warningFill.clear();
     else this.warningFill.draw({kind:'cone',x:origin.x,y:origin.y,angle,radius:r,halfAngle:half,flatEnd:true},this.age/this.breathWindupMs,this.scene.playerRenderDepth(e.y)-1,0xffa25c);
     const reach=r*Math.cos(half),depth=this.scene.playerRenderDepth(e.y)+180,ignition=this.breathIgnitionAt;
-    if(burning)this.fire.show(origin,angle,reach,this.age,depth,false,e.y,e.x);
-    else if(this.age>ignition)this.fire.show(origin,angle,reach,this.age-ignition,depth,true,e.y,e.x);
+    if(burning)this.fire.show(origin,angle,reach,this.age,depth,false,e.y,e.x,this.paintedMouth);
+    else if(this.age>ignition)this.fire.show(origin,angle,reach,this.age-ignition,depth,true,e.y,e.x,this.paintedMouth);
     else this.fire.hide();
   }
   private slam(x:number,y:number,radius:number,multiplier:number){
@@ -415,7 +423,9 @@ export class DragonCombat {
   }
   private launchFlight(point:{x:number;y:number},purpose:'slam'|'breath'){
     this.flightPurpose=purpose;this.flightStart={x:this.enemy.x,y:this.enemy.y};this.landingPoint={...point};
-    this.lastFlightX=this.enemy.x;this.flight.setFlipX(this.enemy.flipX);
+    this.lastFlightX=this.enemy.x;this.lastFlightY=this.enemy.y;
+    this.flightAim.set(point.x-this.enemy.x,point.y-this.enemy.y);
+    this.flight.setFlipX(this.enemy.flipX);
     this.enemy.anims.stop();this.enemy.anims.timeScale=1;
     this.enter('flight');this.enemy.setAlpha(1);
     this.scene.playDragonSound(this.enemy.instanceId,'flight',this.enemy.x,this.enemy.y,Math.min(2400,this.flightTravelMs));
@@ -424,11 +434,14 @@ export class DragonCombat {
     this.drawFlight(0);
   }
   private drawFlight(height:number){
-    const dx=this.enemy.x-this.lastFlightX;if(Math.abs(dx)>1)this.flight.setFlipX(dx<0);this.lastFlightX=this.enemy.x;
+    const dx=this.enemy.x-this.lastFlightX,dy=this.enemy.y-this.lastFlightY;
+    if(Math.hypot(dx,dy)>1)this.flightAim.set(dx,dy);
+    this.lastFlightX=this.enemy.x;this.lastFlightY=this.enemy.y;
+    this.flight.setFlipX(actorViewFlip(this.scene,this.flightAim.x,this.flightAim.y,this.flight.flipX));
     // Turn toward the committed firing lane before the landing crossfade,
     // instead of revealing an oppositely facing ground pose at touchdown.
     if(this.flightPurpose==='breath'&&(this.phase==='landing'||this.age>=this.flightTravelMs*.8))
-      this.flight.setFlipX(this.breathFlipped);
+      this.flight.setFlipX(actorViewFlip(this.scene,this.breathFlipped?-1:1,0,this.flight.flipX));
     const alpha=this.phase==='landing'?smooth((this.flightLandingMs-this.age)/220):smooth(this.age/260);
     // Crossfade complete ground/flight poses rather than swapping them abruptly.
     this.enemy.setAlpha(1-alpha);

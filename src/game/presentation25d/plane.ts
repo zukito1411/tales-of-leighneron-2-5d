@@ -57,7 +57,7 @@ export interface PresentationHint {
   /** Projectile heading stays in simulation coordinates as the camera orbits. */
   worldDirection?:Readonly<{x:number;y:number}>;
   /** A grounded beam descends from an actor's painted mouth to its logical impact lane. */
-  beam?: {x:number;y:number;anchorX:number;anchorY:number;dx:number;dy:number;length:number};
+  beam?: {x:number;y:number;mouthX?:number;mouthY?:number;anchorX:number;anchorY:number;dx:number;dy:number;length:number};
 }
 export const PRESENTATION_HINT = 'presentation25d';
 export const PRESENTATION_SURFACE = 'presentation25dSurface';

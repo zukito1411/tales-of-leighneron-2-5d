@@ -1,4 +1,4 @@
-import {actorViewAim,actorViewTravel} from '../systems/actorViewDirection';
+import {actorViewAim,actorViewTravel,actorViewFlip} from '../systems/actorViewDirection';
 import {worldPointInView,presentationView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
@@ -634,7 +634,9 @@ export class Enemy extends DepthSortedSprite {
     const radius = this.definition.attackRadius ?? this.definition.attackRange;
     const ranged=this.isRangedAttacker;
     const attackAim={x:player.x,y:player.y};
-    if(this.directionalCombat)this.visualDirection=actorViewTravel(this.scene,player.x-this.x,player.y-this.y,this.visualDirection);
+    // Commit the target heading after steering, which may have faced a travel
+    // lane or a retreat. Unit aim vectors must not use the walking dead zone.
+    this.faceAttack(Math.atan2(player.y-this.y,player.x-this.x));
     const attackStyle = ranged?'melee':this.definition.combatStyle==='troll'?'slam':this.boss?.attackStyle ?? (isWolfFamily(this.definition.id) ? 'pounce' : 'melee');
     this.lockedUntil = time + (windup + recovery)/rate;
     this.nextAttackAt = this.lockedUntil + this.definition.attackCooldownMs/rate;
@@ -730,11 +732,16 @@ export class Enemy extends DepthSortedSprite {
   }
 
   private magusSpell=false;
+  /** Preserve the committed world heading; choose only the displayed facing. */
+  faceAttack(angle:number){
+    this.facing.set(Math.cos(angle),Math.sin(angle));
+    this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
+    if(!this.directionalCombat)this.setFlipX(actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX));
+  }
   /** Reviewed complete authored poses: challenge, chest-thump, raised arms or
    * open-mouth roar. Hold the pose; never play an un-warned strike as a roar. */
   playBossRoar(angle:number){
-    this.facing.set(Math.cos(angle),Math.sin(angle));
-    this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
+    this.faceAttack(angle);
     const species=this.definition.spriteFrame,row=['down','left','right','up'].indexOf(this.visualDirection);
     const attack=enemyAnimation(species,'attack',this.directionalCombat?this.visualDirection:undefined);
     this.useVisualTexture(attack.texture as ArtTextureKey);this.anims.stop();
@@ -744,12 +751,11 @@ export class Enemy extends DepthSortedSprite {
       :species===1?attack.frames[2]
       :species===4?attack.frames[3]
       :species===5||species===6?attack.frames[1]:attack.frames[0];
-    this.setFrame(frame).setFlipX(this.directionalCombat?false:this.facing.x<0);
+    this.setFrame(frame).setFlipX(this.directionalCombat?false:actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX));
     this.attackTimingActive=false;this.visualUntil=this.scene.time.now+BOSS_PHASE_TWO_TRANSITION_MS;
   }
   playBossWindup(windup:number,recovery:number,angle:number,spell=false){
-    this.facing.set(Math.cos(angle),Math.sin(angle));
-    if(this.directionalCombat)this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
+    this.faceAttack(angle);
     this.playAction('attack');
     if(this.definition.id==='grand-magus'){
       this.magusSpell=spell;const row=['down','left','right','up'].indexOf(this.visualDirection);
@@ -765,8 +771,7 @@ export class Enemy extends DepthSortedSprite {
   }
   finishBossWindup(recovery:number,angle?:number){
     if(angle!==undefined){
-      this.facing.set(Math.cos(angle),Math.sin(angle));
-      if(this.directionalCombat)this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
+      this.faceAttack(angle);
       this.playAction('attack');
       const animation=enemyAnimation(this.definition.spriteFrame,'attack',this.directionalCombat?this.visualDirection:undefined);
       this.anims.timeScale=animationDuration(animation)/Math.max(1,recovery)*this.attackSpeedMultiplier;
@@ -810,9 +815,28 @@ export class Enemy extends DepthSortedSprite {
   }
 
   private refreshActionView(){
-    if(!this.directionalCombat)return;
+    if(this.scene.time.now>=this.visualUntil&&!this.bossCombat?.isAttacking)return;
+    if(!this.directionalCombat){
+      const flipped=actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX);
+      this.setFlipX(flipped);this.leapVisual?.setFlipX(flipped);return;
+    }
     const direction=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
     if(direction===this.visualDirection)return;
+    if(!this.anims.isPlaying){
+      // Casts and roars deliberately hold a complete authored pose. Re-map
+      // that pose on orbit without restarting the animation or combat clock.
+      const frame=Number(this.frame.name),species=this.definition.spriteFrame;
+      const row=['down','left','right','up'].indexOf(direction);
+      if(species===19&&frame>=44&&frame<=51){
+        this.setFrame(44+row*2+(frame-44)%2);this.visualDirection=direction;return;
+      }
+      const before=enemyAnimation(species,'attack',this.visualDirection),after=enemyAnimation(species,'attack',direction);
+      const index=before.frames.indexOf(frame);
+      if(index>=0&&after.frames[index]!==undefined){
+        this.setFrame(after.frames[index]);this.visualDirection=direction;
+      }
+      return;
+    }
     const animation=this.anims.currentAnim;
     if(!animation||!this.anims.isPlaying)return;
     const key=animation.key.replace(/:(down|left|right|up)(?=:|$)/,':'+direction);
@@ -857,7 +881,7 @@ export class Enemy extends DepthSortedSprite {
     const directional=this.directionalCombat;
     const animation = enemyAnimation(this.definition.spriteFrame,state,directional?this.visualDirection:undefined);
     this.useVisualTexture(animation.texture as ArtTextureKey);
-    this.setFlipX(directional?false:state==='attack'?this.facing.x<0:this.facingLeft);
+    this.setFlipX(directional?false:actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX));
     this.visualUntil = this.scene.time.now + animationDuration(animation);
     this.anims.play(animation.key);
     this.anims.timeScale=1;

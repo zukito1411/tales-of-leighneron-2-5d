@@ -456,7 +456,7 @@ export class ThreePresentation {
       if(plane==='screen')out.set(px,py,0);
       else if(hint?.beam){
         const beam=hint.beam,t=Math.max(0,Math.min(1,((px-beam.x)*beam.dx+(py-beam.y)*beam.dy)/beam.length));
-        uprightPoint(beam.x,beam.y,beam.anchorX,beam.anchorY,out,object.scene);
+        uprightPoint(beam.mouthX??beam.x,beam.mouthY??beam.y,beam.anchorX,beam.anchorY,out,object.scene);
         out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t),py+(out.z-beam.y)*(1-t));
       }
       else if(plane==='ground')out.set(px,lift,py);
