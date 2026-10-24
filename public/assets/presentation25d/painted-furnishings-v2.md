@@ -2,8 +2,9 @@
 
 Generated with the built-in imagegen tool on 2026-10-24. The adjacent PNG is
 the retained source master and runtime atlas. v1 remains available for recovery.
-References: `assets/interiors/trandum_rustic/kit.png`, `assets/sprites/others.png`,
-and `assets/vehicles/cart-parts.png`.
+References: `assets/interiors/trandum_rustic/kit.png` and
+`assets/sprites/others.png`. The deleted historic cart artwork remains
+recoverable in Git history.
 
 The sixteen row-major material roles preserve the existing shader layout:
 oak, carved oak, dark walnut, iron; cream linen, olive cloth, blue quilt,
@@ -13,11 +14,8 @@ bounded mipmapped texture residency apply. This replaces one atlas, adding no
 extra runtime sampler or atlas decode. Region-specific original painted panels
 and furniture IDs remain in use.
 
-The horse uses a complete anatomical mesh with four poses baked from a source
-rig. The approved east/south/north paintings provide bound surface paint on
-that mesh, with opaque fur beneath transparent paint regions. The horse and
-wagon both retain their physical world heading as the camera orbits. See
-`assets/vehicles/horse-model-source.md` for source, license and regeneration.
+Traveling horses and horse-drawn roaming carts were removed from gameplay; this
+painted atlas remains active for furniture, foliage accents and static props.
 
 ## Generation prompt
 
