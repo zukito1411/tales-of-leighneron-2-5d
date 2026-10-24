@@ -295,7 +295,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       // Front doors come from the painted facade. A uniform generated door
       // was replacing each actual entrance (including grand castle portals).
       if(!paintedFront&&!/shrine/.test(profile.id)&&!forge)door((first[0]+last[0])/2,base,eave);
-      else if(/shrine/.test(profile.id)){
+      else if(!paintedFront&&/shrine/.test(profile.id)){
         const mid=(first[0]+last[0])/2,y=eave+(base-eave)*.40,w=(last[0]-first[0])*.34;
         const source=profile.id==='road-shrine'?[.36,.40,.64,.75] as Patch:houseWindows[profile.id];
         if(source)m.cutout(P(mid-w/2,base-.13,.009),P(mid+w/2,base-.13,.009),P(mid-w/2,y,.009),P(mid+w/2,y,.009),crop(source));
@@ -337,7 +337,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       // windows, doors, eaves, banners and masonry, while the opaque volume
       // and roof behind it stay genuinely three-dimensional at any orbit.
       // Lift it just past the generated front wall to avoid z-fighting.
-      const face=.024+inflate;
+      const face=.029+inflate;
       m.cutout(P(0,1,face),P(1,1,face),P(0,0,face),P(1,0,face),crop([0,0,1,1]));
     }
   }
