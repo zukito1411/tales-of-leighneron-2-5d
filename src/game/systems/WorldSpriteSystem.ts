@@ -156,6 +156,16 @@ export class WorldSpriteSystem {
         const footprint=outline.map(([x,y])=>[actor.x+x*cos-y*sin,actor.y+x*sin+y*cos] as GroundPoint);
         for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
       }
+      if(furniture?.art==='life-tree'&&(solid||profile?.forceSolid)){
+        // The original root survey remains. The rebuilt round trunk also
+        // occupies the southern half of its base, beyond the old flat painting.
+        const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0}),c=Math.cos(p.heading),s=Math.sin(p.heading);
+        const trunk:GroundPoint[]=Array.from({length:12},(_,i)=>{
+          const a=i/12*Math.PI*2,x=.005+Math.cos(a)*.135,z=.005+Math.sin(a)*.12;
+          return [p.x+(x*c-z*s)*p.width,p.y+(x*s+z*c)*p.width] as GroundPoint;
+        });
+        for(const rect of polygonGroundBands(trunk))add(rect.left,rect.top,rect.right,rect.bottom);
+      }
       if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','keepsake','banner','life-tree'].includes(furniture.art)){
         // Deeper props need matching clearance, as buildings already do.
         // Add the body behind its existing front contact; keep old surveyed

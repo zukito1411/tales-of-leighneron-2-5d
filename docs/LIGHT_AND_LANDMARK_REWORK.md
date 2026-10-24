@@ -39,7 +39,9 @@ history and are no longer imported by the active model factory.
 
 The landmark moves from town-relative (540,-1050) to (1120,-1260), clear of the
 Ward Chapel and inside the northeast defensive wall. Its stable content ID is
-unchanged. Existing static-content restoration already uses authored positions,
+unchanged. The original root collision survey is retained, with a matching
+round trunk footprint added through the existing staged collider lifecycle.
+Existing static-content restoration already uses authored positions,
 so old saves retain progress while receiving the layout repair.
 
 ## Tower of Might / Magus tower
