@@ -1,0 +1,9 @@
+# Interior wall repair
+
+The old panel mesh repeated a narrow slice of the prepared sprite frame, including transparent padding. This produced black horizontal stripes. Its visual depth also depended on the sprite transform, while room collision used separate floor-edge measurements. Room perimeter extraction omitted all south edges, which are visible with a rotating 3D camera.
+
+Spatial interiors now use all four edges of the exact rectangle union of room and corridor floors. Shared edges are removed, adjacent spans are merged, and the existing exit arch is left open. Each closed panel is placed directly inside its floor boundary with the same thickness as its collision band (north 40; other sides 22 world units). North/west/east collision is retained; south edges now have matching wall collision. The existing rooms, floor coordinates, furniture, resident placements, exit point, save format and outside position are unchanged. The 2D path retains its previous three-sided presentation.
+
+A single instanced cube prefab for the active wall texture has closed ends, top, bottom and masonry backing. Its faces use the complete original wall panel, excluding prepared frame gutters. It does not repeat the panel vertically or sample an unrelated part of the texture. Span, height and thickness are per-instance dimensions; geometry and textures are not rebuilt each frame. Character cutaway and manual zoom continue through the existing shared renderer. Wall culling uses both faces of the actual centred volume.
+
+Void beyond the room floor union remains outside the playable interior. It is bounded by walls instead of being an unmarked missing edge. Corridor openings and the south exit arch remain open and selectable. Camera views and checks use isolated fresh saves; they do not replace device performance measurement.

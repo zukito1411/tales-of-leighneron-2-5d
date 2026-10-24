@@ -141,6 +141,9 @@ jobs:
           masts and original painted sails; crew stand on the rotating deck.
           The Tower of Might follows the original rune-covered round tower
           artwork, and its standing interaction point is clear of collision.
+          Interior wall panels now meet the full room/corridor floor perimeter,
+          including south-facing edges, with solid corners, caps and the original
+          wall art. The exit arch and shared corridor openings remain clear.
           Streaming, manual zoom, cutaways, saves and signing identity remain.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**

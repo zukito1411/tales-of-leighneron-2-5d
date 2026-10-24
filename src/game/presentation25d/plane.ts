@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 import {Raycaster,Vector2,Vector3,type PerspectiveCamera} from 'three';
 import type {HouseShape} from './HouseGeometry';
+import type {InteriorWallPanel} from './InteriorWallGeometry';
 import {furnitureShape,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import type {StreamVisibility} from './StreamVisibility';
 import type {StreamView} from '../systems/chunkNeighborhood';
@@ -63,7 +64,7 @@ export interface PresentationHint {
   /** Camera-depth separation for attached artwork sharing one body plane. */
   depthOffset?: number;
   /** A world-aligned vertical wall, rather than a camera-facing actor plane. */
-  wall?: {axis:'x'|'y';thickness?:number};
+  wall?: {axis:'x'|'y';thickness?:number;span?:number;height?:number;direction?:1|-1;panel?:InteriorWallPanel};
   /** Projectile heading stays in simulation coordinates as the camera orbits. */
   worldDirection?:Readonly<{x:number;y:number}>;
   /** A grounded beam descends from an actor's painted mouth to its logical impact lane. */

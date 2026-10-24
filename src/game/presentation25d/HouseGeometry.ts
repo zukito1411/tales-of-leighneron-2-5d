@@ -3,6 +3,7 @@ import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {createAuthoredArchitecture} from './ArchitectureGeometry';
 import {createMagusTowerGeometry} from './MagusTowerGeometry';
+import {createInteriorWallGeometry,type InteriorWallPanel} from './InteriorWallGeometry';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import type {Matrix4} from 'three';
 
@@ -338,7 +339,8 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
 
 /** Closed interior panels share original art and do not acquire town-wall
  * profiles. The existing crop/UV rectangle still limits each room segment. */
-export function createWallGeometry(depth:number){
+export function createWallGeometry(depth:number,panel?:InteriorWallPanel){
+  if(panel)return createInteriorWallGeometry(panel);
   const shape:HouseShape={profile:house('panel',[[0,0],[1,0]],[.05,.15,.12,.85],[.05,.15,.12,.85],depth),left:0,top:0,width:1,height:1,depth};
   return createHouseGeometry(shape);
 }

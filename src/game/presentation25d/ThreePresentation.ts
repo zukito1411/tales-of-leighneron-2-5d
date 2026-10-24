@@ -583,7 +583,14 @@ export class ThreePresentation {
       this.model.set(w*c,0,-w*s,p.x-offset*s,0,w,0,(furniture.fixedGround??this.heightAt(p.x,p.y))+p.lift,w*s,0,w*c,p.y+offset*c,0,0,0,1);
     }
     if(houseVolume)applyHouseRise(this.model,house!);
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,volumeDepth,furnitureVolume?furniture:undefined))return;
+    const roomWall=hint?.wall?.panel?hint.wall:undefined;
+    if(roomWall){
+      const direction=roomWall.direction??1,rx=roomWall.axis==='x'?direction:0,rz=roomWall.axis==='y'?direction:0;
+      const span=roomWall.span!,height=roomWall.height!,thickness=roomWall.thickness!;
+      this.model.set(rx*span,0,-rz*thickness,anchorX,0,height,0,anchorHeight+height/2,
+        rz*span,0,rx*thickness,anchorY,0,0,0,1);
+    }
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall)))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -609,9 +616,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -657,14 +664,14 @@ export class ThreePresentation {
     camera.addToRenderList(object);return true;
   }
 
-  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape){
+  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false){
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
     const count=furniture||backDepth>0?8:ground?5:4;
     for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
       if(furniture){const b=furniture.bounds;
         this.projected.set(b?(x<0?b.left:b.right):x*1.1,b?(y<0?b.bottom:b.top):(y+.5)*furniture.rise*1.06,
           b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
-      else this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:0);
+      else this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
       this.projected.applyMatrix4(this.model);
       if(ground)this.projected.y+=this.heightAt(this.projected.x,this.projected.z);
       this.projected.project(this.orbit.camera);

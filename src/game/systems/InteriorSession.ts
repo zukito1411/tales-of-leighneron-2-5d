@@ -343,19 +343,23 @@ export class InteriorSession {
     return shadow;
   }
   private renderWalls(){
-    const plan=this.plan!,edges=new Map<string,{side:'north'|'west'|'east';axis:number;spans:Array<[number,number]>}>();
+    type Side='north'|'south'|'west'|'east';
+    const plan=this.plan!,spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+    const edges=new Map<string,{side:Side;axis:number;spans:Array<[number,number]>}>();
     const inside=(x:number,y:number)=>plan.floors.some(r=>x>=r.x&&x<r.x+r.width&&y>=r.y&&y<r.y+r.height);
-    // Exact rectangle-union edge intervals. No wall is laid across a corridor
-    // opening, even at overlap joins or when rooms have different dimensions.
-    for(const r of plan.floors)for(const side of ['north','west','east'] as const){
-      const horizontal=side==='north',axis=horizontal?r.y:side==='west'?r.x:r.x+r.width;
+    const sides:readonly Side[]=spatial?['north','south','west','east']:['north','west','east'];
+    // Walk the exact floor union on every elevation. Shared room/corridor
+    // edges stay open; south edges are needed when the 3D camera turns around.
+    for(const r of plan.floors)for(const side of sides){
+      const horizontal=side==='north'||side==='south';
+      const axis=horizontal?(side==='north'?r.y:r.y+r.height):side==='west'?r.x:r.x+r.width;
       const from=horizontal?r.x:r.y,to=from+(horizontal?r.width:r.height);
       const breaks=[...new Set([from,to,...plan.floors.flatMap(f=>horizontal?[f.x,f.x+f.width]:[f.y,f.y+f.height])
         .filter(p=>p>from&&p<to)])].sort((a,b)=>a-b);
       const key=side+':'+axis,edge=edges.get(key)??{side,axis,spans:[] as Array<[number,number]>};
       for(let i=1;i<breaks.length;i++){
         const start=breaks[i-1],end=breaks[i],middle=(start+end)/2;
-        const covered=horizontal?inside(middle,axis-.1):inside(axis+(side==='west'?-.1:.1),middle);
+        const covered=horizontal?inside(middle,axis+(side==='north'?-.1:.1)):inside(axis+(side==='west'?-.1:.1),middle);
         if(!covered)edge.spans.push([start,end]);
       }
       edges.set(key,edge);
@@ -364,30 +368,37 @@ export class InteriorSession {
     for(const {side,axis,spans} of edges.values()){
       spans.sort((a,b)=>a[0]-b[0]);const merged:Array<[number,number]>=[];
       for(const span of spans){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([span[0],span[1]]);}
+      const sections:Array<[number,number]>=[];
       for(const [start,end] of merged){
-        const north=side==='north',length=end-start;
-        const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+        // The existing 190-unit exit arch supplies its own jambs. Its opening
+        // must not acquire a solid wall or collider across the threshold.
+        const left=plan.entrance.x-95,right=plan.entrance.x+95;
+        if(spatial&&side==='south'&&axis>plan.entrance.y&&start<right&&end>left){
+          if(start<left)sections.push([start,left]);if(end>right)sections.push([right,end]);
+        }else sections.push([start,end]);
+      }
+      for(const [start,end] of sections){
+        const north=side==='north',horizontal=north||side==='south',length=end-start;if(length<.5)continue;
         const nominalWidth=140/this.artHeight('northWall',1);
         const count=Math.max(1,Math.ceil(length/(spatial?nominalWidth:north?180:120))),step=length/count;
-        this.wallSolids.push(north?{x:start,y:axis,width:length,height:40}
-          :{x:side==='west'?axis:axis-22,y:start,width:22,height:length});
+        const thickness=north?40:22;
+        this.wallSolids.push(horizontal?{x:start,y:north?axis:axis-thickness,width:length,height:thickness}
+          :{x:side==='west'?axis:axis-thickness,y:start,width:thickness,height:length});
         for(let i=0;i<count;i++){
           if(spatial){
-            // Use the complete original plaster/timber panel on a vertical plane.
-            // Side walls turn in world space, without stretching a narrow column.
-            const x=north?start+(i+.5)*step:axis+(side==='west'?10:-10);
-            const y=north?axis+38:start+(i+.5)*step;
+            const x=horizontal?start+(i+.5)*step:axis+(side==='west'?thickness/2:-thickness/2);
+            const y=horizontal?axis+(north?thickness/2:-thickness/2):start+(i+.5)*step;
             const image=this.drawArt('northWall',x,y,nominalWidth,DEPTH+y);
-            const visiblePixels=(step+.5)/image.scaleX;
-            image.setCrop((image.frame.realWidth-visiblePixels)/2,0,visiblePixels,image.frame.realHeight);
-            image.setData('presentation25d',{plane:'upright',anchor:{x:image.x,y:image.y},wall:{axis:north?'x':'y',thickness:.06}});
-            // Keep the source panel's uniform scale and complete vertical extent.
+            const frame=image.frame,metadata=frame.customData as {visibleWidth:number;visibleHeight:number;furnitureBottom?:number};
+            const w=metadata.visibleWidth,h=metadata.visibleHeight,bottom=metadata.furnitureBottom??frame.cutHeight;
+            image.setData(PRESENTATION_HINT,{plane:'upright',anchor:{x:image.x,y:image.y},wall:{
+              axis:horizontal?'x':'y',direction:north||side==='east'?1:-1,span:step,height:140,thickness,
+              panel:{kit:this.entry?.kit??'',uv:[(frame.cutWidth-w)/2/frame.cutWidth,(bottom-h)/frame.cutHeight,
+                (frame.cutWidth+w)/2/frame.cutWidth,bottom/frame.cutHeight]},
+            }} satisfies PresentationHint);
             image.setName('interior-wall:'+side);
-          }
-          else if(north)this.drawArt('northWall',start+(i+.5)*step,axis+38,step+1,DEPTH+axis+38);
+          }else if(north)this.drawArt('northWall',start+(i+.5)*step,axis+38,step+1,DEPTH+axis+38);
           else if(!isPlayerHome(this.entry?.id)){
-            // Homes retain the existing horizontal timber and exact collision
-            // boundary, without repeated upright decorative side-wall strips.
             const x=axis+(side==='west'?10:-10),y=start+(i+1)*step;
             const ratio=this.artHeight('sideWall',1);
             this.drawArt('sideWall',x,y,step/ratio,DEPTH+y).setFlipX(side==='east');
