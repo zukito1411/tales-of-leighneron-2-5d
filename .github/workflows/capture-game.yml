@@ -1,0 +1,29 @@
+name: Capture updated game
+on:
+  push:
+    branches: ['capture/**']
+    paths: ['.github/workflows/capture-game.yml','scripts/capture-updated-game.mjs']
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GAME_COMMIT: 99e861d0f32d3988603077d754d407f278425de8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Capture real game in a mobile browser viewport
+        run: node scripts/capture-updated-game.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Leighneron-painted-material-game-screenshots
+          path: game-captures/
+          retention-days: 3
+          if-no-files-found: warn
