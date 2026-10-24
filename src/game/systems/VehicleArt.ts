@@ -19,6 +19,15 @@ function boatDeckPoint(frame:number,points:number[][]){
 }
 export function boatHelm(frame:number){return boatDeckPoint(frame,boatHelms);}
 export function boatPassenger(frame:number){return boatDeckPoint(frame,boatPassengers);}
+function cellBounds(pixels:ImageData,x:number,y:number,w:number,h:number){
+  let left=x+w,top=y+h,right=x,bottom=y;
+  for(let py=y;py<y+h;py++)for(let px=x;px<x+w;px++)if(pixels.data[(py*pixels.width+px)*4+3]>64){
+    left=Math.min(left,px);top=Math.min(top,py);right=Math.max(right,px);bottom=Math.max(bottom,py);
+  }
+  if(left>right)throw new Error('An animation cell has no visible artwork.');
+  return {x:left,y:top,w:right-left+1,h:bottom-top+1};
+}
+
 function prepareMotionSheet(scene:Phaser.Scene,key:string,targetHeight:number){
   const source=scene.textures.get('motion-source:'+key).getSourceImage() as HTMLImageElement;
   const canvas=document.createElement('canvas');canvas.width=source.width;canvas.height=source.height;
