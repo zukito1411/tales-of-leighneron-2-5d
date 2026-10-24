@@ -9,7 +9,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      GAME_COMMIT: 73fb13cedc37aa0456f4901bd005545748e478f9
+      GAME_COMMIT: 494b97bb8cf0717580ff170e3f8b97e52e21a512
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

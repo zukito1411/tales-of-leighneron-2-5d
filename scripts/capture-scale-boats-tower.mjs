@@ -6,7 +6,7 @@ const output='game-captures';
 await mkdir(output,{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5174','--strictPort'],{stdio:'inherit',detached:true});
 let browser,context,page;
-const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Scenery camera and aim height staged for model review; tower prerequisites set only in the isolated review save; cutaway disabled in this preview. Terrain prepared after cross-map staging.',captures:[],errors:[]};
+const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Scenery camera and aim height staged for model review; tower prerequisites set only in the isolated review save; the land avatar is hidden at the staged vessel and its land-collision fallback is temporarily suspended for boat shots; cutaway disabled in this preview. Terrain prepared after cross-map staging.',captures:[],errors:[]};
 try{
   for(let i=0;i<120;i++){
     try{if((await fetch('http://127.0.0.1:5174')).ok)break;}catch{}
@@ -87,7 +87,7 @@ try{
       if(s.worldGenerator.getTerrainAt(q.x,q.y)==='water'){p=q;break;}
     }
     if(!p)throw new Error('No clear water for boat capture');
-    s.player.restoreAt(port.landing.x,port.landing.y);window.captureFocus=p;window.captureYaw=25*Math.PI/180;window.captureAimHeight=90;
+    s.player.restoreAt(p.x,p.y);s.lastSafe={...p};s.player.setVisible(false);window.captureLandCollision=s.enforceLandCollision;s.enforceLandCollision=()=>{};s.syncState();s.updateNavigation();window.captureFocus=p;window.captureYaw=25*Math.PI/180;window.captureAimHeight=90;
     s.cameras.main.setZoom(1.1).centerOn(p.x,p.y);presentationView(s).camera.fov=38;s.streamCinematicView(p.x,p.y);
     window.captureVessel=s.traffic.createVessel('capture-coastal-vessel',p.x,p.y,1.25);
     s.traffic.showPassenger(window.captureVessel);
@@ -101,7 +101,7 @@ try{
   await page.waitForTimeout(3000);
   await page.screenshot({path:output+'/04-solid-boat-rear.png'});notes.captures.push({name:'04-solid-boat-rear'});
   await page.evaluate(async()=>{
-    const s=window.__mernondnaGame.scene.getScene('world');s.events.off('update',window.captureVesselUpdate);s.traffic.releaseVessel(window.captureVessel);window.captureVesselPose=null;
+    const s=window.__mernondnaGame.scene.getScene('world');s.events.off('update',window.captureVesselUpdate);s.traffic.releaseVessel(window.captureVessel);window.captureVesselPose=null;s.enforceLandCollision=window.captureLandCollision;s.player.setVisible(true);
     const {useGameStore}=await import('/src/store/gameStore.ts');
     const {TOWER_DOOR,TOWER_APPROACH,TOWER_UNLOCKED,TOWER_STORY_PREREQUISITE}=await import('/src/data/towerOfMight.ts');
     const {presentationView}=await import('/src/game/presentation25d/plane.ts');
