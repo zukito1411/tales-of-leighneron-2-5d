@@ -11,7 +11,7 @@ import {SHIP_DECK_HEIGHT} from './WalkSurface';
 // fallen logs, flowers and other delicate natural cutouts retain billboards.
 const civic:Readonly<Record<number,FurnitureArt>>={0:'lampPost',1:'lampPost',2:'lampPost',3:'brazier',4:'sign',5:'stall',6:'well',7:'bench',8:'barrels',9:'cargo',10:'fountain',12:'banner',13:'brazier'};
 const story:Readonly<Record<number,FurnitureArt>>={0:'lectern',1:'satchel',2:'ledger',3:'lantern',4:'wagon',5:'dummy',6:'pump',7:'keepsake',8:'keepsake',9:'keepsake',10:'chest',11:'waystone'};
-const volumeDepth:Partial<Record<FurnitureArt,number>>={well:.88,fountain:.80,barrels:.76,cargo:.62,crate:.62,chest:.58,
+const volumeDepth:Partial<Record<FurnitureArt,number>>={well:.88,fountain:.42,barrels:.76,cargo:.62,crate:.62,chest:.58,
   stall:.72,tent:.80,wagon:.68,bench:.38,rock:.58,columns:.56,crystals:.55,waystone:.38,shrine:.45,sack:.50,brazier:.44,satchel:.40,ledger:.62};
 const kinds:Partial<Record<ArtTextureKey,Readonly<Record<number,FurnitureArt>>>>={
   others:civic,native_civic_bare:civic,native_story_bare:story,native_story_props:story,
@@ -67,6 +67,9 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   const civic=texture==='others'||texture==='native_civic_bare';
   const stonePatch=civic&&index===6?remap([.18,.79,.32,.86]):civic&&index===10?remap([.75,.64,.81,.72]):undefined;
   const roofPatch=civic&&index===6?remap([.25,.20,.42,.26]):undefined;
+  const woodPatch=civic&&index===6?remap([.71,.45,.755,.59]):civic&&index===10?remap([.42,.64,.52,.71]):
+    texture==='flower_fence'?remap(index===0?[.491,.27,.501,.62]:[.43,.25,.46,.45]):undefined;
+  if(woodPatch)patch=woodPatch;
   return {art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
     fire:!(texture==='native_quest_landmarks'&&index===1),canopy:!(texture==='native_quest_landmarks'&&index===0),
     paintOffset:vertical?0:.5-(l+r)/2,ornamentX:art==='lampPost'?(index===1?.5:.78)-(l+r)/2:undefined,

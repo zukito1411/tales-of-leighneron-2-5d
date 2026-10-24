@@ -299,7 +299,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       tube(x,z,b-H*.03,b+H*.03,r*1.3,r*1.3,metal);tube(x,z,t,t+H*.08,r*1.3,0,metal);m.beam([x,t+H*.06,z],[x,t+H*.15,z],.014,brass,8);
     }
   }else if(art==='fountain'&&kit.startsWith('world:')){
-    const basin=H*.48;
+    const basin=H*.36;
     box(-.48,.48,0,H*.08,-D,0,stone);
     for(const z of [-D,0])box(-.44,.44,H*.08,basin,z-.025,z+.025,wood);
     for(const x of [-.46,.46])box(x-.035,x+.035,H*.06,basin+.02,-D-.02,.02,stone);
@@ -309,7 +309,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     m.beam([-.27,H*.85,-D],[ -.11,H*.85,-D+.18],.04,wood,8);
     m.cylinder(-.11,-D+.18,H*.31,H*.85,.009,.014,water,8);
   }else if(art==='well'||art==='fountain'||art==='signature'&&/elven/.test(kit)){
-    const r=Math.min(.46,D/2),inner=r*.74,z=-D/2;
+    const r=Math.min(art==='well'?.39:.46,D/2),inner=r*.74,z=-D/2;
     if(art==='well'&&shape.canopy===false){
       m.ring(0,z,0,H*.84,r,inner,stone);m.ring(0,z,H*.82,H*.96,r*1.04,inner,stone);tube(0,z,H*.73,H*.735,inner,inner,water);return m.finish();
     }
@@ -336,17 +336,17 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       const hedge=(z:number,reverse=false)=>{
         if(shape.quarterTurnUV){
           const p=(u:number,v:number):V3=>[reverse?.48-u*.96:-.48+u*.96,H*(.10+v*.78),z];
-          const uv=(u:number,v:number):readonly [number,number]=>[shape.left+(.27+v*.48)*shape.width,1-shape.top-(.08+u*.86)*shape.height];
+          const uv=(u:number,v:number):readonly [number,number]=>[shape.left+(.12+v*.76)*shape.width,1-shape.top-(.08+u*.86)*shape.height];
           const pts=[p(0,0),p(1,0),p(0,1),p(1,1)],uvs=[uv(0,0),uv(1,0),uv(0,1),uv(1,1)];
           m.triangle(pts[0],pts[1],pts[2],[0,0,1,1],undefined,undefined,uvs.slice(0,3));
           m.triangle(pts[1],pts[3],pts[2],[0,0,1,1],undefined,undefined,[uvs[1],uvs[3],uvs[2]]);
         }else for(const [l,r,u,v] of [[-.40,-.04,.09,.45],[.04,.40,.54,.91]]){
           const a=reverse?-r:l,b=reverse?-l:r;
-          face(a,b,H*.10,H*.86,z,[u,.17,v,.85]);
+          face(a,b,H*.10,H*.86,z,[u,.14,v,.57]);
         }
       };
       hedge(-D*.22);hedge(-D*.78,true);
-      if(!shape.quarterTurnUV)top(-.48,.48,-D-.04,.04,.004,[.02,.84,.98,.99]);
+      if(!shape.quarterTurnUV)top(-.48,.48,-D/2-.025,-D/2+.025,.004,[.02,.84,.98,.99]);
     }
   }else if(art==='sign'||art==='banner'||art==='lectern'||art==='dummy'){
     box(-.05,.05,0,H*.95,-D*.6,-D*.4);box(-.23,.23,0,H*.06,-D,0);
