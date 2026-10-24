@@ -16,13 +16,23 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const X=(x:number)=>shape.left+x*W-.5,Y=(y:number)=>.5-shape.top-y*H;
   const ground=Y(base),pt=(x:number,y:number,z:number):V3=>[X(x),Y(y),z];
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
-  // Reuse the actual building's stone/plaster and roof paint. Their palette
-  // is the reference, including weathered blue slate and darker teal shingles.
-  const wall=paintedMaterial(crop(shape.profile.wall),W*.19,H*.24);
-  const roofing=paintedMaterial(crop(shape.profile.tiles),W*.24,H*.20);
+  // The old material surveys contain door frames, windows and foliage.
+  // Never repeat those over a wall. Only verified roof-only patches from the
+  // original sheets are admitted; plaster/masonry use clean diffuse swatches.
+  const plaster=/cottage|inn|manor|hall|storehouse|stable|smithy/.test(id)&&!elf;
+  const wall=atlasMaterial('architecture',plaster?2:8,W*.20,W*.16);
+  const roofPaint:Partial<Record<string,Patch>>={
+    cottage:[.278,.171,.403,.261],inn:[.108,.277,.188,.382],
+    hall:[.33,.16,.52,.29],manor:[.172,.245,.280,.369],castle:[.094,.254,.126,.309],
+    'elven-cottage':[.229,.427,.314,.488],'elven-manor':[.125,.446,.191,.500],
+    'elven-palace':[.607,.332,.643,.371],'elven-estate':[.329,.226,.378,.282],
+    'elven-guildhall':[.154,.334,.222,.394],'elven-smithy':[.214,.277,.312,.347],
+    'elven-stable':[.229,.190,.296,.254],'elven-gate':[.118,.217,.157,.257],
+  };
+  const roofing=roofPaint[id]?paintedMaterial(crop(roofPaint[id]!),W*.22,H*.18):atlasMaterial('architecture',elf?6:/cottage/.test(id)?5:4,W*.22,H*.18);
   const stone=atlasMaterial('architecture',8,W*.20,W*.16);
   const timber=atlasMaterial('furnishings',2,W*.24,W*.50);
-  const gold:ModelMaterial={color:pigment(0xab7c32),pattern:3};
+  const gold=atlasMaterial('furnishings',12,W*.16,W*.24);
   const trim=elf?gold:timber,iron=atlasMaterial('furnishings',3,W*.10,W*.10);
   const shadow:ModelMaterial={color:pigment(0x241d17)},woodDoor=atlasMaterial('architecture',1,W*.23,W*.40);
   const pane:ModelMaterial={color:pigment(0xb26e19),emission:pigment(0xffbd55)};
@@ -36,11 +46,11 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     for(let i=1;i<path.length-1;i++)m.triangle(position(...path[0]),position(...path[i]),position(...path[i+1]),source,undefined,undefined,[uv(path[0]),uv(path[i]),uv(path[i+1])]);
   };
   const windowArt:Partial<Record<string,Patch>>={
-    cottage:[.30,.61,.44,.82],'old-cottage':[.29,.57,.43,.77],inn:[.68,.65,.85,.84],'old-inn':[.49,.48,.62,.67],
-    hall:[.48,.68,.525,.79],manor:[.61,.67,.70,.80],storehouse:[.38,.20,.53,.42],castle:[.268,.568,.299,.657],
+    cottage:[.3727,.7028,.419,.7907],'old-cottage':[.29,.57,.43,.77],inn:[.6941,.7319,.8481,.8374],'old-inn':[.49,.48,.62,.67],
+    hall:[.4816,.6831,.5212,.786],manor:[.6129,.6783,.6962,.7962],storehouse:[.38,.20,.53,.42],castle:[.2697,.571,.2978,.6546],
     chapel:[.37,.43,.59,.76],'road-shrine':[.40,.45,.60,.70],
-    'elven-cottage':[.18,.58,.28,.78],'elven-manor':[.44,.53,.59,.73],'elven-chapel':[.36,.27,.61,.73],
-    'elven-guildhall':[.24,.47,.34,.65],'elven-estate':[.43,.51,.58,.74],'elven-palace':[.45,.30,.56,.57],
+    'elven-cottage':[.1829,.5836,.2774,.7758],'elven-manor':[.4606,.3763,.5878,.567],'elven-chapel':[.36,.27,.61,.73],
+    'elven-guildhall':[.1543,.5344,.2284,.7406],'elven-estate':[.5186,.2817,.5981,.4551],'elven-palace':[.4522,.2994,.5922,.5629],
   };
   /** Local wall basis gives side/rear windows the same arched reveal, sill,
    * glazing and mullions. No camera-facing windows pasted over corners. */
@@ -50,7 +60,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     // Backing arch closes the opening, rather than leaving a transparent hole.
     if(rx===1&&rz===0)m.extrude(outline.map(a=>[a[0],a[1]] as const),z+.005*W,z-.006*W,pane);
     else for(let i=1;i<path.length-1;i++)m.triangle(p(...path[0]),p(...path[i]),p(...path[i+1]),pane);
-    artPolygon(path,(x,v)=>p(x,v,.007),windowArt[id]??(elf?[.18,.58,.28,.78]:[.30,.61,.44,.82]));
+    if(windowArt[id])artPolygon(path,(x,v)=>p(x,v,.007),windowArt[id]!);
     for(let i=0;i<path.length;i++){const a=path[i],b=path[(i+1)%path.length];beam(p(...a,.013),p(...b,.013),large?.010:.006,elf?gold:stone);}
     beam(p(0,.02,.015),p(0,.90,.015),.0035,trim);
     if(!elf||large)beam(p(-.47,.36,.015),p(.47,.36,.015),.0035,trim);
@@ -59,7 +69,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(elf){beam(p(-.53,.16,.018),p(-.64,.05,.018),.005,gold);beam(p(.53,.16,.018),p(.64,.05,.018),.005,gold);}
   };
   const leaf=(cx:number,y:number,z:number,size:number)=>{
-    const points:P2[]=[[cx,y+size],[cx+size*.28,y+size*.63],[cx+size*.22,y+size*.20],[cx,y],[cx-size*.22,y+size*.20],[cx-size*.28,y+size*.63]];
+    const points:P2[]=Array.from({length:17},(_,i):P2=>{const t=i/16;return [cx+Math.sin(t*Math.PI*2)*size*.18,y+(1-Math.cos(t*Math.PI*2))*size*.5];});
     m.extrude(points,z+.004*W,z-.004*W,gold);beam([cx,y,z+.007*W],[cx,y+size*.92,z+.007*W],.0025,timber);
   };
   const door=(cx:number,z:number,w=.16,h=.28*H,pointed=elf,bottom=ground)=>{
@@ -78,7 +88,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   };
   const banner=(cx:number,y:number,z:number,w:number,h:number,source:Patch)=>{
     const path:P2[]=[[-.5,1],[.5,1],[.5,.16],[0,0],[-.5,.16]],x=X(cx);
-    const p=(u:number,v:number):V3=>[x+u*w*W,y+v*h,z];
+    const p=(u:number,v:number):V3=>[x+u*w*W,y+v*h,z+.002*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,y+v*h] as const),z,z-.004*W,atlasMaterial('furnishings',elf?7:6,W*.20,W*.30));
     artPolygon(path,p,source);beam([x-w*W*.65,y+h,z],[x+w*W*.65,y+h,z],.005,gold);
   };
@@ -108,7 +118,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     for(const t of [0,1]){m.quad(p(0,t),p(1,t),p(0,t,thickness),p(1,t,thickness),trim);beam(p(0,t),p(1,t),.009,trim);}
     beam(p(0,.5),p(1,.5),.010,trim);
     if(curved)for(const edge of [0,1]){
-      const fin=p(edge,.5);leaf(fin[0],fin[1]-.003*W,fin[2],W*.075);
+      const fin=p(edge,.5);leaf(fin[0],fin[1]-.003*W,fin[2],W*.040);
       for(const t of [0,1]){const end=p(edge,t);beam(end,[end[0],end[1]+.035*W,end[2]],.005,gold);}
     }
   };
@@ -144,10 +154,12 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const planter=(cx:number,y:number,z:number,w=.16)=>{
     box(cx-w/2,cx+w/2,y,y+.038*H,z-.028*W,z+.028*W,timber);
     for(const x of [cx-w*.4,cx+w*.4])box(x-.007,x+.007,y-.012*H,y+.040*H,z-.030*W,z+.030*W,iron);
-    // Small leaf crowns are part of the assembly, not a whole house decal.
-    for(let i=0;i<5;i++){
-      const x=X(cx-w*.40+w*.8*i/4);m.cylinder(x,z,y+.035*H,y+.071*H,W*.018,W*.005,{color:pigment(i%2?0x45632e:0x6d7c35)},6);
-      if(i%2===0)m.cylinder(x,z,y+.066*H,y+.076*H,W*.009,W*.008,{color:pigment(0xd2bd7a)},6);
+    // Fine plants keep painted cutouts, as the rest of the game's foliage does.
+    // Do not replace flowers with polygonal lumps on the window boxes.
+    if(!emission){
+      const plant:Patch=elf?/manor/.test(id)?[.40,.56,.70,.64]:[.04,.82,.24,.95]:/cottage/.test(id)?[.06,.72,.20,.86]:[.04,.82,.20,.95];
+      m.cutout([X(cx-w*.48),y+.035*H,z+.031*W],[X(cx+w*.48),y+.035*H,z+.031*W],
+        [X(cx-w*.48),y+.105*H,z+.031*W],[X(cx+w*.48),y+.105*H,z+.031*W],crop(plant));
     }
   };
   const barrel=(cx:number,z:number,h=.11*H)=>{
@@ -176,7 +188,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
         m.cylinder(x,z,eave+(peak-eave)*t,eave+(peak-eave)*u,rad(t),rad(u),roofing,16);
       }
       m.ring(x,z,eave-.012*W,eave+.008*W,r*1.19,r*1.06,trim,16);
-      if(elf)leaf(x,peak,z,W*.06);else beam([x,peak,z],[x,peak+.055*H,z],.004,gold);
+      if(elf)leaf(x,peak,z,W*.032);else beam([x,peak,z],[x,peak+.055*H,z],.004,gold);
     }
   };
   const gate=(l:number,r:number,eave:number,peak:number,z=0,back=-D)=>{
@@ -196,8 +208,9 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     const palace=elf,wing=Y(.63),keep=Y(palace?.39:.35);
     // Connected lower wings, a forward great hall and four actual round
     // towers replace the single saw-toothed castle silhouette slab.
-    body(.13,.87,-D*.92,-D*.12,wing,false);
-    roof(.12,.88,-D*.98,-D*.06,wing,Y(.49),'x');
+    body(.13,.87,-D*.92,palace?-D*.64:-D*.12,wing,false);
+    if(palace){gate(.20,.39,wing,Y(.49),-D*.12,-D*.66);gate(.61,.80,wing,Y(.49),-D*.12,-D*.66);}
+    else roof(.12,.88,-D*.98,-D*.06,wing,Y(.49),'x');
     body(.36,.64,-D*.67,.012*W,keep,false);
     gable(.35,.65,-D*.69,.025*W,keep,Y(palace?.14:.10));
     door(.50,.030*W,.15,H*.25);

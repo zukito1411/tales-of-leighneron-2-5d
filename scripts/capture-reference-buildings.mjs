@@ -22,7 +22,7 @@ try{
   await page.goto('http://127.0.0.1:5174/?e2e',{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'Start New Game',exact:true}).click();
   await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:360000});
-  console.log('World ready');
+  console.log('World ready; cleaned roof/window samples and detailed geometry revision 2');
   await page.evaluate(async()=>{
     const {useGameStore}=await import('/src/store/gameStore.ts');
     const s=window.__mernondnaGame.scene.getScene('world');
@@ -46,12 +46,14 @@ try{
         const {TOWN_BY_ID}=await import('/src/data/towns.ts');
         const {SETTLEMENT_BY_ID}=await import('/src/data/settlements.ts');
         const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');
+        const {presentationView}=await import('/src/game/presentation25d/plane.ts');
+        presentationView(s).camera.fov=frame===8||frame===9?68:38;
         const t=TOWN_BY_ID[townId];let p={x:t.world.x+160,y:t.world.y+110},focus={...p},lot;
         if(frame!==null){
           lot=SETTLEMENT_BY_ID[townId].buildings.find(b=>!b.omitted&&b.appearance?.frame===frame);
           if(!lot)throw new Error('No requested building');
           const x=t.world.x+lot.x,y=t.world.y+lot.y;
-          p={x:x+110,y:y+150};focus={x,y:y-(frame===8||frame===9?180:65)};
+          p={x:x+110,y:y+150};focus={x,y:y-(frame===8||frame===9?240:65)};
         }
         const original=ElevationField.prototype.prepare;
         ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=original;return original.apply(this,args);};
