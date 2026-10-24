@@ -6,7 +6,7 @@ const output='game-captures';
 await mkdir(output,{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5174','--strictPort'],{stdio:'inherit',detached:true});
 let browser,context,page;
-const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Scenery camera staged for model review; cutaway disabled in this preview. Terrain prepared after cross-map staging.',captures:[],errors:[]};
+const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Scenery camera and aim height staged for model review; tower prerequisites set only in the isolated review save; cutaway disabled in this preview. Terrain prepared after cross-map staging.',captures:[],errors:[]};
 try{
   for(let i=0;i<120;i++){
     try{if((await fetch('http://127.0.0.1:5174')).ok)break;}catch{}
@@ -50,9 +50,9 @@ try{
         const {OrbitCamera}=await import('/src/game/presentation25d/OrbitCamera.ts');
         if(!window.captureOrbitUpdate){
           window.captureOrbitUpdate=OrbitCamera.prototype.update;
-          OrbitCamera.prototype.update=function(...args){this.targetYaw=window.captureYaw;return window.captureOrbitUpdate.apply(this,args);};
+          OrbitCamera.prototype.update=function(...args){this.targetYaw=window.captureYaw;const originalHeight=args[2];args[2]=(x,y)=>originalHeight(x,y)+(window.captureAimHeight??0);return window.captureOrbitUpdate.apply(this,args);};
         }
-        window.captureYaw=yaw*Math.PI/180;
+        window.captureYaw=yaw*Math.PI/180;window.captureAimHeight=frame===1?85:25;
         presentationView(s).camera.fov=frame===8||frame===9?68:38;
         const t=TOWN_BY_ID[townId];let p={x:t.world.x+160,y:t.world.y+110},focus={...p},lot;
         if(frame!==null){
@@ -79,6 +79,7 @@ try{
     const s=window.__mernondnaGame.scene.getScene('world');
     const {PORT_BY_ID}=await import('/src/data/ports.ts');
     const {presentationView}=await import('/src/game/presentation25d/plane.ts');
+    const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');const prepare=ElevationField.prototype.prepare;ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=prepare;return prepare.apply(this,args);};
     const port=PORT_BY_ID.tidewatch;
     let p;
     for(const [dx,dy] of [[600,800],[-600,800],[0,900],[900,0]]){
@@ -86,7 +87,7 @@ try{
       if(s.worldGenerator.getTerrainAt(q.x,q.y)==='water'){p=q;break;}
     }
     if(!p)throw new Error('No clear water for boat capture');
-    s.player.restoreAt(port.landing.x,port.landing.y);window.captureFocus=p;window.captureYaw=25*Math.PI/180;
+    s.player.restoreAt(port.landing.x,port.landing.y);window.captureFocus=p;window.captureYaw=25*Math.PI/180;window.captureAimHeight=90;
     s.cameras.main.setZoom(1.1).centerOn(p.x,p.y);presentationView(s).camera.fov=38;s.streamCinematicView(p.x,p.y);
     window.captureVessel=s.traffic.createVessel('capture-coastal-vessel',p.x,p.y,1.25);
     s.traffic.showPassenger(window.captureVessel);
@@ -104,9 +105,10 @@ try{
     const {useGameStore}=await import('/src/store/gameStore.ts');
     const {TOWER_DOOR,TOWER_UNLOCKED,TOWER_STORY_PREREQUISITE}=await import('/src/data/towerOfMight.ts');
     const {presentationView}=await import('/src/game/presentation25d/plane.ts');
+    const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');const prepare=ElevationField.prototype.prepare;ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=prepare;return prepare.apply(this,args);};
     const state=useGameStore.getState();state.hydrate({quests:{...state.quests,[TOWER_STORY_PREREQUISITE]:{...state.quests[TOWER_STORY_PREREQUISITE],status:'completed'}},storyFlags:{...state.storyFlags,[TOWER_UNLOCKED]:true},defeatedBosses:[...new Set([...state.defeatedBosses,'captain-varr'])]});
     const p={x:TOWER_DOOR.x,y:TOWER_DOOR.y+45};s.player.restoreAt(p.x,p.y);s.lastSafe=p;s.player.resetInput();
-    window.captureFocus={x:TOWER_DOOR.x,y:TOWER_DOOR.y-185};window.captureYaw=25*Math.PI/180;
+    window.captureFocus={x:TOWER_DOOR.x,y:TOWER_DOOR.y-100};window.captureYaw=25*Math.PI/180;window.captureAimHeight=235;
     presentationView(s).camera.fov=55;s.cameras.main.setZoom(.7).centerOn(window.captureFocus.x,window.captureFocus.y);s.streamCinematicView(p.x,p.y);s.dungeons.exteriorMarkers();
   });
   await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').children.getByName('Tower of Might'),null,{timeout:120000});
@@ -122,7 +124,7 @@ try{
   if(entrance.samples.some(p=>!p.clear||!p.path||p.entry!=='cave:tower-of-might'))throw new Error('Tower approach not selectable');
   await page.evaluate(()=>{
     const s=window.__mernondnaGame.scene.getScene('world');
-    s.prepareStoryArena();window.captureFocus=null;s.tryInteract(s.player.x,s.player.y);
+    s.prepareStoryArena();window.captureFocus=null;window.captureAimHeight=0;s.tryInteract(s.player.x,s.player.y);
   });
   await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').activeInteriorId==='cave:tower-of-might',null,{timeout:120000});
   notes.towerEntered=true;console.log('Tower entry reached the actual interior');

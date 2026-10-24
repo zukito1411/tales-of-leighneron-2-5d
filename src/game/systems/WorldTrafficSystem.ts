@@ -180,7 +180,7 @@ export class WorldTrafficSystem {
     const frame=direction===0?Math.floor(this.elapsed/400)%6:direction===1?0:direction===2?4:8;
     setDepthIfChanged(crew,y+.02).setTexture(texture,frame).setScale(actorScaleForHeight(texture,frame,80))
       .setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight).setPosition(x+helm.x*ratio,paintedY+helm.y*ratio);
-    if(spatial)crew.setPosition(x-width*.35*s,y+width*.35*c);
+    if(spatial)crew.setPosition(x-width*.48*s,y+width*.48*c);
     const seat=boatPassenger(direction);
     if(vehicle.passenger){
       const side=direction===1||direction===2,texture=side?'leigneron_idle_sides':direction===3?'leigneron':'leigneron_idle',frame=direction===3?18:0;
