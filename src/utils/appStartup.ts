@@ -22,6 +22,9 @@ async function unregisterScopedWorkers(scope:string):Promise<boolean>{
 }
 
 export async function prepareOfflineStartup():Promise<boolean> {
+  // Desktop assets are bundled under a secure and stable native protocol.
+  // Never install an internet-style PWA cache over the local game files.
+  if(location.protocol==='leighneron:')return true;
   if(!('serviceWorker' in navigator))return true;
   const scope=new URL(import.meta.env.BASE_URL,location.href).href;
   if(Capacitor.isNativePlatform()){
