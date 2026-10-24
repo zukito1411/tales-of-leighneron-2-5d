@@ -3,4 +3,5 @@
 export const PAINTED_MODEL_ATLASES=[
   {key:'painted-model-architecture-v1',path:'assets/presentation25d/painted-architecture-v1.png'},
   {key:'painted-model-furnishings-v1',path:'assets/presentation25d/painted-furnishings-v1.png'},
+  {key:'source-building-details-v1',path:'assets/presentation25d/source-building-details-v1.png'},
 ] as const;

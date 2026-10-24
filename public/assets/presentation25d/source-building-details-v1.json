@@ -1,0 +1,204 @@
+{
+  "size": [
+    1024,
+    1024
+  ],
+  "grid": [
+    4,
+    4
+  ],
+  "cells": [
+    {
+      "tile": 0,
+      "name": "village-glass",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        187,
+        378,
+        214,
+        424
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 1,
+      "name": "human-glass",
+      "source": "assets/sprites/capital_buildings.png",
+      "source_rect": [
+        610,
+        315,
+        640,
+        355
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 2,
+      "name": "inn-glass",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        842,
+        381,
+        875,
+        422
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 3,
+      "name": "elven-small-glass",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        103,
+        314,
+        119,
+        360
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 4,
+      "name": "elven-tree-glass",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        552,
+        200,
+        591,
+        265
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 5,
+      "name": "palace-tree-glass",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        1005,
+        838,
+        1109,
+        926
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 6,
+      "name": "shrine-glass",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        222,
+        787,
+        265,
+        873
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 7,
+      "name": "elven-shrine-glass",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        139,
+        576,
+        199,
+        660
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 8,
+      "name": "crown-banner",
+      "source": "assets/sprites/capital_buildings.png",
+      "source_rect": [
+        831,
+        242,
+        886,
+        333
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 9,
+      "name": "elven-banner",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        847,
+        223,
+        897,
+        319
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 10,
+      "name": "inn-sign",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        543,
+        330,
+        590,
+        400
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 11,
+      "name": "moss-slate",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        534,
+        172,
+        572,
+        220
+      ],
+      "alpha": "opaque"
+    },
+    {
+      "tile": 12,
+      "name": "door-leaf",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        546,
+        331,
+        583,
+        375
+      ],
+      "alpha": "foliage"
+    },
+    {
+      "tile": 13,
+      "name": "ivy",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        495,
+        196,
+        521,
+        351
+      ],
+      "alpha": "foliage"
+    },
+    {
+      "tile": 14,
+      "name": "flowers",
+      "source": "assets/sprites/elven-villa.png",
+      "source_rect": [
+        519,
+        262,
+        626,
+        283
+      ],
+      "alpha": "foliage"
+    },
+    {
+      "tile": 15,
+      "name": "anvil-sign",
+      "source": "assets/sprites/buildings.png",
+      "source_rect": [
+        1049,
+        344,
+        1103,
+        397
+      ],
+      "alpha": "opaque"
+    }
+  ]
+}

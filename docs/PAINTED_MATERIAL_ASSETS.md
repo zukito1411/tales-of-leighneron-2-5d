@@ -54,3 +54,13 @@ borders, faces, monsters, eyes, skulls or complete object silhouettes.
 Compilation does not establish visual quality or frame pacing. Game captures
 must be actual browser/Android rendering; these generated sheets are never
 presented as game screenshots.
+
+Source architectural details v1: `source-building-details-v1.png` is a separate
+1024 x 1024, 4 x 4 atlas extracted deterministically from the original approved
+building sheets, not generated art. Its companion JSON records source pixel
+rectangles. Recreate it with `python3 scripts/prepare-building-details.py`
+(Pillow required for this optional offline authoring step). It supplies original
+window glass, tree glazing, heraldic banners, shop signs and masked foliage
+without repeating complete object paintings or depending on sprite-frame UVs.
+It uses the same bounded loader/upload lifecycle, adding one shared source and
+about 4 MiB of RGBA storage. Alpha is retained for foliage cells.

@@ -22,7 +22,7 @@ try{
   await page.goto('http://127.0.0.1:5174/?e2e',{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'Start New Game',exact:true}).click();
   await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:360000});
-  console.log('World ready; cleaned roof/window samples and detailed geometry revision 2');
+  console.log('World ready; source detail atlas and authored architecture revision 3');
   await page.evaluate(async()=>{
     const {useGameStore}=await import('/src/store/gameStore.ts');
     const s=window.__mernondnaGame.scene.getScene('world');
