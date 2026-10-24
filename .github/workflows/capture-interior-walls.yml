@@ -1,0 +1,28 @@
+name: Review floor-aligned interior walls
+on:
+  push:
+    branches: ['capture/interior-walls']
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GAME_COMMIT: 24634b8e0a1e5a8bf81537a37d74679005be3555
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Capture three interior styles and use their south exits
+        run: node scripts/capture-interior-walls.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Leighneron-interior-wall-review
+          path: wall-captures/
+          retention-days: 3
+          if-no-files-found: warn
