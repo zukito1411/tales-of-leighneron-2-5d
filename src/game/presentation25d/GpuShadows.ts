@@ -92,7 +92,7 @@ export class GpuShadows {
         }
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
-        this.repeat[0]=hint?.poseBlend??caster.projectionBottom??1;this.repeat[2]=hint?.wheelAngle??0;
+        this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=0;
         this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house,furniture);
       }
     }
