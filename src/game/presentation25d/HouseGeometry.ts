@@ -150,7 +150,7 @@ export function sizeHouseForPlayer(shape:HouseShape,displayHeight:number){
   const id=shape.profile.id,doorway=/cottage/.test(id)?.34:/inn|manor|estate/.test(id)?.24:.25;
   const target=HERO_BODY_HEIGHT*1.25/Math.max(1,displayHeight);
   shape.doorHeight=Math.max(shape.height*doorway,target);
-  shape.floorLift=Math.max(0,target-shape.height*doorway);
+  shape.floorLift=Math.max(0,target-shape.height*doorway)*(/inn|manor|estate/.test(id)?2:1);
   shape.riseScale=1;
 }
 

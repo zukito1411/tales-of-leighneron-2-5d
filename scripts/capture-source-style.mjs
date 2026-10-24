@@ -107,8 +107,8 @@ async function enter(townId,profile){
   await gallery('highmere','castle','01-highmere-source-furniture',{x:1160,y:1110});
   await gallery('elarion','villa','02-elven-source-furniture',{x:550,y:930});
   // Back to the unmodified overworld simulation after interior captures.
-  async function outside(point,yaw=25,zoom=1.0,aim=45){
-    await page.evaluate(async({point,yaw,zoom,aim})=>{
+  async function outside(point,yaw=25,zoom=1.0,aim=45,fov=38){
+    await page.evaluate(async({point,yaw,zoom,aim,fov})=>{
       const s=window.__mernondnaGame.scene.getScene('world');
       const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');
       const previous=ElevationField.prototype.prepare;
@@ -116,7 +116,8 @@ async function enter(townId,profile){
       window.captureFocus=point;window.wallYaw=yaw*Math.PI/180;window.captureAim=aim;
       s.player.restoreAt(point.x,point.y);s.lastSafe={...point};s.player.resetInput();
       s.cameras.main.stopFollow().setZoom(zoom).centerOn(point.x,point.y);s.streamCinematicView(point.x,point.y);
-    },{point,yaw,zoom,aim});
+      const {presentationView}=await import('/src/game/presentation25d/plane.ts');presentationView(s).camera.fov=fov;
+    },{point,yaw,zoom,aim,fov});
     await page.waitForTimeout(12000);
   }
   async function save(name){await page.screenshot({path:output+'/'+name+'.png'});notes.captures.push({name});console.log('Saved',name);}
@@ -130,9 +131,9 @@ async function enter(townId,profile){
   });
   await outside({x:positions.cottage.x,y:positions.cottage.y+30},25,.90,80);await save('03-house-proportions');
   await outside({x:positions.cottage.x,y:positions.cottage.y-85},205,.90,80);await save('04-house-rear');
-  await outside({x:positions.tree.x,y:positions.tree.y+20},25,.68,200);await save('05-tree-of-life');
-  await outside({x:positions.tree.x,y:positions.tree.y-40},135,.68,200);await save('06-tree-of-life-side');
-  await outside({x:positions.fence.x,y:positions.fence.y+110},25,1.0,35);await save('07-flowered-fence');
+  await outside({x:positions.tree.x,y:positions.tree.y+100},25,.68,170,52);await save('05-tree-of-life');
+  await outside({x:positions.tree.x,y:positions.tree.y+100},135,.68,170,52);await save('06-tree-of-life-side');
+  await outside({x:positions.fence.x,y:positions.fence.y-60},205,.95,35);await save('07-flowered-fence');
   await outside({x:positions.wall.x,y:positions.wall.y+120},25,.85,90);await save('08-highmere-inner-walls');
   // Use the existing real route, vehicle factory and motion method. Only the
   // screenshot pose is frozen; production route and cart logic are unchanged.
@@ -145,11 +146,11 @@ async function enter(townId,profile){
   await page.evaluate(cart=>{
     const s=window.__mernondnaGame.scene.getScene('world');window.cartUpdate=s.traffic.update;s.traffic.update=()=>{};
     const vehicle=s.traffic.create({id:'capture-merchant',kind:'cart',points:[cart,{x:cart.x+100,y:cart.y}],length:100,speed:60,phase:0},cart.x,cart.y);
-    window.captureCart=vehicle;s.traffic.presentCart(vehicle,cart.x,cart.y,2,22,true,1,0);
+    window.captureCart=vehicle;s.traffic.presentCart(vehicle,cart.x,cart.y,2,22,true,1,0);s.player.restoreAt(cart.x,cart.y+180);
   },cart);
   await page.waitForTimeout(2500);await save('09-horse-cart');
   await outside(cart,205,.95,40);
-  await page.evaluate(cart=>window.__mernondnaGame.scene.getScene('world').traffic.presentCart(window.captureCart,cart.x,cart.y,2,33,true,1,0),cart);
+  await page.evaluate(cart=>{const s=window.__mernondnaGame.scene.getScene('world');s.traffic.presentCart(window.captureCart,cart.x,cart.y,2,33,true,1,0);s.player.restoreAt(cart.x,cart.y+180);},cart);
   await page.waitForTimeout(2500);await save('10-horse-cart-reverse');
   notes.vehicle=await page.evaluate(()=>{const v=window.captureCart;return {cart:v.sprite.getData('presentation25d'),horse:v.horse.getData('presentation25d'),sourcePose:v.horse.frame.name};});
   await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');s.traffic.release(window.captureCart);s.traffic.update=window.cartUpdate;window.captureCart=null;});

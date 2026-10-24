@@ -8,7 +8,7 @@ import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from './effectsQuality';
 import {getGraphicEffects} from './graphicsEffects';
 import {ensureNightLightArt,nightLightFrame} from './NightLightArt';
 import {INN_MORNING_MINUTE,innRestAvailable} from '../../data/innRest';
-import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay} from '../presentation25d/plane';
+import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay,onPlane} from '../presentation25d/plane';
 
 export interface LocalLight {
   actor:Phaser.GameObjects.Sprite; x:number; y:number; radius:number; fire:boolean; phase:number;
@@ -93,19 +93,21 @@ export class DayNightSystem {
       this.lights.add(node);owned.push(node);
     }
     const ownedEmissions:Phaser.GameObjects.Sprite[]=[];
+    const volumeTree=key==='elarion_tree'&&this.scene.game.registry.get('presentation')==='three-2.5d';
     if(this.scene.textures.exists(key+':emission')) {
       if(this.scene.textures.exists(key+':rune-glow')){
         const runeGlow=this.scene.add.sprite(actor.x,actor.y,key+':rune-glow',frame).setOrigin(actor.originX,actor.originY)
           .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.004)
           .setBlendMode(Phaser.BlendModes.ADD).setData('emissionOwner',actor).setData('emissionType','tree-rune-glow')
           .setVisible(false).setName('tree-rune-glow:'+actor.name);
-        onOverlay(runeGlow,actor);this.emissions.add(runeGlow);ownedEmissions.push(runeGlow);
+        if(volumeTree){onPlane(runeGlow,'upright',actor);runeGlow.setData('volumeRune',true);}else onOverlay(runeGlow,actor);this.emissions.add(runeGlow);ownedEmissions.push(runeGlow);
       }
       const emission=this.scene.add.sprite(actor.x,actor.y,key+':emission',frame).setOrigin(actor.originX,actor.originY)
         .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.006).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0)
         .setData('emissionOwner',actor).setVisible(false).setName('window-emission:'+actor.name);
       if(this.scene.textures.exists(key+':rune-glow')){
-        emission.setData('emissionType','tree-runes').setName('tree-rune-emission:'+actor.name);onOverlay(emission,actor);
+        emission.setData('emissionType','tree-runes').setName('tree-rune-emission:'+actor.name);
+        if(volumeTree){onPlane(emission,'upright',actor);emission.setData('volumeRune',true);}else onOverlay(emission,actor);
       }
       this.emissions.add(emission);ownedEmissions.push(emission);
     }
@@ -158,7 +160,8 @@ export class DayNightSystem {
         const runeGlow=type==='tree-rune-glow';
         const depth=runeGlow?1_000_002:1_000_003;
         if(emission.depth!==depth)emission.setDepth(depth);
-        emission.setPosition(owner.x,owner.y).setAlpha(runeGlow?.48+.42*pulse:.88+.12*pulse)
+        const intensity=emission.getData('volumeRune')===true?(runeGlow?.20+.15*pulse:.40+.10*pulse):(runeGlow?.48+.42*pulse:.88+.12*pulse);
+        emission.setPosition(owner.x,owner.y).setAlpha(intensity)
           .setVisible(effects.lightBloom&&owner.visible);
       }else {
         // Ordinary lamp/window emissions are invisible by daylight or when

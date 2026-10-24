@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile} from '../../data/worldSpriteGeometry';
 import type {FurnitureShape,FurnitureArt} from './FurnitureGeometry';
@@ -50,7 +51,8 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   const footY=(b.top*d+localY*h-actor.originY*frame.cutHeight)/modelW;
   const depth=vertical?(r-l)*w/modelW:Math.max(volumeDepth[art]??.10,(bottom-t)*h/w);
   let rise=h/w;
-  if(vertical)rise=Math.min(.4,w/modelW);
+  if(texture==='flower_fence')rise=HERO_BODY_HEIGHT*.95/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
+  if(vertical&&texture!=='flower_fence')rise=Math.min(.4,w/modelW);
   else if(art==='cargo'||art==='crate'||art==='barrels'||art==='wagon'||art==='ledger')rise*=.78;
   else if(art==='keepsake')rise=.04;
   const raw=materials[(texture+':'+index) as keyof typeof materials];

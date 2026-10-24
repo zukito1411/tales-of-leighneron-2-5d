@@ -14,8 +14,8 @@ export function travelHorseShape(pose:number):FurnitureShape{
 export function createTravelCartGeometry(shape:FurnitureShape,emission=false){
   const m=new ModelMesh({left:0,top:0,width:1,height:1},emission),fit=320/622,left=(384-330*fit)/2,top=364-337*fit;
   const crop=([l,t,r,b]:Patch):Patch=>[(left+(l-252)*fit)/384,(top+(t-13)*fit)/384,(left+(r-252)*fit)/384,(top+(b-13)*fit)/384];
-  const wood=paintedMaterial(crop([341,196,413,210]),.32,.25),rim=paintedMaterial(crop([341,216,410,226]),.28,.08);
-  const cream=paintedMaterial(crop([370,93,391,109]),.32,.32),green=paintedMaterial(crop([287,60,301,85]),.25,.32);
+  const wood=paintedMaterial(crop([385,197,435,211]),.32,.25),rim=paintedMaterial(crop([341,216,410,226]),.28,.08);
+  const cream=paintedMaterial(crop([370,93,391,109]),.32,.32),green=paintedMaterial(crop([330,75,350,105]),.25,.32);
   const iron=atlasMaterial('furnishings',3,.25,.25),rope=atlasMaterial('furnishings',13,.25,.25);
   m.softBox(-.45,.45,.27,.33,-.53,.52,wood,.015);
   for(const side of [-1,1]){
@@ -39,8 +39,11 @@ export function createTravelCartGeometry(shape:FurnitureShape,emission=false){
     });
   }
   for(const [x,z,b] of [[.12,-.24,.34],[-.06,.18,.34],[.17,.13,.61]]){
-    m.softBox(x-.20,x+.20,b,b+.25,z-.19,z+.19,cream,.055);
-    m.beam([x,b+.23,z-.17],[x,b+.23,z+.17],.013,rope,6);
+    m.cylinder(x,z,b,b+.05,.11,.18,cream,16);
+    m.cylinder(x,z,b+.05,b+.16,.18,.17,cream,16);
+    m.cylinder(x,z,b+.16,b+.25,.17,.045,cream,16);
+    m.cylinder(x,z,b+.25,b+.28,.045,.065,cream,12);
+    m.ring(x,z,b+.24,b+.26,.05,.04,rope,12);
   }
   m.beam([-.29,.55,-.40],[-.29,.55,.39],.13,green,16);
   for(const z of [-.23,.23])m.ring(-.29,z,.52,.56,.14,.11,rope,12);
