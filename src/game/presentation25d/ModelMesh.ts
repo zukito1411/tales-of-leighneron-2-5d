@@ -91,10 +91,6 @@ export class ModelMesh {
     this.cutout([x-w/2,b,z],[x+w/2,b,z],[x-w/2,b+h,z],[x+w/2,b+h,z],source);
     this.cutoutPivot=[0,0,0,0];
   }
-  /** Wheel vertices rotate as one rigid part in the existing shared shader. */
-  wheel(x:number,y:number,z:number,draw:()=>void){
-    this.cutoutPivot=[x,y,z,-1];try{draw();}finally{this.cutoutPivot=[0,0,0,0];}
-  }
   paintedFloor(path:readonly (readonly [number,number])[],y:number,uv:(x:number,z:number)=>readonly [number,number]){
     for(const [a,b,c] of ShapeUtils.triangulateShape(path.map(p=>new Vector2(...p)),[])){
       const ids=[a,b,c],pa=path[a],pb=path[b],pc=path[c];
