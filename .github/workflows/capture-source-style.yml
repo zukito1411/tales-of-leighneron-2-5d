@@ -8,9 +8,9 @@ permissions:
 jobs:
   screenshots:
     runs-on: ubuntu-latest
-    timeout-minutes: 22
+    timeout-minutes: 18
     env:
-      GAME_COMMIT: 2ded5f6dfb8314daa3ee27d29f771b8982614944
+      GAME_COMMIT: 1358c3c8c8f8974d4b4a6906b46a42401a0d0e2c
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -22,7 +22,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: Leighneron-source-style-review
+          name: Leighneron-source-style-final
           path: style-captures/
           retention-days: 3
           if-no-files-found: warn

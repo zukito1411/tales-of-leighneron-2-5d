@@ -129,31 +129,29 @@ async function enter(townId,profile){
     const wall=WORLD_CONTENT.find(d=>d.id.startsWith('fort:highmere:curtain:0:')&&d.id.endsWith(':4'));
     return {tree:tree.world,fence:fence.world,cottage:cottage.world,wall:wall.world};
   });
-  await outside({x:positions.cottage.x,y:positions.cottage.y+30},25,.90,80);await save('03-house-proportions');
-  await outside({x:positions.cottage.x,y:positions.cottage.y-85},205,.90,80);await save('04-house-rear');
-  await outside({x:positions.tree.x,y:positions.tree.y+100},25,.68,170,52);await save('05-tree-of-life');
-  await outside({x:positions.tree.x,y:positions.tree.y+100},135,.68,170,52);await save('06-tree-of-life-side');
-  await outside({x:positions.fence.x,y:positions.fence.y-60},205,.95,35);await save('07-flowered-fence');
-  await outside({x:positions.wall.x,y:positions.wall.y+120},25,.85,90);await save('08-highmere-inner-walls');
-  // Use the existing real route, vehicle factory and motion method. Only the
-  // screenshot pose is frozen; production route and cart logic are unchanged.
   const cart=await page.evaluate(()=>{
     const s=window.__mernondnaGame.scene.getScene('world'),route=s.traffic.roads[0];
-    const a=route.points[Math.floor(route.points.length/2)],b=route.points[Math.floor(route.points.length/2)+1]??route.points[0];
-    return {x:a.x,y:a.y,dx:b.x-a.x,dy:b.y-a.y};
+    return {...route.points[Math.floor(route.points.length/2)]};
   });
-  await outside(cart,65,.95,40);
+  await outside(cart,25,.86,55,45);
   await page.evaluate(cart=>{
-    const s=window.__mernondnaGame.scene.getScene('world');window.cartUpdate=s.traffic.update;s.traffic.update=()=>{};
-    const vehicle=s.traffic.create({id:'capture-merchant',kind:'cart',points:[cart,{x:cart.x+100,y:cart.y}],length:100,speed:60,phase:0},cart.x,cart.y);
-    window.captureCart=vehicle;s.traffic.presentCart(vehicle,cart.x,cart.y,2,22,true,1,0);s.player.restoreAt(cart.x,cart.y+180);
+    const s=window.__mernondnaGame.scene.getScene('world');window.gallery=[];
+    for(const [i,[texture,frame,dx,dy,scale]] of [
+      ['flower_fence',0,0,-170,.85],
+      ['others',6,-145,50,.8],['others',10,140,50,.8],
+      ['others',8,-145,210,.75],['world_assets',7,140,210,.75]
+    ].entries()){
+      const actor=s.add.sprite(cart.x+dx,cart.y+dy,texture,frame).setName('capture-world-source:'+i);
+      s.presentWorldSprite(actor,texture,frame,scale,false,undefined,0,'bottom');
+      window.gallery.push(actor);
+    }
+    s.player.restoreAt(cart.x,cart.y+300);
   },cart);
-  await page.waitForTimeout(2500);await save('09-horse-cart');
-  await outside(cart,205,.95,40);
-  await page.evaluate(cart=>{const s=window.__mernondnaGame.scene.getScene('world');s.traffic.presentCart(window.captureCart,cart.x,cart.y,2,33,true,1,0);s.player.restoreAt(cart.x,cart.y+180);},cart);
-  await page.waitForTimeout(2500);await save('10-horse-cart-reverse');
-  notes.vehicle=await page.evaluate(()=>{const v=window.captureCart;return {cart:v.sprite.getData('presentation25d'),horse:v.horse.getData('presentation25d'),sourcePose:v.horse.frame.name};});
-  await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');s.traffic.release(window.captureCart);s.traffic.update=window.cartUpdate;window.captureCart=null;});
+  await page.waitForTimeout(3000);await save('11-world-source-gallery');
+  await outside(cart,205,.86,55,45);
+  await page.evaluate(cart=>window.__mernondnaGame.scene.getScene('world').player.restoreAt(cart.x,cart.y+300),cart);
+  await page.waitForTimeout(3000);await save('12-world-source-gallery-reverse');
+  await page.evaluate(()=>{for(const o of window.gallery)o.destroy();window.gallery=[];});
 
 }catch(e){notes.errors.push(e.stack??e.message);console.error(e);process.exitCode=1;}
 finally{
