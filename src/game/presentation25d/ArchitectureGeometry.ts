@@ -145,7 +145,9 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     roof(l-.018,r+.018,back-.010*W,front+.025*W,eave+.008*W,peak+.008*W,'z',curved,rounded);
     beam([cx,eave,front+.006*W],[cx,peak,front+.006*W],.008,trim);
     beam([a,eave,front+.007*W],[b,eave,front+.007*W],.010,trim);
-    if(curved)leaf(cx,eave+(peak-eave)*.12,front+.018*W,(peak-eave)*.55);
+    // Glazed gables already carry the source tree/leaf ornament in the glass.
+    // Keep solid carving out of the lancet; roof-tip finials remain above it.
+    if(curved&&!/manor|estate|palace|chapel|shrine/.test(id))leaf(cx,eave+(peak-eave)*.12,front+.018*W,(peak-eave)*.55);
   };
   const sideWindows=(l:number,r:number,eave:number,front=0,back=-D,count=2)=>{
     const y=ground+(eave-ground)*.29,h=(eave-ground)*.39,w=Math.min(W*.105,D*.22);
@@ -234,10 +236,10 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     else banner(.50,Y(.57),.040*W,.11,H*.25,8);
     for(const side of [-1,1]){
       const x=side<0?.20:.80;
-      tower(x,-D*.26,W*.095,Y(.39),Y(.17));
+      tower(x,-D*.15,W*.095,Y(.39),Y(.17));
       tower(side<0?.37:.63,-D*.77,W*.073,Y(.27),Y(.07));
       window(X(side<0?.29:.71),Y(.80),-D*.10,W*.075,H*.14);
-      banner(x,Y(.73),-D*.26+W*.101,.065,H*.18,palace?9:8);
+      banner(x,Y(.73),-D*.15+W*.101,.065,H*.18,palace?9:8);
       if(palace)planter(side<0?.27:.73,ground+.05*H,.05*W,.14);
     }
     for(const x of [.35,.65])for(let i=0;i<3;i++)box(x-.02,x+.02,ground,ground+H*(.16+i*.07),.008*W-i*.018*W,.045*W-i*.010*W,stone);
