@@ -153,10 +153,22 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
   const {profile,left,top,width,height,depth}=shape;
   const m=new ModelMesh(shape,emission,width);
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
-  // Dedicated flat diffuse materials wrap every elevation consistently.
-  const wall:ModelMaterial=profile.id==='panel'?paintedMaterial(profile.wall,width*.24,height*.24):/timber-watchtower|stable/.test(profile.id)?atlasMaterial('architecture',1,width*.50,height*.60):/old-cottage|^cottage$|^inn$|old-inn/.test(profile.id)?atlasMaterial('architecture',2,width*.55,height*.55):masonry(profile.id);
-  const tiles:ModelMaterial=/^masonry-|^panel$/.test(profile.id)?wall:roofMaterial(profile.id);
+  // Every authored structure carries wall and roof swatches in its ORIGINAL
+  // sprite. Use those colors/patterns instead of painting every settlement
+  // with the same generic stone, timber and tile atlas. These are bounded
+  // texture-region repeats inside the existing sprite batch, not new assets.
+  const ownArt=!/^masonry-|^panel$/.test(profile.id);
+  const wall:ModelMaterial=ownArt
+    ?paintedMaterial(crop(profile.wall),Math.max(.12,width*.27),Math.max(.12,height*.23))
+    :profile.id==='panel'?paintedMaterial(crop(profile.wall),width*.24,height*.24):masonry(profile.id);
+  const tiles:ModelMaterial=ownArt
+    ?paintedMaterial(crop(profile.tiles),Math.max(.10,width*.22),Math.max(.10,height*.14))
+    :wall;
   const wood:ModelMaterial=regionalWood(profile.id);
+  // The player's original 2D illustration is authoritative for the facade:
+  // door/window/stonework placement must not be reinvented on its front.
+  // Round towers retain genuine radial geometry instead of a flat front card.
+  const paintedFront=ownArt&&!profile.board&&!profile.curtain&&!profile.tiers;
   const pane:ModelMaterial=profile.id==='tower-of-might'?{color:pigment(0x322e4e),emission:pigment(0x9981e5)}:glass;
   const darkWood=atlasMaterial('furnishings',2,.45,.65);
   const P=(x:number,y:number,z:number):V3=>[left+x*width-.5,.5-top-y*height,z];
@@ -166,6 +178,15 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
   const window=(cx:number,cy:number,cz:number,rx:number,rz:number,w:number,h:number)=>{
     const nx=-rz,nz=rx;
     const p=(x:number,y:number,out=0):V3=>[cx+rx*x+nx*out,cy+y,cz+rz*x+nz*out];
+    // A side or rear window must look like the window in this very building,
+    // including its trim, mullions and hue. Avoid generic golden-glass panes
+    // on elven cottages and stone castles alike.
+    const windowArt=houseWindows[profile.id];
+    if(windowArt&&!emission){
+      m.cutout(p(-w/2,-h/2,.015),p(w/2,-h/2,.015),
+        p(-w/2,h/2,.015),p(w/2,h/2,.015),crop(windowArt));
+      return;
+    }
     m.quad(p(-w/2,-h/2,.003),p(w/2,-h/2,.003),p(-w/2,h/2,.003),p(w/2,h/2,.003),pane);
 
     for(const y of [-h/2,h/2])m.beam(p(-w/2-.007,y,.012),p(w/2+.007,y,.012),.008,wood);
@@ -271,7 +292,9 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       if(/inn|manor|hall|castle|palace|estate/.test(profile.id)){
         const floor=eave+(base-eave)*.48;B(first[0],last[0],floor,floor+.022,.014,-depth-.014,wood);
       }
-      if(!/shrine/.test(profile.id)&&!forge)door((first[0]+last[0])/2,base,eave);
+      // Front doors come from the painted facade. A uniform generated door
+      // was replacing each actual entrance (including grand castle portals).
+      if(!paintedFront&&!/shrine/.test(profile.id)&&!forge)door((first[0]+last[0])/2,base,eave);
       else if(/shrine/.test(profile.id)){
         const mid=(first[0]+last[0])/2,y=eave+(base-eave)*.40,w=(last[0]-first[0])*.34;
         const source=profile.id==='road-shrine'?[.36,.40,.64,.75] as Patch:houseWindows[profile.id];
@@ -299,13 +322,23 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       if(houseWindows[profile.id]||/stable|shrine/.test(profile.id)){
         const wy=eave+(base-eave)*.43,cy=P(0,wy,0)[1],wh=(base-eave)*height*.37,ww=Math.min(.14,(last[0]-first[0])*.2)*width;
         for(const x of [first[0]+(last[0]-first[0])*.20,first[0]+(last[0]-first[0])*.80]){
-          window(P(x,0,0)[0],cy,.005,1,0,ww,wh);window(P(x,0,0)[0],cy,-depth-.005,-1,0,ww,wh);
+          // Preserve the painted front-window positions and proportions.
+          if(!paintedFront)window(P(x,0,0)[0],cy,.005,1,0,ww,wh);
+          window(P(x,0,0)[0],cy,-depth-.005,-1,0,ww,wh);
         }
         for(const x of [first[0],last[0]])for(let i=0;i<2;i++){
           const z=-depth*(i+.5)/2,s=x===first[0]?-1:1;
           window(P(x,0,0)[0]+s*.005,cy,z,0,-s,ww,wh);
         }
       }
+    }
+    if(paintedFront&&!emission){
+      // The exact approved front sprite remains visible, with its original
+      // windows, doors, eaves, banners and masonry, while the opaque volume
+      // and roof behind it stay genuinely three-dimensional at any orbit.
+      // Lift it just past the generated front wall to avoid z-fighting.
+      const face=.024+inflate;
+      m.cutout(P(0,1,face),P(1,1,face),P(0,0,face),P(1,0,face),crop([0,0,1,1]));
     }
   }
   return m.finish();
