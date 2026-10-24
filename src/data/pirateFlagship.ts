@@ -5,6 +5,9 @@ import type {ContentDefinition,Vec2} from '../game/types';
 export const FLAGSHIP={id:'pirate:flagship',scale:1.3,width:1024,height:1536,
   topLeft:{x:TOWN_BY_ID.tidewatch.world.x+1000,y:TOWN_BY_ID.tidewatch.world.y+1700}};
 export const shipPoint=(x:number,y:number):Vec2=>({x:FLAGSHIP.topLeft.x+x*FLAGSHIP.scale,y:FLAGSHIP.topLeft.y+y*FLAGSHIP.scale});
+/** Shared art/model hull survey; gameplay keeps the existing inner deck. */
+export const FLAGSHIP_HULL:readonly (readonly [number,number])[]=[[414,172],[490,228],[546,354],[615,510],[677,705],[690,1030],[650,1300],
+  [574,1438],[414,1514],[255,1440],[167,1296],[126,1090],[129,825],[171,553],[259,314],[351,199]];
 export const SALT_KING_DECK_HOME=shipPoint(410,910);
 export function isFlagshipCombatant(id:string,encounterKey?:string|null,home?:Vec2){
   return id==='boss:salt-king'||id.startsWith('pirate:flagship:crew:')

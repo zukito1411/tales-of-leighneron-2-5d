@@ -49,9 +49,8 @@ export class WorldGenerator {
   /** Stable height in the existing XY world. Painted roads follow these slopes;
    * settlements and shorelines retain their authored ground registration. */
   getElevationAt(x:number,y:number):number {
-    if(onPortDeck(x,y)||onHighmereBridge(x,y)||onWildernessBridge(x,y))return 8;
-    if(inTowerClearing(x,y)||onTowerApproach(x,y)||onFlagshipBoarding(x,y))return 0;
-    const terrain=this.getTerrainAt(x,y);
+    if(inTowerClearing(x,y)||onTowerApproach(x,y))return 0;
+    const terrain=this.getGroundTerrainAt(x,y);
     // Water is carved before town foundation flattening. Otherwise settlement
     // rivers are silently raised back to the same plane as their streets.
     if(terrain==='water')return this.getRegionAt(x,y)==='dead-sea'||harborBay(x,y)?SEA_BED:RIVER_BED;
@@ -75,8 +74,7 @@ export class WorldGenerator {
     return hill*amplitude*coast*coast*(3-2*coast)*foundation;
   }
   getFootstepSurface(x:number,y:number):'grass'|'stone'|'snow'|'wood'{
-    if(onPortDeck(x,y))return 'wood';
-    if(onHighmereBridge(x,y))return 'stone';
+    if(onPortDeck(x,y)||onFlagshipBoarding(x,y)||onWildernessBridge(x,y)||onHighmereBridge(x,y))return 'wood';
     const terrain=this.getTerrainAt(x,y);
     if(terrain==='snow'||terrain==='ice')return 'snow';
     if(terrain==='stone'||terrain==='lava'||terrain==='ash'||terrain==='sand')return 'stone';
@@ -132,21 +130,27 @@ export class WorldGenerator {
     return best.id;
   }
 
-  getTerrainAt(worldX: number, worldY: number): TerrainKind {
+  getTerrainAt(worldX:number,worldY:number):TerrainKind {
+    // Preserve navigation/content/minimap semantics; artwork samples the bed
+    // independently so a walkable ship does not manufacture a dirt island.
     if(onFlagshipBoarding(worldX,worldY))return 'dirt';
+    if(onHighmereBridge(worldX,worldY)||onWildernessBridge(worldX,worldY))return 'stone';
+    return this.getGroundTerrainAt(worldX,worldY);
+  }
+
+  getGroundTerrainAt(worldX:number,worldY:number):TerrainKind {
     const regionId = this.getRegionAt(worldX, worldY);
     if (regionId === 'dead-sea') return 'water';
     // Authored foundation, shared with scenery reservations.
     if(inTowerClearing(worldX,worldY))return 'stone';
     if(onTowerApproach(worldX,worldY))return 'dirt';
-    // Registered decks take priority over water/settlement reservations. The
-    // lookup is spatially bucketed; no scan of every bridge for each ground cell.
-    if(onHighmereBridge(worldX,worldY))return 'stone';
+    // Sample water beneath raised structures. The walkable decks remain
+    // separate meshes and keep their original navigation predicates.
     if (onHighmereRiver(worldX,worldY)) return 'water';
     if(harborBay(worldX,worldY))return 'water';
     // A wide settlement reservation must not erase a real tributary or its
     // bridge in the agricultural approaches outside the built-up wards.
-    if(onHeadwaterStream(worldX,worldY))return onWildernessBridge(worldX,worldY)?'stone':'water';
+    if(onHeadwaterStream(worldX,worldY))return 'water';
 
     const layout = settlementAt(worldX,worldY);
     if (layout) {
@@ -154,7 +158,7 @@ export class WorldGenerator {
       return settlementTerrain(layout,worldX - town.world.x,worldY - town.world.y);
     }
 
-    if(onSettlementRiver(worldX,worldY)) return onWildernessBridge(worldX,worldY)?'stone':'water';
+    if(onSettlementRiver(worldX,worldY))return 'water';
     if(regionId==='darkav'){const lair=dragonLairTerrain(worldX,worldY);if(lair)return lair;}
     if(regionId==='darkav'&&pathDistance(worldX,worldY,ASHEN_DOCK_ROAD,80)<48)return 'ash';
 

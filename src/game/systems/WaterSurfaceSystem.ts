@@ -41,7 +41,7 @@ export class WaterSurfaceSystem {
   private isWater(x:number,y:number){
     const key=x/32*1048576+y/32,cached=this.waterCells.get(key);
     if(cached!==undefined)return cached;
-    const water=this.world.getTerrainAt(x+16,y+16)==='water';
+    const water=this.world.getGroundTerrainAt(x+16,y+16)==='water';
     if(this.waterCells.size>=WATER_CACHE_LIMIT)this.waterCells.delete(this.waterCells.keys().next().value!);
     this.waterCells.set(key,water);return water;
   }
@@ -144,7 +144,7 @@ export class WaterSurfaceSystem {
     do{
       const col=job.next%count,row=Math.floor(job.next/count);
       const x=job.request.x+(col+.5)*WATER_CELL_SIZE,y=job.request.y+(row+.5)*WATER_CELL_SIZE;
-      if(x<0||y<0||x>=WORLD_WIDTH||y>=WORLD_HEIGHT||this.world.getTerrainAt(x,y)==='water'){
+      if(x<0||y<0||x>=WORLD_WIDTH||y>=WORLD_HEIGHT||this.world.getGroundTerrainAt(x,y)==='water'){
         ctx.fillRect(col*pixel,row*pixel,pixel,pixel);job.water=true;
       }
       job.next++;

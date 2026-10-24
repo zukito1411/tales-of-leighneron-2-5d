@@ -16,7 +16,7 @@ scope.onmessage=({data})=>{
     let hasWater=false;
     for(let row=0;row<count;row++)for(let col=0;col<count;col++){
       const x=data.x+(col+.5)*cell,y=data.y+(row+.5)*cell;
-      const terrain=x<0||y<0||x>=WORLD_WIDTH||y>=WORLD_HEIGHT?'water':world.getTerrainAt(x,y);
+      const terrain=x<0||y<0||x>=WORLD_WIDTH||y>=WORLD_HEIGHT?'water':data.kind==='water'?world.getGroundTerrainAt(x,y):world.getTerrainAt(x,y);
       if(data.kind==='water'){
         if(terrain!=='water')continue;
         ctx.fillStyle='#fff';hasWater=true;

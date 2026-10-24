@@ -17,10 +17,10 @@ export class AttackTelegraph {
   progress=0;
   constructor(scene:Phaser.Scene,name:string,preserveRune=true){
     this.gpu=scene.game.registry.get('presentation')==='three-2.5d';
-    this.graphics=onGround(scene.add.graphics().setName(name).setVisible(false),.35);
+    this.graphics=onGround(scene.add.graphics().setName(name).setVisible(false),3);
     if(this.gpu)this.graphics.setData(TELEGRAPH_PRESENTATION,this.presentation);
     if(preserveRune&&scene.textures.exists(ATTACK_WARNING_TEXTURE))this.rune=onGround(scene.add.image(0,0,ATTACK_WARNING_TEXTURE,ATTACK_WARNING_FRAMES.circle.name)
-      .setOrigin(.5).setVisible(false).setName(name+':rune'),.25);
+      .setOrigin(.5).setVisible(false).setName(name+':rune'),2.5);
   }
   draw(area:AttackArea,progress:number,depth:number,color=0xf3aa57){
     const g=this.graphics,p=windupProgress(progress,1),r=area.radius;

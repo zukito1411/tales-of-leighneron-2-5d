@@ -270,7 +270,7 @@ export class ChunkManager {
       // One atlas is reused by every placeholder: no full-resolution canvas,
       // scenery actor, texture upload or per-chunk shader compilation here.
       const cx=(x+.5)*CHUNK_SIZE,cy=(y+.5)*CHUNK_SIZE;
-      const frame=Math.max(0,Math.min(7,this.world.getTerrainIndex(this.world.getTerrainAt(cx,cy))));
+      const frame=Math.max(0,Math.min(7,this.world.getTerrainIndex(this.world.getGroundTerrainAt(cx,cy))));
       const tile=this.scene.add.tileSprite(x*CHUNK_SIZE,y*CHUNK_SIZE,CHUNK_SIZE,CHUNK_SIZE,'terrain',frame)
         .setOrigin(0).setDepth(-1000).setName('streaming-ground-fallback');
       this.fallbacks.set(key,tile);

@@ -76,7 +76,7 @@ export class TerrainBaker {
     paintContext(this.layer).setTransform(layerScale,0,0,layerScale,0,0);
     const transform=new DOMMatrix().translate(-chunkX*CHUNK_SIZE,-chunkY*CHUNK_SIZE);
     for(const pattern of this.patterns)pattern.setTransform(transform);
-    const grid = yield* sampleTerrainGridSteps(chunkX, chunkY, (x, y) => world.getTerrainIndex(world.getTerrainAt(x, y)));
+    const grid = yield* sampleTerrainGridSteps(chunkX, chunkY, (x, y) => world.getTerrainIndex(world.getGroundTerrainAt(x, y)));
     // Regional art is masked per cell, not chosen from a chunk's center. This
     // also recolors paved settlement courts/roads and the dragon's safe deck.
     // Only Darkav's volcanic island needs this extra terrain classification

@@ -1,3 +1,4 @@
+import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork,releaseFrameWork} from './FrameWorkBudget';
 import {FrameTiming} from './FrameTiming';
 import {GpuTimer} from './GpuTimer';
@@ -90,7 +91,7 @@ export class ThreePresentation {
   private renderScale=0;
   private interior=false;
   private heightEnabled=false;
-  private readonly heightAt=(x:number,y:number)=>this.heightEnabled?this.elevation.height(x,y):0;
+  private readonly heightAt=(x:number,y:number)=>this.heightEnabled?(walkSurfaceHeight(x,y)??this.elevation.height(x,y)):0;
   private view:PresentationView|undefined;
   private readonly screenCamera=new OrthographicCamera(0,1,0,1,-100,100);
   private readonly effectGeometry=new PlaneGeometry(1,1);
@@ -105,7 +106,7 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly atmosphere={visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly rasters:RasterCache;
   private readonly transform=new Phaser.GameObjects.Components.TransformMatrix();
@@ -207,6 +208,7 @@ export class ThreePresentation {
       this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
       this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
     }
+    this.atmosphere.visualTime.value=this.game.loop.time/1000;
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
@@ -491,6 +493,9 @@ export class ThreePresentation {
     const houseScaleX=house?Math.hypot(this.transform.a,this.transform.b):1;
     const houseScaleY=house?Math.hypot(this.transform.c,this.transform.d):1;
     const houseCos=house?this.transform.a/houseScaleX:1,houseSin=house?this.transform.b/houseScaleX:0;
+    const groundBase=plane==='ground'&&this.isGroundBase(object);
+    const deck=plane==='ground'&&!groundBase&&!hint?.absoluteGround&&!this.interior?walkSurfaceHeight(anchorX,anchorY):undefined;
+    const followsTerrain=plane==='ground'&&!hint?.absoluteGround&&deck===undefined;
     const lift=hint?.elevation??this.groundLift(object),project=(x:number,y:number,out:Vector3)=>{
       const px=this.transform.a*x+this.transform.c*y+this.transform.tx;
       const py=this.transform.b*x+this.transform.d*y+this.transform.ty;
@@ -498,9 +503,10 @@ export class ThreePresentation {
       else if(hint?.beam){
         const beam=hint.beam,t=Math.max(0,Math.min(1,((px-beam.x)*beam.dx+(py-beam.y)*beam.dy)/beam.length));
         uprightPoint(beam.mouthX??beam.x,beam.mouthY??beam.y,beam.anchorX,beam.anchorY,out,object.scene);
-        out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t),py+(out.z-beam.y)*(1-t));
+        const endHeight=this.heightAt(px,py);
+        out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t)+endHeight*t,py+(out.z-beam.y)*(1-t));
       }
-      else if(plane==='ground')out.set(px,lift,py);
+      else if(plane==='ground')out.set(px,(deck??0)+lift,py);
       else if(furniture&&hint?.overlay&&hint.anchor instanceof Phaser.GameObjects.Sprite){
         presentationAttachmentWorld(object.scene,hint.anchor,this.transform.tx,this.transform.ty,out);
         out.x+=x*Math.hypot(this.transform.a,this.transform.b)*this.yawCos;out.y-=y*Math.hypot(this.transform.c,this.transform.d);out.z-=x*Math.hypot(this.transform.a,this.transform.b)*this.yawSin;
@@ -570,7 +576,7 @@ export class ThreePresentation {
       const offset=emissionOwner?.018:0;
       this.model.set(w*c,0,-w*s,p.x-offset*s,0,w,0,(furniture.fixedGround??this.heightAt(p.x,p.y))+p.lift,w*s,0,w*c,p.y+offset*c,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(plane==='ground'&&!hint?.absoluteGround,volumeDepth,furnitureVolume?furniture:undefined))return;
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,volumeDepth,furnitureVolume?furniture:undefined))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -584,9 +590,9 @@ export class ThreePresentation {
     const additive='blendMode' in object&&object.blendMode===Phaser.BlendModes.ADD;
     // Solid floors render in the opaque pass. Ground decals blend afterward
     // without claiming depth: a translucent shadow must never prevent the
-    // terrain behind it from being drawn. Lift also orders coplanar decals.
-    const order=overlay?object.depth:plane==='ground'?-10+lift:0;
-    const groundBase=plane==='ground'&&this.isGroundBase(object);
+    // terrain behind it from being drawn. Deck decals and warnings blend after
+    // the solid model batches, with depth testing to retain actor occlusion.
+    const order=overlay?object.depth:plane==='ground'?(warningArea||/telegraph|warning/.test(object.name)?2:deck!==undefined?1:-10+lift):0;
     const span=Math.max(Math.hypot(xx,xy,xz),Math.hypot(yx,yy,yz));
     const terrainGrid=plane==='ground'&&!overlay?(groundBase?TERRAIN_GRID_SEGMENTS:span>128?Math.min(64,Math.max(4,2**Math.ceil(Math.log2(span/32)))):4):1;
     const opaque=groundBase&&!additive&&alpha*camera.alpha>=.999;
@@ -596,9 +602,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(Boolean(hint?.absoluteGround))+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,plane==='ground'&&!overlay&&!hint?.absoluteGround,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)&&!house!.profile.tiers):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -615,7 +621,7 @@ export class ThreePresentation {
     if(staticImage&&source)this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
       rotation:object.rotation,originX:object.originX,originY:object.originY,depth:object.depth,
-      alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:plane==='ground'&&!hint?.absoluteGround,interior:this.interior,key,
+      alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:followsTerrain,interior:this.interior,key,
       matrix:submitted.clone(),rect:{...rect},uv:new Float64Array(uv),colors:new Uint32Array(colors),repeat:repeat?new Float64Array(repeat):undefined,
     });
     camera.addToRenderList(object);

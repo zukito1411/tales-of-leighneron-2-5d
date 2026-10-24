@@ -1,3 +1,5 @@
+import {bridgeShape} from '../presentation25d/BridgeGeometry';
+import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
@@ -61,9 +63,10 @@ export class WorldSpriteSystem {
     if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
-      const furniture=texture==='pirate_flagship'?shipShape('ship'):worldPropShape(actor,texture,frame);
+      const furniture=texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
     }
+    if(this.scene.game.registry.get('presentation')==='three-2.5d'&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
@@ -98,7 +101,7 @@ export class WorldSpriteSystem {
     };
     if(texture==='bridges'&&frame===ROAD_BRIDGE_FRAME){
       actor.setDepth(-900); // Deck/support artwork is ground, not foreground.
-      for(const [part,y] of [['back',TIMBER_BRIDGE.backSortY],['front',TIMBER_BRIDGE.frontSortY]] as const){
+      if(this.scene.game.registry.get('presentation')!=='three-2.5d')for(const [part,y] of [['back',TIMBER_BRIDGE.backSortY],['front',TIMBER_BRIDGE.frontSortY]] as const){
         const layer=this.scene.add.image(actor.x,actor.y,`bridge-${part}-rail`).setOrigin(actor.originX,actor.originY)
           .setScale(actor.scaleX,actor.scaleY).setDepth(sourcePoint([241,y]).y).setName('bridge-'+part+':'+actor.name);
         if(staged)layer.setVisible(false);

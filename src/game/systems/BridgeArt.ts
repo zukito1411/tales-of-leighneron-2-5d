@@ -5,6 +5,9 @@ import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
 
 /** Split the timber posts/ropes from the straight deck without masking planks. */
 export function prepareBridgeRail(scene:Phaser.Scene){
+  // Spatial bridges read the original deck/post swatches directly. Cutting
+  // rope masks out of that atlas also cuts holes through their deck material.
+  if(scene.game.registry.get('presentation')==='three-2.5d')return;
   const sheet=ART_BY_KEY.bridges,atlas=scene.textures.get('bridges') as Phaser.Textures.CanvasTexture;
   const w=sheet.frameWidth*sheet.density,h=sheet.frameHeight*sheet.density,frame=atlas.get(ROAD_BRIDGE_FRAME);
   const metadata=(frame.customData??{}) as {visibleBounds?:{left:number;top:number};sourceRegion?:readonly number[];sourceFit?:number};

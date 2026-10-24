@@ -1,3 +1,4 @@
+import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork} from './FrameWorkBudget';
 import {Matrix4,Vector3,type Scene} from 'three';
 import type Phaser from 'phaser';
@@ -105,9 +106,11 @@ export class GpuShadows {
     this.add(this.contactSource,actor,alpha,frame,false);
   }
   private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape){
-    const texture=this.textures.get(source,frame),key=texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+(house?.segment?':surveyed':'');
+    const deck=furniture?.fixedGround??walkSurfaceHeight(actor.x,actor.y);
+    if(deck!==undefined)this.matrix.elements[13]+=deck;
+    const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,-9.94,[],true,false,false,true,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
   destroy(){for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}

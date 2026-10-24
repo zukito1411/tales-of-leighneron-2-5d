@@ -135,25 +135,23 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Buildings and furnishings now use modeled doors, window frames, shelves,
-          chair backs, rounded chest lids and fittings instead of full-object
-          paintings across their fronts. Regional wood, masonry, roofing and
-          fabric materials cover their sides and backs. Trees and flowers retain
-          their cutout artwork. Ship hull, deck, cabin, sails and fittings retain
-          the surveyed boarding and combat coordinates.
+          Buildings, furniture and props reuse their original painted materials and
+          selected carved doors, windows, upholstery, emblems and smaller details
+          on solid model surfaces. Regional centerpieces and smithies regain their
+          distinct forms. Fire uses the supplied artwork with subtle shader motion;
+          broken quest beacons stay unlit. Trees and flowers keep their artwork.
 
-          Distant scenery gains gradual fog and depth of field. Nearby play and
-          locked targets stay in focus. The animated yellow terrain stripes have
-          been removed; sun shafts follow the projected sun from the upper view.
-          Cloud shadows have depth bias to reduce surface fighting. Lamp glass
-          and rune details add light, and bloom keeps the local highlight color.
+          Bridges have level surveyed decks, plank/post textures, supports and
+          sagging ropes. Ship walking height is separate from the seabed: its deck
+          no longer creates a dirt island or follows the coarse terrain slopes.
+          The original deck details and black/red rig return. Attack warnings and
+          deck shadows blend after the model with depth testing.
 
-          Character-relative furniture heights, saved layouts, circular towers,
-          wall cutaways and manual camera zoom are retained. Streaming radius,
-          staged uploads, shared instancing and render target limits are unchanged.
-          The model catalog was rendered from multiple angles and the changed
-          shaders were linked in an offscreen OpenGL ES context. This is not an
-          Android gameplay or frame-time measurement.
+          Circular towers, character-relative furniture heights, manual camera
+          zoom, wall cutaways, distance atmosphere and the existing streaming,
+          upload and residency limits are retained. TypeScript compilation is
+          checked by CI. No gameplay/browser test or device frame-time measurement
+          was performed for this update.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.
