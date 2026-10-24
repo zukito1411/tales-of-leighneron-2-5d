@@ -636,7 +636,7 @@ export class ThreePresentation {
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
     const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,furniture?.art!=='travel-horse'&&furniture?.art!=='travel-cart',Boolean(hint?.occlude));this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -649,8 +649,6 @@ export class ThreePresentation {
       this.neutralModel.copy(this.model);this.rotateModel(this.neutralModel,anchorX,anchorY,-this.orbit.yaw);submitted=this.neutralModel;
       repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=repeat[3]=0;
     }
-    if(hint?.wheelAngle!==undefined){repeat=this.tileRepeat;repeat[0]=repeat[1]=repeat[3]=0;repeat[2]=hint.wheelAngle;}
-    else if(hint?.poseBlend!==undefined){repeat=this.tileRepeat;repeat[0]=hint.poseBlend;repeat[1]=repeat[2]=repeat[3]=0;}
     batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
     if(staticImage&&source)this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
