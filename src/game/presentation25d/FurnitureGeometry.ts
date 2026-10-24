@@ -85,7 +85,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   const decorated=/noble|elven|orcan|obsidian|dwarven/.test(kit);
 
   const dark=atlasMaterial('furnishings',2,.72,.85),stone=kit.startsWith('world:')&&['rock','columns','crystals','waystone','shrine','well','fountain'].includes(art)?paintedMaterial(shape.patch,.42,.36):masonry(kit);
-  const trim=/noble|elven/.test(kit)?atlasMaterial('furnishings',1,.22,.42):/orcan|obsidian|dwarven/.test(kit)?brass:dark;
+  const trim:ModelMaterial={color:pigment(cultural?0xc79b4d:/orcan|obsidian|dwarven/.test(kit)?0x927044:0x65432b)};
   const box=(l:number,r:number,b:number,t:number,back:number,front:number,mat:ModelMaterial=wood)=>m.box(l,r,b,t,back,front,mat);
   const tube=(x:number,z:number,b:number,t:number,r:number,s=r,mat:ModelMaterial=wood)=>m.cylinder(x,z,b,t,r,s,mat);
   const legs=(seat:number,back=-D+.07,front=-.07)=>{
@@ -161,17 +161,24 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
         for(let i=0;i<5;i++){
           const x=-.34+i*.15,h=H*(.13+(i%3)*.023);
           if(pantry){tube(x,-D*.36,y+H*.035,y+H*.035+h,.052,.045,i%2?ivory:fabric);}
-          else{box(x-.045,x+.045,y+H*.035,y+H*.035+h,-D*.75,-.025,i%3===0?fabric:i%3===1?dark:trim);box(x-.047,x+.047,y+H*.06,y+H*.07,-.031,-.024,brass);}
+          else{box(x-.045,x+.045,y+H*.035,y+H*.035+h,-D*.75,-.025,i%3===0?fabric:i%3===1?dark:trim);box(x-.047,x+.047,y+H*.06,y+H*.07,-.031,-.024,brass);
+            if(art==='bookcase')face(x-.044,x+.044,y+H*.04,y+H*.03+h,-.020,[.14+i*.13,.20+row*.20,.23+i*.13,.35+row*.20]);}
         }
       }
     }else{
       for(const x of [-.39,.015]){box(x,x+.375,H*.11,H*.90,-.04,-.012,dark);box(x+.025,x+.35,H*.15,H*.85,-.012,.005,wood);box(x+.29,x+.31,H*.48,H*.54,.005,.022,brass);}
     }
-
+    if(art==='wardrobe'){
+      face(-.355,-.04,H*.17,H*.85,.012,[.17,.24,.47,.84]);
+      face(.04,.355,H*.17,H*.85,.012,[.53,.24,.84,.84]);
+      face(-.34,.34,H*.91,H*.99,.018,[.18,.025,.82,.13]);
+    }
   };
   if(art==='bed'){
     legs(H*.26);box(-.46,.46,H*.18,H*.27,-D+.04,0);m.softBox(-.43,.43,H*.27,H*.42,-D+.11,-.07,ivory,.018);m.softBox(-.435,.435,H*.35,H*.43,-D*.68,-.065,fabric,.012);
+    top(-.40,.40,-D*.67,-.065,H*.434,[.12,.49,.88,.88]);
     m.softBox(-.30,.30,H*.42,H*.52,-D+.13,-D*.72,ivory,.018);
+    top(-.27,.27,-D+.13,-D*.72,H*.523,[.19,.21,.81,.43]);
     for(const z of [-D,-.035])for(const x of [-.45,.45]){box(x-.035,x+.035,0,z===-D?H:H*.48,z-.03,z+.03);tube(x,z,z===-D?H*.96:H*.44,z===-D?H*1.03:H*.50,.045,.025,trim);}
     box(-.45,.45,H*.50,H*.91,-D-.02,-D+.035);box(-.37,.37,H*.57,H*.85,-D+.036,-D+.05,fabric);box(-.45,.45,H*.22,H*.40,-.06,0);
   }else if(art==='signature'&&/alpine/.test(kit)){
@@ -198,6 +205,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   else if(art==='wardrobe'||art==='bookcase'||art==='pantry')cabinet(art==='bookcase',art==='pantry');
   else if(art==='counter'){
     box(-.46,.46,0,H*.80,-D,0);box(-.49,.49,H*.80,H*.88,-D-.02,.02);box(-.48,.48,0,H*.07,-D-.012,.012,trim);
+    face(-.42,.42,H*.15,H*.65,.018,[.10,.62,.90,.87]);
     for(const z of [.006,-D-.006])for(let i=0;i<4;i++){const x=-.42+i*.22;box(x,x+.18,H*.15,H*.65,z-.006,z+.006,trim);box(x+.016,x+.164,H*.18,H*.62,z+.007,z+.010);}
   }else if(art==='chest'||art==='openChest'){
     crate(-.46,.46,0,H*.56,-D,0);
@@ -301,7 +309,8 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     for(const z of [-D*.72,-D*.2]){m.beam([-.54,H*.22,z],[.54,H*.22,z],.025,metal,8);for(const x of [-.49,.49]){const r=H*.22;for(let i=0;i<16;i++){const a=i/16*Math.PI*2,b=(i+1)/16*Math.PI*2;m.beam([x,H*.22+Math.sin(a)*r,z+Math.cos(a)*r],[x,H*.22+Math.sin(b)*r,z+Math.cos(b)*r],.024,trim);if(i%4===0)m.beam([x,H*.22,z],[x,H*.22+Math.sin(a)*r,z+Math.cos(a)*r],.018,wood);}}}
     for(const x of [-.28,.28])m.beam([x,H*.25,-D*.35],[x,H*.22,.12],.018,wood);
   }else if(art==='fence'){
-    const n=Math.max(2,Math.min(5,Math.round(1/Math.max(.16,H))));for(let i=0;i<n;i++){const x=-.45+i*.9/(n-1);box(x-.03,x+.03,0,H,-D*.7,-D*.3);tube(x,-D/2,H*.96,H*1.04,.04,0,trim);}
+    const floral=kit.startsWith('world:flower_fence:'),post=floral?.013:.03;
+    const n=floral?(shape.quarterTurnUV?2:3):Math.max(2,Math.min(5,Math.round(1/Math.max(.16,H))));for(let i=0;i<n;i++){const x=-.45+i*.9/(n-1);box(x-post,x+post,0,H,-D*.7,-D*.3);tube(x,-D/2,H*.96,H*1.04,floral?.020:.04,0,floral?{color:pigment(0xc79b4d)}:trim);}
     for(const y of [.28,.67])box(-.48,.48,H*y,H*(y+.09),-D*.7,-D*.3);
     if(kit.startsWith('world:flower_fence:')&&!emission){
       const hedge=(z:number,reverse=false)=>{

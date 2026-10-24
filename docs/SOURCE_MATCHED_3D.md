@@ -48,3 +48,12 @@ Animation atlases do not acquire mipmaps. Residency budgets include mip storage.
 Validation distinguishes compiler checks, scoped screenshot review and actual
 Android device performance. No claim of measured device FPS follows from source
 inspection or an APK build.
+
+Follow-up visual review corrected material crops that included hoop edges or
+transparent backdrop. The offline source surveys now select opaque timber and
+stone from each registered source subject, with no extra runtime image reads.
+Canopy depth follows a closed, smoothed crown envelope instead of individual leaf
+holes. Horse/cart meshes opt out of the scenery cutaway; houses and walls retain
+the character sight-line opening. The merchant bedroll is green and its cream
+sacks have tapered, tied necks. Flower fence posts follow the original spacing,
+with the same physical height across horizontal and vertical source views.

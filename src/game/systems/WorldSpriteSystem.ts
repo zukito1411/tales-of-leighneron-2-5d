@@ -45,7 +45,8 @@ export class WorldSpriteSystem {
         (visible.top+(sourceAnchor[1]-sourceRegion[1])/sourceRegion[3]*visible.height)/sheet.frameHeight);
     }
     if(isTreeArt(texture,frame)&&this.scene.game.registry.get('presentation')==='three-2.5d'){
-      const bottom=(visible.top+visible.height)/sheet.frameHeight-2/Math.max(1,actor.displayHeight);
+      const foot=worldSpriteProfile(texture,frame)?.sortY??.98;
+      const bottom=(visible.top+visible.height*foot)/sheet.frameHeight-2/Math.max(1,actor.displayHeight);
       actor.setOrigin(actor.originX,bottom);
     }
     const cos=Math.cos(actor.rotation),sin=Math.sin(actor.rotation);
