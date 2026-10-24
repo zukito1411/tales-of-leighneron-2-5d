@@ -2,7 +2,9 @@ import {BufferGeometry,Color,Float32BufferAttribute,ShapeUtils,Vector2} from 'th
 
 export type V3=readonly [number,number,number];
 export type Patch=readonly [number,number,number,number];
-export type ModelMaterial=Patch|{patch:Patch;tile:readonly [number,number]}|{color:V3;emission?:V3;pattern?:2|3|4|5|6|7};
+export interface AtlasMaterial {atlas:'architecture'|'furnishings';tile:number;scale:readonly [number,number];emission?:V3}
+export const atlasMaterial=(atlas:AtlasMaterial['atlas'],tile:number,width=.5,height=width,emission?:V3):AtlasMaterial=>({atlas,tile,scale:[width,height],...(emission?{emission}:{})});
+export type ModelMaterial=AtlasMaterial|Patch|{patch:Patch;tile:readonly [number,number]}|{color:V3;emission?:V3;pattern?:2|3|4|5|6|7};
 /** A cropped material from this object's own painted atlas, in model units. */
 export const paintedMaterial=(patch:Patch,width=.35,height=width):ModelMaterial=>({patch,tile:[width,height]});
 interface Region {left:number;top:number;width:number;height:number}
@@ -10,23 +12,23 @@ const colors=new Map<number,V3>();
 export function pigment(hex:number):V3 {
   let value=colors.get(hex);if(!value){const c=new Color(hex);value=[c.r,c.g,c.b];colors.set(hex,value);}return value;
 }
-export const metal:ModelMaterial={color:pigment(0x47505a),pattern:4};
-export const brass:ModelMaterial={color:pigment(0xb8944e),pattern:4};
-export const glass:ModelMaterial={color:pigment(0xb77829),emission:pigment(0xffd895)};
-export const lampGlass:ModelMaterial={color:pigment(0xe7bc78),emission:pigment(0xffd895)};
+export const metal:ModelMaterial=atlasMaterial('furnishings',3,.28,.28);
+export const brass:ModelMaterial=atlasMaterial('furnishings',12,.24,.24);
+export const glass:ModelMaterial=atlasMaterial('furnishings',15,.18,.24,pigment(0xffd895));
+export const lampGlass:ModelMaterial=glass;
 export const water:ModelMaterial={color:pigment(0x367c91)};
 export function regionalFabric(kit:string):ModelMaterial {
-  return {pattern:5,color:pigment(/noble/.test(kit)?0x284878:/elven/.test(kit)?0x386f60:/orcan/.test(kit)?0x824c38:/obsidian/.test(kit)?0x5a385e:/alpine|longhouse/.test(kit)?0x546a7b:/maritime/.test(kit)?0x426d81:0x667447)};
+  const tile=/noble/.test(kit)?6:/elven/.test(kit)?7:/orcan|dwarven/.test(kit)?8:/obsidian/.test(kit)?11:/longhouse/.test(kit)?10:/maritime/.test(kit)?9:5;
+  return atlasMaterial('furnishings',tile,.84,.84);
 }
-
 export function regionalWood(kit:string):ModelMaterial {
-  return {pattern:2,color:pigment(/elven/.test(kit)?0x806a42:/obsidian/.test(kit)?0x55444a:/noble/.test(kit)?0x795537:/alpine|longhouse/.test(kit)?0x786955:/orcan/.test(kit)?0x755343:/maritime/.test(kit)?0x7a6045:0x886542)};
+  return atlasMaterial('furnishings',/obsidian|longhouse/.test(kit)?2:0,.48,.65);
 }
 export function masonry(kit:string):ModelMaterial {
-  return {pattern:3,color:pigment(/obsidian/.test(kit)?0x514d60:/elven/.test(kit)?0xb0ab91:/orcan/.test(kit)?0x8e7961:0x969181)};
+  return atlasMaterial('architecture',/obsidian|darkav/.test(kit)?9:/elven|noble/.test(kit)?8:/alpine|longhouse/.test(kit)?10:3,.55,.45);
 }
 export function roofMaterial(id:string):ModelMaterial {
-  return {pattern:6,color:pigment(/old-cottage|^cottage$/.test(id)?0xa08248:/elven/.test(id)?0x4c7e79:/inn/.test(id)?0x59685b:/chapel|shrine/.test(id)?0x817866:/manor|castle/.test(id)?0x5b6271:0x56636d)};
+  return atlasMaterial('architecture',/old-cottage|^cottage$/.test(id)?5:/elven/.test(id)?6:4,.42,.38);
 }
 
 /** One atlas-compatible mesh per existing batch. Every structural face belongs
@@ -37,6 +39,7 @@ export class ModelMesh {
   private readonly uvs:number[]=[];private readonly rects:number[]=[];private readonly repeats:number[]=[];
   private readonly pivots:number[]=[];private cutoutPivot:readonly number[]=[0,0,0,0];
   private tileSize(mat:ModelMaterial):readonly [number,number] {
+    if('atlas' in mat)return mat.scale;
     if('color' in mat)return [1,1];
     if('patch' in mat)return mat.tile;
     return [Math.max(.005,(mat[2]-mat[0])*this.unit),Math.max(.005,(mat[3]-mat[1])*this.region.height/this.region.width*this.unit)];
@@ -47,6 +50,9 @@ export class ModelMesh {
     const r=this.region;
     let rect:readonly number[],center:readonly [number,number];
     if(artUV){rect=[0,0,0,0];center=[0,0];}
+    else if('atlas' in mat){
+      rect=this.emission?[...mat.emission!,-1]:[mat.tile%4/4,1-(Math.floor(mat.tile/4)+1)/4,.25,mat.atlas==='architecture'?-16:-17];center=[.5,.5];
+    }
     else if('color' in mat){const rgb=this.emission?mat.emission!:mat.color;rect=[...rgb,this.emission?-1:-(mat.pattern??1)];center=[.5,.5];}
     else{const [l,t,right,bottom]='patch' in mat?mat.patch:mat;rect=[r.left+l*r.width,1-r.top-bottom*r.height,(right-l)*r.width,(bottom-t)*r.height];center=[rect[0]+rect[2]/2,rect[1]+rect[3]/2];}
     const x=b[0]-a[0],y=b[1]-a[1],z=b[2]-a[2],u=c[0]-a[0],v=c[1]-a[1],w=c[2]-a[2];
@@ -64,7 +70,9 @@ export class ModelMesh {
   quad(a:V3,b:V3,c:V3,d:V3,mat:ModelMaterial){
     const [px,py]=this.tileSize(mat);
     const rx=Math.hypot(b[0]-a[0],b[1]-a[1],b[2]-a[2])/px,ry=Math.hypot(c[0]-a[0],c[1]-a[1],c[2]-a[2])/py;
-    this.triangle(a,b,c,mat,[[0,0],[rx,0],[0,ry]]);this.triangle(b,d,c,mat,[[rx,0],[rx,ry],[0,ry]]);
+    const grain='atlas' in mat&&(mat.atlas==='furnishings'&&[0,1,2].includes(mat.tile)||mat.atlas==='architecture'&&[0,1,11].includes(mat.tile));
+    const uv=(x:number,y:number):readonly [number,number]=>grain&&rx>ry*1.8?[y,x]:[x,y];
+    this.triangle(a,b,c,mat,[uv(0,0),uv(rx,0),uv(0,ry)]);this.triangle(b,d,c,mat,[uv(rx,0),uv(rx,ry),uv(0,ry)]);
   }
   cutout(a:V3,b:V3,c:V3,d:V3,source:Patch){
     if(this.emission&&this.cutoutPivot[3]<=0)return;

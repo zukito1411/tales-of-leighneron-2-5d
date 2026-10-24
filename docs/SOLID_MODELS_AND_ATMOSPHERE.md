@@ -3,15 +3,14 @@
 ## Artwork and model identity
 
 Structural meshes retain closed sides, backs, rounded lids, legs, joinery and
-character-relative furniture heights. Their timber, masonry and roofing now
-sample the original object's painted atlas instead of replacing it with flat
-procedural pigments. Material tiles use model-unit scale and mirrored repeats;
+character-relative furniture heights. Their timber, masonry, roofing and regional fabrics now use the dedicated
+painted atlas set documented in PAINTED_MATERIAL_ASSETS.md. Material tiles use model-unit scale and mirrored repeats;
 whole building paintings are not pasted across their fronts. Alpha-trimmed
 building frames remap source material/feature crops into the retained rectangle.
 
-Carved doors, windows, regional upholstery, quilts, book rows, cabinet panels,
-cloth emblems, papers and small fittings use selected parts of the original art
-on the corresponding model surfaces. Small planar keepsakes retain their art.
+Ordinary doors, windows, upholstery, quilts and cabinet panels use purpose-made
+flat diffuse textures on physical parts. Full-object/warped feature patches are
+removed from those surfaces. Small naturally planar details retain their art. Small planar keepsakes retain their art.
 Regional centerpieces distinguish the alpine monument, dwarven forge, maritime
 net stand, winter sofa, elven fountain, obsidian brazier and noble/orcan seats.
 Smithies have recessed workshops, chimney masonry, workbenches and source fires.
@@ -22,8 +21,8 @@ Fire is cropped original artwork on a camera-facing plane within the existing
 instanced model batch, with gentle shader sway/flicker. A warm-color mask rejects
 stone/log pixels in the crop. It casts no solid cone shadow. Broken quest beacons
 remain unlit, and the shared quest well has no invented canopy. Lantern panes
-use their own artwork, including the blue story lantern. No new image files,
-per-object textures, model draw passes or dependencies are introduced.
+use their own artwork, including the blue story lantern. Two fixed shared material PNGs are introduced; no per-object texture, additional
+model draw pass or dependency is introduced.
 
 ## Separate terrain and walk surfaces
 
@@ -38,12 +37,12 @@ characters, camera/attachment projection, decals and ground contacts. A coarse
 ship. The grid resolution, scheduling and streaming radius are unchanged.
 
 Timber crossings use the original surveyed 90..393 / 196..261 source deck and
-original plank/post textures on a level deck with solid supports and sagging
-ropes. Spatial boot no longer removes rail masks from the source deck texture.
+dedicated painted timber/plank materials on a level deck with solid supports
+and sagging ropes. Spatial boot no longer removes rail masks from the source deck texture.
 Other existing dock/bridge floor artwork stays level above the water.
 
-The flagship shares its hull survey with art preparation. A continuous deck
-supports the original painted hatches/planks and a level gangplank. Separate
+The flagship shares its hull survey with art preparation. A continuous deck supports dedicated painted boards, modeled hatch grates and
+a level gangplank. Separate
 stern and mast masks cannot leave holes through the floor. Rig extraction keeps
 the supplied furled black/red sail rather than an invented white sail. Hull,
 boarding, collision, crew/navigation and save XY coordinates are preserved.

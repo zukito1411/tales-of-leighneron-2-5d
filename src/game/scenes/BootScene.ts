@@ -1,3 +1,5 @@
+import {PAINTED_MODEL_ATLASES} from '../presentation25d/PaintedMaterials';
+import {preparePresentationSource} from '../presentation25d/resourcePreparation';
 import Phaser from 'phaser';
 import {installBootImageLoading} from '../systems/BootImageLoading';
 import {isGameDisposing} from '../systems/gameLifetime';
@@ -182,6 +184,7 @@ export class BootScene extends Phaser.Scene {
     installBootImageLoading(this);
     this.registry.set('loadingLastAsset','Waiting for first asset');
     this.load.on('filecomplete',(key:string)=>this.registry.set('loadingLastAsset',key));
+    for(const atlas of PAINTED_MODEL_ATLASES)this.load.image(atlas.key,atlas.path);
     this.load.image(SWORD_SOURCE,'assets/items/equipment-v1.png');
     loadAwakenedSwords(this);
     this.load.image(COMBAT_EFFECT_TEXTURE,'assets/effects/combat-arts-v1.png');
@@ -705,6 +708,16 @@ export class BootScene extends Phaser.Scene {
       if(optimized%3===0)await this.yieldArtworkFrame();
     }
     if(!this.startupActive())return;
+    this.registry.set('loadingStage','Preparing scenery');
+    for(const atlas of PAINTED_MODEL_ATLASES){
+      const source=this.textures.getFrame(atlas.key)?.source;
+      if(!source?.image)throw new Error('Missing painted model material: '+atlas.path);
+      const started=performance.now();
+      while(!preparePresentationSource(this.game,source)){
+        await this.yieldArtworkFrame();if(!this.startupActive())return;
+        if(performance.now()-started>15000)throw new Error('Model material upload did not finish');
+      }
+    }
     this.registry.set('loadingStage','Preparing world');
     this.startupPhase='world';
     this.scene.start('world');

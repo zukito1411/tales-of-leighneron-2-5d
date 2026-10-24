@@ -7,6 +7,7 @@ import type Phaser from 'phaser';
 export interface DistanceAtmosphere {
   fogFocus:{value:import('three').Vector2};fogColor:{value:import('three').Color};fogRange:{value:import('three').Vector2};
   visualTime?:{value:number};
+  architectureAtlas?:{value:Texture|null};furnishingsAtlas?:{value:Texture|null};
   structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
 }
 
@@ -125,6 +126,8 @@ varying vec2 groundPosition;
 varying vec4 materialRect;
 varying vec2 materialUV;
 varying float paintedFire;
+uniform sampler2D architectureAtlas;
+uniform sampler2D furnishingsAtlas;
 #endif
 uniform int clipCount;
 uniform vec4 clipRects[16];
@@ -135,7 +138,14 @@ float cutaway(vec4 subject){
 }
 #ifdef STRUCTURE_SURFACES
 float materialNoise(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
+vec3 paintedMaterialPixel(){
+  vec2 within=1.0-abs(fract(materialUV*.5)*2.0-1.0);
+  // Four-pixel gutters inside each cell avoid adjacent material/atlas bleed.
+  vec2 uv=materialRect.xy+mix(vec2(.012),vec2(.988),within)*.25;
+  return materialRect.w< -16.5?texture2D(furnishingsAtlas,uv).rgb:texture2D(architectureAtlas,uv).rgb;
+}
 vec3 modelPigment(){
+  if(materialRect.w< -15.5)return paintedMaterialPixel();
   vec3 base=materialRect.xyz;float kind=-materialRect.w;
   if(kind<1.5)return base;
   vec2 p=materialUV;
@@ -289,7 +299,7 @@ export class SpriteBatch {
   constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms){
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,

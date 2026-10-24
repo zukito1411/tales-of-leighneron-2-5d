@@ -1,4 +1,4 @@
-import {ModelMesh,paintedMaterial,brass,glass,pigment,regionalFabric,regionalWood,type ModelMaterial,type V3} from './ModelMesh';
+import {ModelMesh,atlasMaterial,paintedMaterial,brass,glass,pigment,regionalFabric,regionalWood,masonry,roofMaterial,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 
@@ -39,13 +39,6 @@ const houseWindows:Record<string,Patch>={
   'elven-cottage':[.18,.58,.28,.78],'elven-manor':[.44,.53,.59,.73],
   'elven-chapel':[.36,.27,.61,.73],'elven-guildhall':[.24,.47,.34,.65],
   'elven-estate':[.43,.51,.58,.74],'elven-palace':[.45,.30,.56,.57],
-};
-const houseDoors:Record<string,Patch>={
-  cottage:[.43,.67,.64,.94],inn:[.25,.76,.46,.96],hall:[.43,.56,.59,.93],manor:[.37,.67,.53,.94],
-  chapel:[.38,.44,.61,.89],storehouse:[.42,.60,.63,.94],castle:[.44,.64,.61,.97],
-  'elven-cottage':[.40,.61,.61,.94],'elven-manor':[.42,.70,.60,.96],
-  'elven-chapel':[.38,.42,.62,.88],'elven-guildhall':[.41,.59,.60,.93],
-  'elven-estate':[.45,.62,.57,.96],'elven-palace':[.44,.61,.57,.93],
 };
 const profiles:Partial<Record<ArtTextureKey,Readonly<Record<number,HouseProfile>>>>={
   world_objects:{
@@ -160,15 +153,12 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
   const {profile,left,top,width,height,depth}=shape;
   const m=new ModelMesh(shape,emission,width);
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
-  // The original art supplies each building's palette, brushwork and wear.
-  // Use wall/roof swatches on every side, never the whole facade painting.
-  const wall:ModelMaterial=paintedMaterial(crop(profile.wall),width*.24,height*.24);
-  const tiles:ModelMaterial=/^masonry-|^panel$/.test(profile.id)?wall:paintedMaterial(crop(profile.tiles),width*.32,height*.22);
-  const doorPaint=houseDoors[profile.id];
-  const woodPatch:Patch|undefined=doorPaint?[doorPaint[0]+(doorPaint[2]-doorPaint[0])*.12,doorPaint[1]+(doorPaint[3]-doorPaint[1])*.55,doorPaint[0]+(doorPaint[2]-doorPaint[0])*.28,doorPaint[1]+(doorPaint[3]-doorPaint[1])*.82]:undefined;
-  const wood:ModelMaterial=/timber-watchtower/.test(profile.id)?paintedMaterial(crop(profile.wall),width*.15,height*.32):woodPatch?paintedMaterial(crop(woodPatch),width*.12,height*.30):regionalWood(profile.id);
+  // Dedicated flat diffuse materials wrap every elevation consistently.
+  const wall:ModelMaterial=profile.id==='panel'?paintedMaterial(profile.wall,width*.24,height*.24):/timber-watchtower|stable/.test(profile.id)?atlasMaterial('architecture',1,width*.50,height*.60):/old-cottage|^cottage$|^inn$|old-inn/.test(profile.id)?atlasMaterial('architecture',2,width*.55,height*.55):masonry(profile.id);
+  const tiles:ModelMaterial=/^masonry-|^panel$/.test(profile.id)?wall:roofMaterial(profile.id);
+  const wood:ModelMaterial=regionalWood(profile.id);
   const pane:ModelMaterial=profile.id==='tower-of-might'?{color:pigment(0x322e4e),emission:pigment(0x9981e5)}:glass;
-  const darkWood:ModelMaterial={color:pigment(0x4b3828),pattern:2};
+  const darkWood=atlasMaterial('furnishings',2,.45,.65);
   const P=(x:number,y:number,z:number):V3=>[left+x*width-.5,.5-top-y*height,z];
   const B=(l:number,r:number,t:number,b:number,z:number,back:number,mat:ModelMaterial=wall)=>{
     const a=P(l,b,back),c=P(r,t,z);m.box(a[0],c[0],a[1],c[1],back,z,mat);
@@ -177,8 +167,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
     const nx=-rz,nz=rx;
     const p=(x:number,y:number,out=0):V3=>[cx+rx*x+nx*out,cy+y,cz+rz*x+nz*out];
     m.quad(p(-w/2,-h/2,.003),p(w/2,-h/2,.003),p(-w/2,h/2,.003),p(w/2,h/2,.003),pane);
-    const source=houseWindows[profile.id];
-    if(source)m.cutout(p(-w/2,-h/2,.006),p(w/2,-h/2,.006),p(-w/2,h/2,.006),p(w/2,h/2,.006),crop(source));
+
     for(const y of [-h/2,h/2])m.beam(p(-w/2-.007,y,.012),p(w/2+.007,y,.012),.008,wood);
     for(const x of [-w/2,w/2])m.beam(p(x,-h/2,.012),p(x,h/2,.012),.008,wood);
     m.beam(p(0,-h/2,.014),p(0,h/2,.014),.004,brass);
@@ -188,15 +177,14 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
     const dh=Math.min(.28,(base-eave)*.88),l=cx-.082,r=cx+.082,head=base-dh;
     B(l,r,head,base,z+.009,z-.005,darkWood);
     for(let i=0;i<5;i++)B(l+i*(r-l)/5+.002,l+(i+1)*(r-l)/5-.002,head+.006,base-.004,z+.015,z+.009,wood);
-    const source=houseDoors[profile.id];
-    if(source)m.cutout(P(l+.006,base-.006,z+.018),P(r-.006,base-.006,z+.018),P(l+.006,head+.006,z+.018),P(r-.006,head+.006,z+.018),crop(source));
+
     for(const x of [l-.012,r+.012])B(x-.010,x+.010,head-.012,base,z+.028,z-.008,wall);
     B(l-.022,r+.022,head-.022,head,z+.028,z-.008,wall);
     for(const y of [head+dh*.22,base-dh*.22])B(l,r,y,y+.012,z+.025,z+.015,metalDoor);
     const knob=P(r-.025,base-dh*.48,z+.030);m.beam(knob,[knob[0],knob[1],knob[2]+.013],.008,brass,8);
     for(let i=0;i<2;i++)B(l-.04,r+.04,base-.025*(2-i),base,z+.045+i*.035,z,wall);
   };
-  const metalDoor:ModelMaterial={color:pigment(0x45474a)};
+  const metalDoor=atlasMaterial('furnishings',3,.22,.22);
   if(profile.curtain&&shape.segment){
     const box=(l:number,r:number,b:number,t:number)=>m.box(l,r,b,t,-1,0,wall);
     box(-.5,.5,-.5,.30);
@@ -208,7 +196,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
     for(const tier of profile.tiers){
       const r=(tier.right-tier.left)*width/2+inflate,cx=left+(tier.left+tier.right)*width/2-.5;
       const low=P(0,tier.bottom===bottom?Math.max(bottom,shape.ground??bottom):tier.bottom,0)[1],high=P(0,tier.top,0)[1];
-      m.cylinder(cx,centerZ,low,high,r,r,paintedMaterial(crop(tier.patch??profile.wall),width*.24,height*.24),32);
+      m.cylinder(cx,centerZ,low,high,r,r,wall,32);
       if(tier.bottom-tier.top>.25){
         const rows=tier.bottom-tier.top>.5?2:1;
         for(let row=0;row<rows;row++)for(let i=0;i<4;i++){
@@ -237,7 +225,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       const y=P(0,main.top+(main.bottom-main.top)*.28,0)[1],h=(main.bottom-main.top)*height*.29,w=r*.62;
       const z=centerZ+r+.012;
       m.extrude([[centerX-w/2,y],[centerX+w/2,y],[centerX+w/2,y-h*.82],[centerX,y-h],[centerX-w/2,y-h*.82]],z,z-.006,regionalFabric(profile.id));
-      m.cutout([centerX-w/2,y-h,z+.001],[centerX+w/2,y-h,z+.001],[centerX-w/2,y,z+.001],[centerX+w/2,y,z+.001],crop(banner));
+
     }
     const base=Math.max(bottom,shape.ground??bottom),main=profile.tiers.reduce((a,b)=>b.bottom-b.top>a.bottom-a.top?b:a);
     door((main.left+main.right)/2,base,main.top,centerZ+(main.right-main.left)*width/2+.002);
@@ -294,7 +282,7 @@ export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
       if(forge){
         // An open forge and a chimney identify a smithy from every angle.
         // The original fire is a cropped effect, with solid masonry around it.
-        const fireStone=paintedMaterial(crop([.75,.12,.82,.36]),width*.12,height*.20);
+        const fireStone=atlasMaterial('architecture',15,width*.30,height*.30);
         B(.22,.75,eave+.05,base,-depth+.025,-depth,wall);
         B(.72,.89,.08,base-.31,.035,-depth*.26,fireStone);
         B(.72,.745,base-.31,base-.10,.035,-depth*.26,fireStone);

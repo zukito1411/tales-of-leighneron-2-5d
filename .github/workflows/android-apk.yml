@@ -135,10 +135,10 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Buildings, furniture and props reuse their original painted materials and
-          selected carved doors, windows, upholstery, emblems and smaller details
-          on solid model surfaces. Regional centerpieces and smithies regain their
-          distinct forms. Fire uses the supplied artwork with subtle shader motion;
+          Buildings, furnishings and props use purpose-made painted timber, stone,
+          roofing, metal and regional fabrics on solid model surfaces. Warped object
+          paintings have been removed from ordinary furniture and house surfaces.
+          Regional centerpieces and smithies retain their distinct forms. Fire uses the supplied artwork with subtle shader motion;
           broken quest beacons stay unlit. Trees and flowers keep their artwork.
 
           Bridges have level surveyed decks, plank/post textures, supports and
