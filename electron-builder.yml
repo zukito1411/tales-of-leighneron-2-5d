@@ -1,0 +1,20 @@
+appId: com.mernondna.rpg25d.desktop
+productName: Tales of Leighneron 2.5D
+directories:
+  output: windows-release
+files:
+  - dist/**/*
+  - desktop/main.cjs
+  - package.json
+extraMetadata:
+  main: desktop/main.cjs
+asar: true
+compression: normal
+win:
+  icon: public/icons/tales-of-leighneron-512.png
+  target:
+    - target: portable
+      arch:
+        - x64
+artifactName: Tales-of-Leighneron-2.5D-Windows.exe
+publish: null
