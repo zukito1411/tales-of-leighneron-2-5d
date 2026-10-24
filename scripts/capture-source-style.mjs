@@ -105,7 +105,6 @@ async function enter(townId,profile){
     await leave();
   }
   await gallery('highmere','castle','01-highmere-source-furniture',{x:1160,y:1110});
-  await gallery('elarion','villa','02-elven-source-furniture',{x:550,y:930});
   // Back to the unmodified overworld simulation after interior captures.
   async function outside(point,yaw=25,zoom=1.0,aim=45,fov=38){
     await page.evaluate(async({point,yaw,zoom,aim,fov})=>{
