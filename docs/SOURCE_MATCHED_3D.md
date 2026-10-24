@@ -23,20 +23,16 @@ both sides and a grounded green skirt on horizontal sections. Ordinary trees kee
 billboards. Their visible foot, rather than the padded frame edge, meets the soil.
 Only the Tree of Life switches to a fixed rounded volume shaped by its source.
 
-`sourceVolumes.json` contains bounded 64x64 quantized depth surveys of the original
-Tree of Life and four complete horse strides. `scripts/author-source-volumes.py`
-reproduces them offline from the retained PNG masters and records source hashes.
-The meshes are closed rounded image-shaped shells, not newly sculpted anatomical
-assets. Their paint and exact front/side silhouettes remain the original artwork;
-rear surfaces reuse that paint. No parts of different horse poses are stitched.
-Runtime constructs indexed position/normal/UV buffers once per shared prefab.
-There are no pixel reads, decoding, texture generation or geometry rebuilds in the
-animation loop. These modest source-based volumes are a deliberate 2.5D treatment.
+The Tree of Life continues to use its original painted 64x64 rounded depth
+survey in `sourceVolumes.json`, reproduced offline by
+`scripts/author-source-volumes.py`. Its source artwork, foliage grounding,
+and deterministic shared mesh caching are unchanged.
 
-The merchant cart follows the source's open timber body, cream sacks, green roll,
-barrel and iron fittings. Spoked wheels rotate rigidly in the existing shader from
-travel distance, so stopping also stops the wheels. Horse and cart use route
-heading instead of camera yaw. The old 2D presentation path is preserved.
+Roaming horse-drawn merchant carts and all traveling horses have been retired.
+The road-caravan generator, horse gait canvases, dedicated mesh/rig baking,
+wheel-pose shader paths, and their public art bundles were removed. Static
+world wagon props remain, as do sea-route and docked boat traffic. Historic
+artwork and source revisions can be recovered from Git history.
 
 Jagged edges receive contrast-adaptive FXAA in the existing composite pass, with
 no extra render target, history buffer, world redraw or MSAA depth resolve. The
@@ -53,9 +49,8 @@ Follow-up visual review corrected material crops that included hoop edges or
 transparent backdrop. The offline source surveys now select opaque timber and
 stone from each registered source subject, with no extra runtime image reads.
 Canopy depth follows a closed, smoothed crown envelope instead of individual leaf
-holes. Horse/cart meshes opt out of the scenery cutaway; houses and walls retain
-the character sight-line opening. The merchant bedroll is green and its cream
-sacks have tapered, tied necks. Flower fence posts follow the original spacing,
+holes. Houses and walls retain the character sight-line opening.
+Flower fence posts follow the original spacing,
 with the same physical height across horizontal and vertical source views.
 
 Final source checks keep the regular village well's timber, beige stone and
