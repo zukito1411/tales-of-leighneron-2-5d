@@ -54,7 +54,11 @@ class ReviewScene extends Phaser.Scene {
     };
     if(kind==='world'){
       const sheets=ART_SHEETS.filter(sheet=>sheet.key===key);
-      const boot=Object.assign(Object.create(BootScene.prototype) as BootScene,{sys:this.sys,game:this.game,textures:this.textures,registry:this.registry,startupCancelled:false});
+      // Keep the scene prototype's private state out of the inferred type:
+      // intersecting a public object with private startupCancelled reduced the
+      // whole result to never and blocked both browser and Android builds.
+      const boot=Object.create(BootScene.prototype) as BootScene;
+      Object.assign(boot,{sys:this.sys,game:this.game,textures:this.textures,registry:this.registry,startupCancelled:false});
       await boot.prepareRegisteredSheets(sheets);
       this.sprites=new WorldSpriteSystem(this,this.physics.add.staticGroup());
       const sheet=ART_BY_KEY[key],building=/buildings|villas|world_objects/.test(key);
