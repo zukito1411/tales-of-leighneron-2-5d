@@ -7,7 +7,7 @@ import {saveGame} from '../../utils/save';
 import type {WorldScene} from '../scenes/WorldScene';
 import type {Enemy} from '../entities/Enemy';
 import type {NavigationMarker,Vec2} from '../types';
-import {TOWER_ART,TOWER_ENTRY_ID,TOWER_DOOR,TOWER_UNLOCKED,TOWER_CHAMBERS,TOWER_FLOORS,towerEntryFloor,towerCampaignComplete,towerKnown,TOWER_NORTH_DOOR,TOWER_PORTAL,towerPracticeAvailable,towerFloorProgress} from '../../data/towerOfMight';
+import {TOWER_ART,TOWER_ENTRY_ID,TOWER_DOOR,TOWER_APPROACH,TOWER_UNLOCKED,TOWER_CHAMBERS,TOWER_FLOORS,towerEntryFloor,towerCampaignComplete,towerKnown,TOWER_NORTH_DOOR,TOWER_PORTAL,towerPracticeAvailable,towerFloorProgress} from '../../data/towerOfMight';
 import {artScale} from '../../data/art';
 import {grandMagusFarewell} from './GrandMagusArt';
 import {TOWER_SOUTH_ENTRY} from '../../data/towerRoom';
@@ -74,7 +74,7 @@ export class DungeonSystem {
     if(!towerCampaignComplete(useGameStore.getState().quests)){
       const old=this.sites.get('tower-of-might');if(old){old.image.destroy();this.sites.delete('tower-of-might');}return null;
     }
-    const distance=Math.hypot(this.scene.player.x-TOWER_DOOR.x,this.scene.player.y-TOWER_DOOR.y);
+    const distance=Math.hypot(this.scene.player.x-TOWER_APPROACH.x,this.scene.player.y-TOWER_APPROACH.y);
     const site=this.sites.get('tower-of-might');
     if(distance>2200){if(site){site.image.destroy();this.sites.delete('tower-of-might');}}
     else if(!this.disposed){
@@ -85,23 +85,23 @@ export class DungeonSystem {
         this.scene.load.image({key:TOWER_TEXTURE,url:TOWER_ART,xhrSettings:{responseType:'blob',timeout:15000}});this.scene.load.start();
       }
       if(!site&&this.scene.textures.exists(TOWER_TEXTURE)){
-        // The standing target must be south of the cylinder, not inside it:
-        // InteriorSession.nearest deliberately rejects obstructed thresholds.
-        const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y-28,TOWER_TEXTURE).setOrigin(.5,1)
+        // Keep the authored exterior and collider fixed. The shared standing
+        // target is south of it, with clearance for the player’s full feet.
+        const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y+12,TOWER_TEXTURE).setOrigin(.5,1)
           .setDisplaySize(380,570).setDepth(TOWER_DOOR.y-50).setName('Tower of Might');
         image.setData(PRESENTATION_HINT,{plane:'upright',house:towerOfMightShape()} satisfies PresentationHint);
         this.scene.registerDungeonEntrance(image,true);
         image.setInteractive({useHandCursor:true}).on('pointerdown',()=>{
           const state=useGameStore.getState();if(state.panel||state.dialogue||state.cinematic)return;
-          if(Math.hypot(this.scene.player.x-TOWER_DOOR.x,this.scene.player.y-TOWER_DOOR.y)<95)
+          if(Math.hypot(this.scene.player.x-TOWER_APPROACH.x,this.scene.player.y-TOWER_APPROACH.y)<95)
             this.scene.tryInteract(this.scene.player.x,this.scene.player.y);
           else this.scene.notify('The Tower of Might stands north of Oakmere. Approach its southern doorway.');
         });
         this.sites.set('tower-of-might',{image,entry:{id:TOWER_ENTRY_ID,townId:'oakmere',name:'Tower of Might',
-          kit:'tower_of_might',door:{...TOWER_DOOR},hall:false,profile:'cave'}});
+          kit:'tower_of_might',door:{...TOWER_APPROACH},hall:false,profile:'cave'}});
       }
     }
-    return {id:TOWER_ENTRY_ID,kind:'landmark',service:'tower',label:'Tower of Might · north of Oakmere',...TOWER_DOOR};
+    return {id:TOWER_ENTRY_ID,kind:'landmark',service:'tower',label:'Tower of Might · north of Oakmere',...TOWER_APPROACH};
   }
   exteriorMarkers():NavigationMarker[]{
     if(this.scene.inInterior)return [];
