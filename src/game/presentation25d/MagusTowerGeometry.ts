@@ -8,15 +8,28 @@ export function createMagusTowerGeometry(shape:HouseShape,emission=false){
   const {width:W,height:H,depth:D}=shape,m=new ModelMesh(shape,emission,W);
   const x=shape.left+W*.505-.5,z=-D/2,b=.5-shape.top-H;
   const y=(v:number)=>b+v*H;
-  const stone=paintedMaterial([.59,.66,.625,.69],W*.15,H*.045);
-  const gold=paintedMaterial([.45,.172,.48,.18],W*.12,H*.025);
+  const stone=paintedMaterial([.55,.22,.576,.246],W*.15,H*.045);
+  const gold=paintedMaterial([.444,.735,.46,.743],W*.12,H*.025);
   const dark:ModelMaterial={color:pigment(0x191624)},violet:ModelMaterial={color:pigment(0x272039),emission:pigment(0x7563a0)};
   const r=W*.25,sides=32;
-  m.cylinder(x,z,b,y(.055),W*.325,W*.30,stone,sides);
-  m.cylinder(x,z,y(.055),y(.85),r,r,stone,sides);
+  // A real southern notch keeps the portal and stairs out of the foundation
+  // drum. Its rear/side shell stays closed around the recessed doorway.
+  const openBand=(low:number,high:number,outer:number,inner:number,mat:ModelMaterial,gap=.49)=>{
+    const p=(a:number,rr:number,h:number):V3=>[x+Math.sin(a)*rr,h,z+Math.cos(a)*rr];
+    for(let i=0;i<sides;i++){
+      const a=gap+(Math.PI*2-gap*2)*i/sides,c=gap+(Math.PI*2-gap*2)*(i+1)/sides;
+      m.quad(p(a,outer,low),p(c,outer,low),p(a,outer,high),p(c,outer,high),mat);
+      m.quad(p(c,inner,low),p(a,inner,low),p(c,inner,high),p(a,inner,high),mat);
+      m.quad(p(a,outer,high),p(c,outer,high),p(a,inner,high),p(c,inner,high),mat);
+      for(const t of i===0?[a]:i===sides-1?[c]:[])m.quad(p(t,inner,low),p(t,outer,low),p(t,inner,high),p(t,outer,high),mat);
+    }
+  };
+  openBand(b,y(.055),W*.325,W*.27,stone,.43);
+  openBand(y(.055),y(.225),r,r*.82,stone);
+  m.cylinder(x,z,y(.225),y(.85),r,r,stone,sides);
   for(const v of [.055,.255,.455,.655,.835]){
-    m.ring(x,z,y(v),y(v+.021),r*1.11,r*.96,gold,sides);
-    m.ring(x,z,y(v+.021),y(v+.035),r*1.065,r*.96,stone,sides);
+    if(v===.055){openBand(y(v),y(v+.021),r*1.11,r*.96,gold);openBand(y(v+.021),y(v+.035),r*1.065,r*.96,stone);}
+    else{m.ring(x,z,y(v),y(v+.021),r*1.11,r*.96,gold,sides);m.ring(x,z,y(v+.021),y(v+.035),r*1.065,r*.96,stone,sides);}
   }
   const path:readonly (readonly [number,number])[]=[[-.5,0],[.5,0],[.5,.65],[.34,.84],[0,1],[-.34,.84],[-.5,.65]];
   const lancet=(a:number,base:number,h:number,w:number,portal=false)=>{
@@ -35,14 +48,14 @@ export function createMagusTowerGeometry(shape:HouseShape,emission=false){
   for(let i=0;i<8;i++){
     const a=i/8*Math.PI*2,nx=Math.sin(a),nz=Math.cos(a),px=x+nx*r*1.025,pz=z+nz*r*1.025;
     // Pilasters and buttresses follow the cylinder instead of forming a box.
-    m.cylinder(px,pz,b,y(.79),W*.019,W*.016,stone,8);
-    for(const v of [.08,.27,.47,.67])m.cylinder(px,pz,y(v),y(v+.027),W*.032,W*.026,gold,8);
+    m.cylinder(px,pz,i===0?y(.225):b,y(.79),W*.019,W*.016,stone,8);
+    for(const v of [.08,.27,.47,.67])if(i!==0||v!==.08)m.cylinder(px,pz,y(v),y(v+.027),W*.032,W*.026,gold,8);
     const wx=x+nx*r*.99,wz=z+nz*r*.99;
     m.cylinder(wx,wz,y(.83),y(.95),W*.035,W*.035,stone,8);
     m.cylinder(wx,wz,y(.95),y(.984),W*.044,0,gold,8);
-    for(const v of [.09,.29,.49,.69])if(i!==0||v!==.09)lancet(a+Math.PI/8,v,H*.115,W*.072);
-    if(i!==0){
-      const rx=nz,rz=-nx,rr=r*1.04,cy=y(.49),ww=W*.052,hh=H*.13;
+    for(const v of [.09,.29,.49,.69])if(v!==.09||Math.cos(a+Math.PI/8)<.8)lancet(a+Math.PI/8,v,H*.115,W*.072);
+    for(const level of [.28,.48,.68]){
+      const rx=nz,rz=-nx,rr=r*1.14,cy=y(level),ww=W*.052,hh=H*.14;
       const point=(u:number,v:number):V3=>[x+nx*rr+rx*u*ww,cy+v*hh,z+nz*rr+rz*u*ww];
       if(!emission)m.cutout(point(-.5,0),point(.5,0),point(-.5,1),point(.5,1),[.475,.485,.525,.62]);
       for(const u of [-.58,.58])m.beam(point(u,0),point(u,1),W*.004,gold,4);

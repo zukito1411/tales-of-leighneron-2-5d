@@ -1,4 +1,4 @@
-import {ModelMesh,atlasMaterial,type V3} from './ModelMesh';
+import {ModelMesh,atlasMaterial,paintedMaterial,type Patch,type V3} from './ModelMesh';
 import type {FurnitureShape} from './FurnitureGeometry';
 
 export const BOAT_DECK_RATIO=.10;
@@ -10,7 +10,9 @@ export function coastalBoatShape():FurnitureShape {
     bounds:{left:-.47,right:.47,bottom:-.13,top:1.40,back:-.84,front:.78}};
 }
 export function createCoastalBoatGeometry(shape:FurnitureShape,emission=false){
-  const m=new ModelMesh(shape,emission),wood=atlasMaterial('furnishings',0,.35,.35),dark=atlasMaterial('furnishings',2,.30,.30),rim=atlasMaterial('furnishings',1,.25,.25),iron=atlasMaterial('furnishings',3,.09,.09),rope=atlasMaterial('furnishings',13,.16,.16);
+  const m=new ModelMesh(shape,emission),fit=280/617,left=(384-337*fit)/2,top=364-615*fit;
+  const patch=([l,t,r,b]:Patch):Patch=>[(left+(l-155)*fit)/384,(top+(t-8)*fit)/384,(left+(r-155)*fit)/384,(top+(b-8)*fit)/384];
+  const wood=paintedMaterial(patch([220,440,240,470]),.22,.28),dark=paintedMaterial(patch([205,370,215,394]),.18,.24),rim=paintedMaterial(patch([230,510,260,540]),.28,.14),iron=atlasMaterial('furnishings',3,.09,.09),rope=atlasMaterial('furnishings',13,.16,.16);
   const path=[[-.04,-.79],[-.24,-.58],[-.39,-.27],[-.42,.18],[-.32,.53],[-.15,.68],[.15,.68],[.32,.53],[.42,.18],[.39,-.27],[.24,-.58],[.04,-.79]] as const;
   const p=(i:number,v:number):V3=>{const [x,z]=path[(i+path.length)%path.length],f=.42+.58*v;return [x*f,-.12+v*.28,z*(.88+.12*v)];};
   for(let row=0;row<4;row++)for(let i=0;i<path.length;i++){
@@ -25,6 +27,9 @@ export function createCoastalBoatGeometry(shape:FurnitureShape,emission=false){
   }
   m.floor(path.map(([x,z])=>[x*.95,z*.96] as const),.10,wood,4);
   m.floor(path.map(([x,z])=>[x*.42,z*.88] as const),-.12,dark);
+  for(let i=-3;i<=3;i++){
+    const x=i*.09;m.beam([x,.102,-.68+Math.abs(x)*.9],[x,.102,.59-Math.abs(x)*.4],.002,dark,4);
+  }
   for(const z of [-.42,.33]){
     m.softBox(-.30,.30,.13,.17,z-.045,z+.045,wood,.009);
     for(const x of [-.27,.27])m.box(x-.015,x+.015,.10,.15,z-.022,z+.022,dark);
@@ -37,7 +42,6 @@ export function createCoastalBoatGeometry(shape:FurnitureShape,emission=false){
   // The cream triangular sail is sampled from the original boat's front
   // painting, with explicit source-to-prepared-frame registration.
   if(!emission){
-    const fit=280/617,left=(384-337*fit)/2,top=364-615*fit;
     const uv=(x:number,y:number):readonly [number,number]=>[(left+(x-155)*fit)/384,1-(top+(y-8)*fit)/384];
     m.triangle(tip,tack,clew,[0,0,1,1],undefined,undefined,[uv(314,57),uv(318,372),uv(453,324)]);
     m.triangle(clew,tack,tip,[0,0,1,1],undefined,undefined,[uv(453,324),uv(318,372),uv(314,57)]);
