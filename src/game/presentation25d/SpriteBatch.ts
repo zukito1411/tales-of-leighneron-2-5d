@@ -8,6 +8,8 @@ export interface DistanceAtmosphere {
   fogFocus:{value:import('three').Vector2};fogColor:{value:import('three').Color};fogRange:{value:import('three').Vector2};
   visualTime?:{value:number};
   architectureAtlas?:{value:Texture|null};furnishingsAtlas?:{value:Texture|null};buildingDetailsAtlas?:{value:Texture|null};
+  natureAtlas?:{value:Texture|null};
+  worldDepth?:{value:Texture|null};depthClipRange?:{value:Vector2};
   structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
 }
 
@@ -68,7 +70,9 @@ void main(){
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
   vec3 localPosition=position,localNormal=normal;
 #ifdef STRUCTURE_SURFACES
-  if(cutoutPivot.w<-.5){
+  if(cutoutPivot.w<-1.5){
+    localPosition+=cutoutPivot.xyz*tileRepeat.x;
+  }else if(cutoutPivot.w<-.5){
     float c=cos(tileRepeat.z),s=sin(tileRepeat.z);
     vec2 d=position.yz-cutoutPivot.yz;
     localPosition.yz=cutoutPivot.yz+vec2(c*d.x-s*d.y,s*d.x+c*d.y);
@@ -109,6 +113,9 @@ void main(){
 }`;
 const fragmentShader=`
 uniform sampler2D atlas;
+uniform sampler2D worldDepth;
+uniform vec2 depthClipRange;
+uniform bool occludedOverlay;
 uniform bool fillTint;
 uniform bool tiled;
 uniform bool shadow;
@@ -140,6 +147,7 @@ varying float paintedFire;
 uniform sampler2D architectureAtlas;
 uniform sampler2D furnishingsAtlas;
 uniform sampler2D buildingDetailsAtlas;
+uniform sampler2D natureAtlas;
 #endif
 uniform int clipCount;
 uniform vec4 clipRects[16];
@@ -160,6 +168,7 @@ vec3 paintedMaterialPixel(){
   // Derivatives must come from the continuous coordinates, not mirrored
   // fract seams. Swatch gutters remain isolated through the useful mip levels.
   vec2 dx=dFdx(materialUV)*.244,dy=dFdy(materialUV)*.244;
+  if(materialRect.w< -19.5)return textureGrad(natureAtlas,uv,dx,dy).rgb;
   if(materialRect.w< -17.5)return textureGrad(buildingDetailsAtlas,uv,dx,dy).rgb;
   return materialRect.w< -16.5?textureGrad(furnishingsAtlas,uv,dx,dy).rgb:textureGrad(architectureAtlas,uv,dx,dy).rgb;
 }
@@ -219,6 +228,17 @@ vec4 warningPixel(){
   return vec4(color,max(boundary*.85,inside*.07+fill*(.22+progress*.16)));
 }
 void main(){
+  // Only explicitly marked world glows use effectData as an occlusion record.
+  // The screen compositor keeps UI clear while lights sample real world depth.
+  if(occludedOverlay){
+    float centerRaw=texture2D(worldDepth,effectData.xy).r;
+    float pixelRaw=texture2D(worldDepth,gl_FragCoord.xy/cutawayViewport).r;
+    float n=depthClipRange.x,f=depthClipRange.y;
+    float centerDepth=n*f/(f-centerRaw*(f-n));
+    float pixelDepth=n*f/(f-pixelRaw*(f-n));
+    float lightDepth=n*f/(f-effectData.z*(f-n));
+    if(centerDepth+3.0<lightDepth||pixelDepth+1.0<lightDepth)discard;
+  }
   if(architecture&&cutawayEnabled){
     float reveal=max(cutaway(cutawaySubject),cutaway(cutawayTarget));
     // A stable sight-line cutout avoids crawling screen-door noise on walls.
@@ -250,7 +270,7 @@ void main(){
   // It shares the atlas draw and avoids sampling a whole painted facade.
   if(materialRect.w<0.0){
     pixel=vec4(shadow||fillTint?tint.rgb:modelPigment(),1.0);
-    if(materialRect.w< -18.5)pixel.a=texture2D(buildingDetailsAtlas,paintedMaterialUV()).a;
+    if(materialRect.w< -18.5&&materialRect.w> -19.5)pixel.a=texture2D(buildingDetailsAtlas,paintedMaterialUV()).a;
   }
   else
 #endif
@@ -266,7 +286,7 @@ void main(){
   // The cropped source contains the real painted flame, not a cone. Reject
   // dark logs/stone inside its rectangle so only fire moves with the camera.
   if(paintedFire>.5)pixel.a*=smoothstep(.22,.50,pixel.r)*smoothstep(.12,.30,pixel.r-pixel.b);
-  else if(materialRect.z>0.0&&materialRect.w>0.0)pixel.a=1.0;
+  else if(abs(materialRect.z)>0.0&&materialRect.w>0.0)pixel.a=1.0;
 #endif
   if(shadow){
 #ifdef STRUCTURE_SURFACES
@@ -319,10 +339,10 @@ export class SpriteBatch {
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
 
-  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms,cutawayEnabled=true){
+  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms,cutawayEnabled=true,occludedOverlay=false){
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{cutawayEnabled:{value:cutawayEnabled},cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},occludedOverlay:{value:occludedOverlay},cutawayEnabled:{value:cutawayEnabled},cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,

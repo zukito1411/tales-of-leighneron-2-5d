@@ -6,8 +6,14 @@ import {FOG_START,VIEW_DISTANCE} from './environment';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 
-const eraseVertex=`attribute vec4 light;varying vec2 localUV;void main(){localUV=uv;gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);}`;
-const eraseFragment=`varying vec2 localUV;void main(){float r=length((localUV-.5)*2.0);if(r>1.0)discard;float a=r<.3?mix(.88,.65,r/.3):.65*(1.0-(r-.3)/.7);gl_FragColor=vec4(0.0,0.0,0.0,a);}`;
+const eraseVertex=`attribute vec4 light;attribute float lightDepth;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying float sourceDepth;void main(){localUV=uv;sourceUV=light.xy*.5+.5;sourceDepth=lightDepth;gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);screenUV=gl_Position.xy*.5+.5;}`;
+const eraseFragment=`uniform sampler2D worldDepth;uniform vec2 clipRange;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying float sourceDepth;
+float eyeDepth(vec2 uv){float d=texture2D(worldDepth,uv).r;return clipRange.x*clipRange.y/(clipRange.y-d*(clipRange.y-clipRange.x));}
+void main(){float r=length((localUV-.5)*2.0);if(r>1.0)discard;
+// A light hidden by a wall must not erase darkness through that wall. Also
+// clip a visible light's pocket where nearer surfaces cover its outer halo.
+if(eyeDepth(sourceUV)+3.0<sourceDepth||eyeDepth(screenUV)+1.0<sourceDepth)discard;
+float a=r<.3?mix(.88,.65,r/.3):.65*(1.0-(r-.3)/.7);gl_FragColor=vec4(0.0,0.0,0.0,a);}`;
 const overlayVertex=`varying vec2 screenUV;void main(){screenUV=uv;gl_Position=vec4(position.xy,0.0,1.0);}`;
 const overlayFragment=`uniform sampler2D mask;uniform sampler2D worldDepth;uniform float darkness;uniform mat4 inverseVP;uniform vec2 focus;uniform vec2 fogRange;varying vec2 screenUV;void main(){
   float depth=texture2D(worldDepth,screenUV).r;if(depth>.999999)discard;
@@ -23,7 +29,9 @@ export class GpuNightMask {
   private readonly scene=new Scene();private readonly camera=new OrthographicCamera(-1,1,1,-1,0,1);
   private readonly geometry=new PlaneGeometry(1,1);private readonly overlayGeometry=new PlaneGeometry(2,2);
   private readonly lights=new InstancedBufferAttribute(new Float32Array(512*4),4).setUsage(DynamicDrawUsage);
-  private readonly erase=new ShaderMaterial({vertexShader:eraseVertex,fragmentShader:eraseFragment,transparent:true,depthTest:false,depthWrite:false,
+  private readonly lightDepths=new InstancedBufferAttribute(new Float32Array(512),1).setUsage(DynamicDrawUsage);
+  private readonly eraseUniforms={worldDepth:{value:null as Texture|null},clipRange:{value:new Vector2(2,4000)}};
+  private readonly erase=new ShaderMaterial({uniforms:this.eraseUniforms,vertexShader:eraseVertex,fragmentShader:eraseFragment,transparent:true,depthTest:false,depthWrite:false,
     blending:CustomBlending,blendEquation:AddEquation,blendSrc:ZeroFactor,blendDst:OneMinusSrcAlphaFactor,blendSrcAlpha:ZeroFactor,blendDstAlpha:OneMinusSrcAlphaFactor});
   private readonly holes=new InstancedMesh(this.geometry,this.erase,512);
   private readonly uniforms={mask:{value:null as Texture|null},worldDepth:{value:null as Texture|null},darkness:{value:0},inverseVP:{value:new Matrix4()},focus:{value:new Vector2()},fogRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)}};
@@ -32,10 +40,10 @@ export class GpuNightMask {
   private target:WebGLRenderTarget|undefined;private readonly color=new Color();
   private readonly point={x:0,y:0,z:0};private readonly edge={x:0,y:0,z:0};private readonly projected=new Vector3();
   constructor(screen:Scene){
-    this.geometry.setAttribute('light',this.lights);this.holes.frustumCulled=false;this.scene.add(this.holes);
+    this.geometry.setAttribute('light',this.lights);this.geometry.setAttribute('lightDepth',this.lightDepths);this.holes.frustumCulled=false;this.scene.add(this.holes);
     this.overlay.frustumCulled=false;this.overlay.renderOrder=1_000_000;this.overlay.visible=false;screen.add(this.overlay);
   }
-  active(night:number,interior:boolean){return night>0&&!interior&&getGraphicEffects().nightDarkness;}
+  active(night:number,_interior:boolean){return night>0&&getGraphicEffects().nightDarkness;}
   render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number,merged=false){
     const active=this.active(night,interior)&&Boolean(source&&depth);
     this.overlay.visible=active&&!merged;
@@ -54,14 +62,14 @@ export class GpuNightMask {
       if(dx*dx+dy*dy>reach*reach)continue;
       // Never project lights behind the camera: perspective division can
       // otherwise turn a rearward lantern into a fullscreen darkness eraser.
-      presentationAttachmentWorld(scene,actor,actor.x+node.x,actor.y+node.y,this.point);
+      presentationAttachmentWorld(scene,actor,actor.x+node.x,actor.y+node.y,this.point,node.fixture);
       this.projected.set(this.point.x,this.point.y,this.point.z).applyMatrix4(view.camera.matrixWorldInverse);
       const depth=-this.projected.z;
       if(!Number.isFinite(depth)||depth<=view.camera.near||depth>=view.camera.far)continue;
       this.projected.set(this.point.x,this.point.y,this.point.z).project(view.camera);
       const x=this.projected.x,y=this.projected.y;
       if(!Number.isFinite(x)||!Number.isFinite(y)||this.projected.z < -1||this.projected.z > 1)continue;
-      presentationAttachmentWorld(scene,actor,actor.x+node.x+node.radius,actor.y+node.y,this.edge);
+      this.edge.x=this.point.x+Math.cos(view.yaw)*node.radius;this.edge.y=this.point.y;this.edge.z=this.point.z-Math.sin(view.yaw)*node.radius;
       this.projected.set(this.edge.x,this.edge.y,this.edge.z).applyMatrix4(view.camera.matrixWorldInverse);
       if(-this.projected.z<=view.camera.near)continue;
       this.projected.set(this.edge.x,this.edge.y,this.edge.z).project(view.camera);
@@ -69,16 +77,19 @@ export class GpuNightMask {
       const rx=Math.min(1.2,Math.abs(this.projected.x-x)),ry=rx*camera.width/camera.height;
       if(rx<=0||x+rx<-1||x-rx>1||y+ry<-1||y-ry>1)continue;
       const flicker=node.fire?.96+Math.sin(source.presentationTime*.013+node.phase)*.04:1;
-      this.lights.setXYZW(count++,x,y,rx*flicker,ry*flicker);
+      this.lightDepths.setX(count,depth);this.lights.setXYZW(count++,x,y,rx*flicker,ry*flicker);
       if(count>=(low?18:512))break;
     }
     this.holes.count=count;this.holes.visible=count>0;this.lights.clearUpdateRanges();if(count){this.lights.addUpdateRange(0,count*4);this.lights.needsUpdate=true;}
+    this.lightDepths.clearUpdateRanges();if(count){this.lightDepths.addUpdateRange(0,count);this.lightDepths.needsUpdate=true;}
+    this.eraseUniforms.worldDepth.value=depth;this.eraseUniforms.clipRange.value.set(view.camera.near,view.camera.far);
     const previous=renderer.getRenderTarget(),alpha=renderer.getClearAlpha();renderer.getClearColor(this.color);
     try{renderer.setRenderTarget(this.target);renderer.setClearColor(0x000000,1);renderer.clear();if(count)renderer.render(this.scene,this.camera);}
     finally{renderer.setRenderTarget(previous);renderer.setClearColor(this.color,alpha);}
-    this.uniforms.mask.value=this.target.texture;this.uniforms.worldDepth.value=depth;this.uniforms.darkness.value=night*.84;
+    this.uniforms.mask.value=this.target.texture;this.uniforms.worldDepth.value=depth;this.uniforms.darkness.value=night*(interior?.58:.84);
     this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
     this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);
+    this.uniforms.fogRange.value.set(interior?10000:FOG_START,interior?20000:VIEW_DISTANCE);
   }
   get composition(){return {mask:this.uniforms.mask.value,darkness:this.uniforms.darkness.value};}
   // Night/day and indoor/outdoor switches are common. Keep the allocation

@@ -107,8 +107,18 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
+  private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},
+    fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
+  private nightScene:Phaser.Scene|undefined;private nightSource:DayNightSystem|undefined;
+  private nightAmount=0;private nightDensity=1;private nightMerged=false;
+  private readonly prepareNight=(depth:Texture)=>{
+    if(!this.nightScene)return;
+    this.gpuNight.render(this.renderer,this.nightScene,this.nightSource,depth,this.nightAmount,this.interior,this.nightDensity,this.nightMerged);
+    const composition=this.gpuNight.composition;
+    this.postFX.setNight(this.nightMerged?composition.mask:null,composition.darkness);
+  };
   private readonly rasters:RasterCache;
   private readonly transform=new Phaser.GameObjects.Components.TransformMatrix();
   private readonly parentTransform=new Phaser.GameObjects.Components.TransformMatrix();
@@ -173,7 +183,8 @@ export class ThreePresentation {
     this.diagnosticsParent=parent;this.syncDiagnosticsPanel();
     game.registry.set('presentationDiagnostics',this.frameDiagnostics);
     window.addEventListener(FRAME_DIAGNOSTICS_EVENT,this.onDiagnosticChange);
-    this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();});
+    this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();},
+      ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
     void this.postFX.warm(this.renderer);
     bindResourcePreparation(game,{request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source)});
@@ -214,6 +225,8 @@ export class ThreePresentation {
     if(furnishings?.source.image)this.atmosphere.furnishingsAtlas.value=this.textures.get(furnishings.source,this.frame);
     const details=scene.textures.exists(PAINTED_MODEL_ATLASES[2].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[2].key):undefined;
     if(details?.source.image)this.atmosphere.buildingDetailsAtlas.value=this.textures.get(details.source,this.frame);
+    const nature=scene.textures.exists(PAINTED_MODEL_ATLASES[3].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[3].key):undefined;
+    if(nature?.source.image)this.atmosphere.natureAtlas.value=this.textures.get(nature.source,this.frame);
     this.atmosphere.visualTime.value=this.game.loop.time/1000;
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
@@ -274,17 +287,16 @@ export class ThreePresentation {
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
     const nightActive=this.gpuNight.active(night,this.interior);
     const mergeNight=nightActive&&!this.screen.children.some(object=>object.visible&&object.renderOrder<1_000_000);
-    if(nightActive){
-      const depth=this.postFX.prepareWorld(this.renderer.domElement.width,this.renderer.domElement.height);
-      this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,depth,night,this.interior,density,mergeNight);
-    }else this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,null,night,this.interior,density);
-    const nightComposition=this.gpuNight.composition;
-    this.postFX.setNight(mergeNight?nightComposition.mask:null,nightComposition.darkness);
+    this.nightScene=scene;this.nightSource=presentation.presentationLighting;this.nightAmount=night;this.nightDensity=density;this.nightMerged=mergeNight;
+    if(!nightActive){this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,null,night,this.interior,density);this.postFX.setNight(null,0);}
     this.postFX.render(this.renderer,{world:this.world,camera:this.orbit.camera,background:this.background,backgroundCamera:this.screenCamera,
       width:this.renderer.domElement.width,height:this.renderer.domElement.height,density:density*this.renderScale,focus:presentation.presentationFocus,
       lockedTarget,lockedGroundHeight:lockedTarget?this.heightAt(lockedTarget.x,lockedTarget.y):0,focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
       night,interior:this.interior,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
-      depthNeeded:this.gpuWeather.needsDepth||this.gpuNight.active(night,this.interior),weather:weather?.presentation,mist:this.gpuWeather.fog});
+      depthNeeded:this.gpuWeather.needsDepth||nightActive||night>0&&getGraphicEffects().lightBloom,
+      afterWorldRender:this.prepareNight,weather:weather?.presentation,mist:this.gpuWeather.fog});
+    this.overlayAtmosphere.worldDepth.value=this.postFX.depth;
+    this.overlayAtmosphere.depthClipRange.value.set(this.orbit.camera.near,this.orbit.camera.far);
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
 
     const profRender=this.frameDiagnostics?performance.now():0;
@@ -548,6 +560,12 @@ export class ThreePresentation {
     project(rect.left,rect.top+rect.height,this.p0);
     project(rect.left+rect.width,rect.top+rect.height,this.p1);
     project(rect.left,rect.top,this.p2);
+    if(hint?.occlude&&hint.overlay){
+      this.projected.copy(this.p1).add(this.p2).multiplyScalar(.5).project(this.orbit.camera);
+      if(!Number.isFinite(this.projected.z)||this.projected.z< -1||this.projected.z>1)return;
+      repeat=this.tileRepeat;repeat[0]=(this.projected.x+1)/2;repeat[1]=(this.projected.y+1)/2;
+      repeat[2]=(this.projected.z+1)/2;repeat[3]=2;
+    }
     if(hint?.overlay&&plane!=='screen'){
       // Preserve world anchoring while sharing exact depth order with screen
       // darkness and weather. These are tiny planes, not world screenshots.
@@ -616,9 +634,9 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
+    const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,furniture?.art!=='travel-horse'&&furniture?.art!=='travel-cart');this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,furniture?.art!=='travel-horse'&&furniture?.art!=='travel-cart',Boolean(hint?.occlude));this.batches.set(key,batch);}
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -632,6 +650,7 @@ export class ThreePresentation {
       repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=repeat[3]=0;
     }
     if(hint?.wheelAngle!==undefined){repeat=this.tileRepeat;repeat[0]=repeat[1]=repeat[3]=0;repeat[2]=hint.wheelAngle;}
+    else if(hint?.poseBlend!==undefined){repeat=this.tileRepeat;repeat[0]=hint.poseBlend;repeat[1]=repeat[2]=repeat[3]=0;}
     batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
     if(staticImage&&source)this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,

@@ -402,6 +402,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
   addInteriorContact(actor:Phaser.GameObjects.Sprite){return this.groundShadows.interiorContact(actor,y=>this.playerRenderDepth(y)-1);}
   addInteriorFurnitureContact(actor:Phaser.GameObjects.Image,width:number,depth:number){return this.groundShadows.interiorFurnitureContact(actor,width,depth);}
+  addInteriorLight(actor:Phaser.GameObjects.Image,art:string){this.dayNight.registerInterior(actor,art);}
   lightStorySignal(id:string){
     this.contentManager.getActor('story:signal-fire:'+id)?.setVisible(true);
     const clue=id==='mountain-signal'?'story:beacon-kit':id==='winter-signal'?'story:frost-lantern':undefined;
@@ -900,7 +901,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         if(!this.cinematicDirector.start(travelStore.pendingCinematic))travelStore.hydrate({pendingCinematic:travelStore.cinematicQueue[0]??null,cinematicQueue:travelStore.cinematicQueue.slice(1)});
       }
       if(this.cinematicDirector.active){this.updateCinematicPresentation(time,delta);return;}
-      this.interiors.update(time,delta,!this.focused||Boolean(travelStore.panel||travelStore.dialogue));
+      const interiorBlocked=!this.focused||Boolean(travelStore.panel||travelStore.dialogue);
+      this.dayNight.setFirefliesEnabled(false);
+      this.dayNight.update(interiorBlocked?0:delta,this.player.x,this.player.y);
+      this.interiors.update(time,delta,interiorBlocked);
       return;
     }
     this.enemySounds.pause(!this.focused||Boolean(travelStore.panel||travelStore.dialogue||travelStore.cinematic||this.passage.active));

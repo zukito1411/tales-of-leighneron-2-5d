@@ -109,10 +109,12 @@ export class WorldTrafficSystem {
         onPlane(wheel,'upright',sprite);
         (wheel.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=.6;
       }
-      onPlane(vehicle.horse,'upright',sprite);
+      // A complete directional pose owns its footpoint, independently of the
+      // wagon. Anchoring an upright sprite to the wagon lifts/tilts its body.
+      onPlane(vehicle.horse,'upright');
       if(this.scene.game.registry.get('presentation')==='three-2.5d'){
         sprite.setData(PRESENTATION_HINT,{plane:'upright',furniture:this.cartModel,wheelAngle:0} satisfies PresentationHint);
-        vehicle.horse.setData(PRESENTATION_HINT,{plane:'upright',furniture:this.horseModels[0]} satisfies PresentationHint);
+        vehicle.horse.setData(PRESENTATION_HINT,{plane:'upright',furniture:this.horseModels[0],poseBlend:0} satisfies PresentationHint);
         for(const wheel of vehicle.wheels)wheel.setVisible(false);
       }
     }else{
@@ -153,8 +155,9 @@ export class WorldTrafficSystem {
       setDepthIfChanged(wagon,cy).setFrame(0).setOrigin(.5,364/384).setRotation(heading).setPosition(cx,cy);
       const cartHint=wagon.getData(PRESENTATION_HINT) as PresentationHint;
       cartHint.wheelAngle=-distance/(wagon.displayWidth*this.cartModel.width*.22);
-      setDepthIfChanged(horse,hy).setTexture('horse-east',pose).setFlipX(false).setRotation(heading).setPosition(hx,hy);
-      (horse.getData(PRESENTATION_HINT) as PresentationHint).furniture=this.horseModels[pose];
+      setDepthIfChanged(horse,hy).setTexture('horse-east',0).setFlipX(false).setRotation(heading).setPosition(hx,hy);
+      const horseHint=horse.getData(PRESENTATION_HINT) as PresentationHint;
+      horseHint.furniture=this.horseModels[pose];horseHint.poseBlend=moving?(distance/11-Math.floor(distance/11)):0;
       // Rigid train shares an elevation through the hitch on slopes.
       vehicle.ground.x=cx;vehicle.ground.y=cy;
       return;

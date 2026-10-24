@@ -1,4 +1,4 @@
-import {ModelMesh,atlasMaterial,paintedMaterial,type Patch,type V3} from './ModelMesh';
+import {ModelMesh,atlasMaterial,type V3} from './ModelMesh';
 import type {FurnitureShape} from './FurnitureGeometry';
 
 export const BOAT_DECK_RATIO=.10;
@@ -13,8 +13,7 @@ export function createCoastalBoatGeometry(shape:FurnitureShape,emission=false){
   // Placement uses beam width, while these UV surveys cover the whole padded
   // frame. Do not apply the 160/384 placement ratio to source texture crops.
   const m=new ModelMesh({left:0,top:0,width:1,height:1},emission),fit=280/617,left=(384-337*fit)/2,top=364-615*fit;
-  const patch=([l,t,r,b]:Patch):Patch=>[(left+(l-155)*fit)/384,(top+(t-8)*fit)/384,(left+(r-155)*fit)/384,(top+(b-8)*fit)/384];
-  const wood=paintedMaterial(patch([220,440,240,470]),.22,.28),dark=paintedMaterial(patch([205,370,215,394]),.18,.24),rim=paintedMaterial(patch([230,510,260,540]),.28,.14),iron=atlasMaterial('furnishings',3,.09,.09),rope=atlasMaterial('furnishings',13,.16,.16);
+  const wood=atlasMaterial('furnishings',0,.45,.55),dark=atlasMaterial('furnishings',2,.40,.55),rim=atlasMaterial('furnishings',2,.45,.55),iron=atlasMaterial('furnishings',3,.09,.09),rope=atlasMaterial('furnishings',4,.16,.16);
   const path=[[-.04,-.79],[-.24,-.58],[-.39,-.27],[-.42,.18],[-.32,.53],[-.15,.68],[.15,.68],[.32,.53],[.42,.18],[.39,-.27],[.24,-.58],[.04,-.79]] as const;
   const p=(i:number,v:number):V3=>{const [x,z]=path[(i+path.length)%path.length],f=.42+.58*v;return [x*f,-.12+v*.28,z*(.88+.12*v)];};
   for(let row=0;row<4;row++)for(let i=0;i<path.length;i++){

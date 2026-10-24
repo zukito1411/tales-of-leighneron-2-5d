@@ -332,6 +332,7 @@ export class InteriorSession {
     image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
     if(art!=='rug'&&art!=='northWall'&&art!=='sideWall'){
       onFurniture(image,art,this.entry?.kit??'');
+      this.scene.addInteriorLight(image,art);
       if(this.entry?.profile!=='cave'&&art!=='doorway')this.addFurnitureContact(image);
     }
     return image;
@@ -382,7 +383,7 @@ export class InteriorSession {
         const north=side==='north',horizontal=north||side==='south',length=end-start;if(length<.5)continue;
         const nominalWidth=140/this.artHeight('northWall',1);
         const count=Math.max(1,Math.ceil(length/(spatial?nominalWidth:north?180:120))),step=length/count;
-        const thickness=north?40:22;
+        const thickness=spatial?22:north?40:22;
         this.wallSolids.push(horizontal?{x:start,y:north?axis:axis-thickness,width:length,height:thickness}
           :{x:side==='west'?axis:axis-thickness,y:start,width:thickness,height:length});
         for(let i=0;i<count;i++){
@@ -480,6 +481,9 @@ export class InteriorSession {
         .setResolution(2).setOrigin(.5).setDepth(DEPTH+3000).setAlpha(.7).setName('interior-room-title:'+r.id));
     }
     if(entry.profile!=='cave'&&scene.textures.exists('warm-light')){
+      const spatial=scene.game.registry.get('presentation')==='three-2.5d';
+      if(spatial){for(const r of plan.rooms)this.drawArt('lantern',r.x+65,r.y+100,40,DEPTH+r.y+100);}
+      else{
       const maskShape=this.own(scene.make.graphics({x:0,y:0}));maskShape.setVisible(false);
       for(const r of plan.floors)maskShape.fillStyle(0xffffff).fillRect(this.origin.x+r.x,this.origin.y+r.y,r.width,r.height);
       this.floorMask=maskShape.createGeometryMask();
@@ -490,6 +494,7 @@ export class InteriorSession {
           .setDisplaySize(290,220).setAlpha(.14).setBlendMode(Phaser.BlendModes.ADD)
           .setDepth(DEPTH+2500).setMask(this.floorMask));
         scene.tweens.add({targets:glow,alpha:.22,duration:1600+index*97,yoyo:true,repeat:-1});
+      }
       }
     }
     for(const resident of INTERIOR_RESIDENTS_BY_ENTRY[entry.id]??[]){
@@ -817,6 +822,7 @@ export class InteriorSession {
         .setDepth(spec.walkable?DEPTH-750:depth));
       if(item.art==='rug')onGround(image,.025);
       else onFurniture(image,item.art,item.kit,spec.h*32/spec.width);
+      this.scene.addInteriorLight(image,item.art);
       this.homeObjects.push(image);
       const shadow=this.addFurnitureContact(image);if(shadow)this.homeObjects.push(shadow);
       if(item.art==='bed')image.setInteractive({useHandCursor:true}).on('pointerdown',()=>{

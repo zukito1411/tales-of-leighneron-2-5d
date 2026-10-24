@@ -8,10 +8,12 @@ import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from './effectsQuality';
 import {getGraphicEffects} from './graphicsEffects';
 import {ensureNightLightArt,nightLightFrame} from './NightLightArt';
 import {INN_MORNING_MINUTE,innRestAvailable} from '../../data/innRest';
-import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay,onPlane} from '../presentation25d/plane';
+import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay,onPlane,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
 
 export interface LocalLight {
-  actor:Phaser.GameObjects.Sprite; x:number; y:number; radius:number; fire:boolean; phase:number;
+  actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite; x:number; y:number; radius:number; fire:boolean; phase:number;
+  fixture?:PresentationHint['fixture'];
   glow:Phaser.GameObjects.Image;
   cutout:Phaser.GameObjects.Image;
 }
@@ -89,7 +91,7 @@ export class DayNightSystem {
         radius:p.radius*Math.sqrt(scale),fire:p.fire,phase:index*.8+actor.x*.013+actor.y*.019,glow,
         cutout:this.scene.game.registry.get('presentation')==='three-2.5d'?this.scene.make.image({key:'warm-light',add:false})
           :this.scene.make.image({key:ensureNightLightArt(this.scene),frame:nightLightFrame(false,0,0),add:false})};
-      onOverlay(glow,actor);
+      onOverlay(glow,actor,true);
       this.lights.add(node);owned.push(node);
     }
     const ownedEmissions:Phaser.GameObjects.Sprite[]=[];
@@ -100,15 +102,19 @@ export class DayNightSystem {
           .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.004)
           .setBlendMode(Phaser.BlendModes.ADD).setData('emissionOwner',actor).setData('emissionType','tree-rune-glow')
           .setVisible(false).setName('tree-rune-glow:'+actor.name);
-        if(volumeTree){onPlane(runeGlow,'upright',actor);runeGlow.setData('volumeRune',true);}else onOverlay(runeGlow,actor);this.emissions.add(runeGlow);ownedEmissions.push(runeGlow);
+        if(this.scene.game.registry.get('presentation')==='three-2.5d')onPlane(runeGlow,'upright',actor);else onOverlay(runeGlow,actor);
+        if(volumeTree)runeGlow.setData('volumeRune',true);this.emissions.add(runeGlow);ownedEmissions.push(runeGlow);
       }
       const emission=this.scene.add.sprite(actor.x,actor.y,key+':emission',frame).setOrigin(actor.originX,actor.originY)
         .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.006).setBlendMode(Phaser.BlendModes.ADD).setAlpha(0)
         .setData('emissionOwner',actor).setVisible(false).setName('window-emission:'+actor.name);
       if(this.scene.textures.exists(key+':rune-glow')){
         emission.setData('emissionType','tree-runes').setName('tree-rune-emission:'+actor.name);
-        if(volumeTree){onPlane(emission,'upright',actor);emission.setData('volumeRune',true);}else onOverlay(emission,actor);
+        if(volumeTree)emission.setData('volumeRune',true);
       }
+      // Physical windows/lantern panes use their owner's actual mesh and the
+      // world depth test. Screen overlays made them shine through other houses.
+      if(this.scene.game.registry.get('presentation')==='three-2.5d')onPlane(emission,'upright',actor);else onOverlay(emission,actor);
       this.emissions.add(emission);ownedEmissions.push(emission);
     }
     actor.once('presentation-retired',()=>{for(const node of owned){node.glow.setVisible(false);node.cutout.setVisible(false);}for(const emission of ownedEmissions)emission.setVisible(false);});
@@ -260,6 +266,23 @@ export class DayNightSystem {
    * a previous town's cached light pockets. Does not advance the clock. */
   invalidateView(){this.maskWorldOrigin=null;this.maskWorldScale=0;this.maskDirty=true;this.renderAccumulator=200;}
   getHour(){return this.minuteOfDay/60;}
+  /** Interior lamps share the existing light registry and actor teardown.
+   * Their source is the modeled flame/pane, not a guessed screen coordinate. */
+  registerInterior(actor:Phaser.GameObjects.Image,art:string){
+    if(!['lantern','hearth','table','counter','workstation'].includes(art))return;
+    const shape=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;if(!shape)return;
+    const p=furniturePlacement(actor,shape,{x:0,y:0,width:0,heading:0,lift:0}),w=p.width,H=shape.rise;
+    const candle=art==='table'||art==='counter'||art==='workstation';
+    const fixture={owner:actor,right:(candle?.28:0)*w,height:p.lift+H*w*(candle?1.18:art==='hearth'?.38:.46),depth:-shape.depth*w*(candle?.75:.12)};
+    const radius=art==='hearth'?190:candle?115:150;
+    const glow=this.scene.add.image(actor.x,actor.y,'warm-light').setDisplaySize(radius*2,radius*2)
+      .setBlendMode(Phaser.BlendModes.ADD).setDepth(1_000_001).setVisible(false).setName('interior-light:'+art);
+    glow.setData(PRESENTATION_HINT,{plane:'upright',overlay:true,occlude:true,fixture} satisfies PresentationHint);
+    const node:LocalLight={actor,x:0,y:0,radius,fire:true,phase:actor.x*.013+actor.y*.019,fixture,glow,
+      cutout:this.scene.make.image({key:'warm-light',add:false})};
+    this.lights.add(node);
+    actor.once('destroy',()=>{this.lights.delete(node);glow.destroy();node.cutout.destroy();this.maskDirty=true;});
+  }
   sleepUntilMorning(){
     if(!innRestAvailable(this.minuteOfDay))return false;
     if(this.minuteOfDay>=INN_MORNING_MINUTE)this.day++;

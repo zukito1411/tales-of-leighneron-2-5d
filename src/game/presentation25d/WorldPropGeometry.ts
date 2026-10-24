@@ -17,7 +17,7 @@ const kinds:Partial<Record<ArtTextureKey,Readonly<Record<number,FurnitureArt>>>>
   others:civic,native_civic_bare:civic,native_story_bare:story,native_story_props:story,
   world_assets:{2:'rock',3:'fence',5:'sign',6:'brazier',7:'cargo'},
   desert_props:{4:'rock',5:'rock',6:'wagon',7:'sign',8:'cargo',9:'tent',11:'arch'},
-  woodland_props:{8:'rock',9:'rock',11:'waystone'},
+  woodland_props:{8:'rock',9:'rock',11:'sign'},
   climate_props:{2:'crystals',3:'rock',4:'fence',5:'brazier',6:'crystals',7:'columns',8:'rock',9:'brazier',10:'shrine'},
   flower_fence:{0:'fence',1:'fence',2:'fence',3:'fence'},
   native_quest_landmarks:{0:'well',1:'brazier',2:'tent',3:'waystone',4:'sealed-gate',5:'sack'},

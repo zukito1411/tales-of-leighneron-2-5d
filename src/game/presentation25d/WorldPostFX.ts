@@ -206,6 +206,7 @@ interface WorldFrame {
   width:number;height:number;density:number;focus:Readonly<{x:number;y:number}>|undefined;
   night:number;interior:boolean;focusHeight:number;sky?:GpuSky;depthNeeded:boolean;
   weather?:WeatherPresentation;mist?:Texture;
+  afterWorldRender?:(depth:Texture)=>void;
   lockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};lockedGroundHeight?:number;
 }
 interface Targets {world:WebGLRenderTarget;horizontal?:WebGLRenderTarget;vertical?:WebGLRenderTarget}
@@ -348,6 +349,7 @@ export class WorldPostFX {
       renderer.setRenderTarget(targets.world);renderer.clear();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);
+      frame.afterWorldRender?.(targets.world.depthTexture!);
       if(filterEnabled&&targets.horizontal&&targets.vertical){
         const radius=low?3:5;
         this.quad.material=this.blur;this.blur.uniforms.sourceColor.value=targets.world.texture;

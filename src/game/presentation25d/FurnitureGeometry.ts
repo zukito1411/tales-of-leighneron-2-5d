@@ -1,6 +1,8 @@
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
 import {createSourceVolumeGeometry} from './SourceVolumeGeometry';
 import {createTravelCartGeometry} from './TravelCartGeometry';
+import {createTravelHorseGeometry} from './TravelHorseGeometry';
+import {createRockGeometry} from './RockGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
 import {createCoastalBoatGeometry} from './CoastalBoatGeometry';
 import {ModelMesh,atlasMaterial,paintedMaterial,brass,metal,glass,lampGlass,water,pigment,regionalFabric,regionalWood,masonry,type ModelMaterial,type V3} from './ModelMesh';
@@ -66,26 +68,30 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
 /** Furniture is assembled from closed, detailed mesh parts. Only naturally
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
-  if(shape.art==='travel-horse'||shape.art==='life-tree')return createSourceVolumeGeometry(shape,emission);
+  if(shape.art==='travel-horse')return createTravelHorseGeometry(shape);
+  if(shape.art==='life-tree')return createSourceVolumeGeometry(shape,emission);
   if(shape.art==='travel-cart')return createTravelCartGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
+  if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
-  const sourceKit=kit!=='flagship';
-  const wood=sourceKit?paintedMaterial(shape.patch,.38,.48):regionalWood(kit),ivory=atlasMaterial('furnishings',4,.70,.70);
+  // Source crops contain shaded object paintings and transparent margins,
+  // rather than flat diffuse wood. Enlarging a tiny patch loses the grain;
+  // alpha-forced mesh faces can expose the source's plain background RGB.
+  const wood=art==='satchel'?atlasMaterial('nature',4,.45,.55):regionalWood(kit),ivory=atlasMaterial('furnishings',4,.70,.70);
   const clothPatches:Partial<Record<FurnitureArt,Patch>>={bed:[.25,.60,.40,.73],chair:[.24,.56,.40,.64],
     bench:[.26,.23,.44,.39],table:[.42,.48,.52,.63],counter:[.25,.42,.34,.60],workstation:[.29,.54,.40,.63],chest:[.26,.70,.36,.80],openChest:[.26,.70,.36,.80]};
   const cloth=clothPatches[art];
   const worldCloth:Partial<Record<FurnitureArt,Patch>>={stall:[.22,.12,.43,.23],tent:[.28,.21,.43,.33],banner:[.25,.25,.55,.50],sack:[.35,.40,.55,.60]};
   const sourceCloth=kit.startsWith('world:')?worldCloth[art]:cloth;
-  const fabric=sourceCloth?paintedMaterial(sourceCloth,.42,.42):regionalFabric(kit);
+  const fabric=art==='sack'||art==='stall'||art==='tent'?atlasMaterial('furnishings',4,.65,.70):sourceCloth?paintedMaterial(sourceCloth,.42,.42):regionalFabric(kit);
   const cultural=/noble|elven/.test(kit);
   const face=(l:number,r:number,b:number,t:number,z:number,source:Patch)=>m.cutout([l,b,z],[r,b,z],[l,t,z],[r,t,z],source);
   const top=(l:number,r:number,back:number,front:number,y:number,source:Patch)=>m.cutout([l,y,front],[r,y,front],[l,y,back],[r,y,back],source);
   const decorated=/noble|elven|orcan|obsidian|dwarven/.test(kit);
 
   const dark=atlasMaterial('furnishings',2,.72,.85),stone=shape.stonePatch?paintedMaterial(shape.stonePatch,.32,.25):kit.startsWith('world:')&&['rock','columns','crystals','waystone','shrine','well','fountain'].includes(art)?paintedMaterial(shape.patch,.42,.36):masonry(kit);
-  const trim:ModelMaterial={color:pigment(cultural?0xc79b4d:/orcan|obsidian|dwarven/.test(kit)?0x927044:0x65432b)};
+  const trim:ModelMaterial=atlasMaterial('furnishings',cultural?1:2,.38,.48);
   const box=(l:number,r:number,b:number,t:number,back:number,front:number,mat:ModelMaterial=wood)=>m.box(l,r,b,t,back,front,mat);
   const tube=(x:number,z:number,b:number,t:number,r:number,s=r,mat:ModelMaterial=wood)=>m.cylinder(x,z,b,t,r,s,mat);
   const legs=(seat:number,back=-D+.07,front=-.07)=>{
@@ -97,7 +103,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   };
   const cup=(x:number,z:number,y:number,r:number)=>{m.ring(x,z,y,y+r*1.5,r,r*.7,ivory,12);};
   const roof=(eave:number,peak:number)=>{
-    const covering=shape.roofPatch?paintedMaterial(shape.roofPatch,.38,.30):fabric;
+    const covering=shape.roofPatch?atlasMaterial('architecture',4,.45,.40):fabric;
     const lip=Math.min(.02,H*.035);
     m.extrude([[-.52,eave],[0,peak],[.52,eave],[.52,eave-lip],[0,peak-lip],[-.52,eave-lip]],.02,-D-.02,covering);
     for(const x of [-.51,.51])m.beam([x,eave,-D-.03],[x,eave,.03],.015,trim);
@@ -143,6 +149,8 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   const table=(bench=false,desk=false)=>{
     const backrest=bench&&kit.startsWith('world:'),seat=backrest?H*.48:H;
     legs(seat*.88);m.softBox(-.48,.48,seat*.86,seat,-D,0,wood);
+    // Broad individual boards retain the source art's dark plank joins.
+    for(let i=0;i<4;i++)m.softBox(-.455,.455,seat-.004,seat+.006,-D+i*D/4+.004,-D+(i+1)*D/4-.004,wood,.004);
     for(const x of [-.49,.46])box(x,x+.03,seat*.95,seat+.004,-D-.01,.01,trim);
     for(const z of [-D-.01,-.02])box(-.46,.46,seat*.95,seat+.004,z,z+.03,trim);
     box(-.40,.40,seat*.31,seat*.37,-D*.55,-D*.45);
@@ -210,7 +218,13 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     face(-.42,.42,H*.15,H*.65,.018,[.10,.62,.90,.87]);
     for(const z of [.006,-D-.006])for(let i=0;i<4;i++){const x=-.42+i*.22;box(x,x+.18,H*.15,H*.65,z-.006,z+.006,trim);box(x+.016,x+.164,H*.18,H*.62,z+.007,z+.010);}
   }else if(art==='chest'||art==='openChest'){
-    crate(-.46,.46,0,H*.56,-D,0);
+    m.softBox(-.46,.46,0,H*.56,-D,0,wood,.014);
+    box(-.47,.47,0,H*.06,-D-.006,.006,trim);
+    box(-.47,.47,H*.51,H*.56,-D-.006,.006,trim);
+    for(const x of [-.30,.30])for(const z of [-D-.008,.008]){
+      box(x-.025,x+.025,H*.06,H*.56,z-.006,z+.006,cultural?brass:metal);
+      for(const y of [.13,.46])m.beam([x,H*y,z-.012],[x,H*y,z+.012],.009,brass,8);
+    }
     // Original painted panels are mounted within the physical lid/base rails.
     // Side/back surfaces use the same object's timber and cultural upholstery.
     if(!kit.startsWith('world:')){
@@ -369,15 +383,19 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     // Foliage remains a cropped cutout, as do overworld trees and flowers.
     m.cutout([-.50,H*.36,-D/2],[.50,H*.36,-D/2],[-.50,H,-D/2],[.50,H,-D/2],[0,0,1,.74]);
     m.cutout([0,H*.36,-D/2-.45],[0,H*.36,-D/2+.45],[0,H,-D/2-.45],[0,H,-D/2+.45],[0,0,1,.74]);
-  }else if(art==='rock'||art==='columns'||art==='crystals'||art==='waystone'||art==='shrine'){
-    const n=art==='columns'||art==='crystals'?5:art==='rock'?3:1;
-    const rock:ModelMaterial=paintedMaterial(shape.patch,.42,.38),gem:ModelMaterial=rock;
-    for(let i=0;i<n;i++){const x=n===1?0:(i%3-1)*.27,z=-D/2+(i%2-.5)*D*.36,r=n===1?Math.min(.34,D*.45):Math.min(.19,D*.28),t=H*(i===1||n===1?1:.5+i*.06);m.cylinder(x,z,0,t*.80,r,r*.70,art==='crystals'?gem:art==='rock'?rock:stone,art==='crystals'?5:7);m.cylinder(x,z,t*.80,t,r*.70,art==='rock'?r*.30:art==='columns'?r*.60:0,art==='crystals'?gem:art==='rock'?rock:stone,art==='crystals'?5:7);}
-    if(art==='waystone'||art==='shrine'){
-      const rune:ModelMaterial={color:pigment(0x89bdcc),emission:pigment(0xa7e7fa)},z=-D/2+Math.min(.34,D*.45)*.91;
-      if(kit.startsWith('world:native_')||kit.startsWith('world:woodland_'))face(-.19,.19,H*.20,H*.82,z+.002,[.27,.25,.73,.88]);
-      else m.beam([0,H*.28,z],[0,H*.72,z],.009,rune,4);
-      if(!kit.startsWith('world:native_')&&!kit.startsWith('world:woodland_')){m.beam([-.075,H*.58,z],[0,H*.70,z],.009,rune,4);m.beam([0,H*.70,z],[.075,H*.58,z],.009,rune,4);}
+  }else if(art==='waystone'||art==='shrine'){
+    const volcanic=/climate|darkav/.test(kit),monument=atlasMaterial('nature',volcanic?10:8,.65,.65);
+    const shrine=art==='shrine',foot=shrine?H*.18:0,front=-D*.30,back=-D*.76;
+    if(shrine){m.softBox(-.48,.48,0,H*.08,-D,0,monument,.012);m.softBox(-.37,.37,H*.08,foot,-D*.88,-.035,monument,.010);}
+    m.extrude([[-.19,foot],[-.19,H*.78],[-.12,H*.95],[0,H],[.14,H*.93],[.20,H*.77],[.20,foot]],front,back,monument);
+    face(-.15,.15,H*.23,H*.86,front+.004,[.27,.25,.73,.88]);
+    if(shrine){
+      for(const x of [-.30,.30]){
+        tube(x,-D*.28,H*.08,H*.37,.055,.05,brass);
+        tube(x,-D*.28,H*.37,H*.51,.025,.023,ivory);
+        m.fire(x,H*.51,-D*.28,.065,H*.18,x<0?[.15,.41,.27,.65]:[.72,.41,.84,.65]);
+      }
+      m.cutout([-.49,0,.005],[.49,0,.005],[-.49,H*.25,.005],[.49,H*.25,.005],[0,.76,1,1]);
     }
   }else if(art==='sack'){
     tube(0,-D/2,0,H*.16,D*.30,D*.45,fabric);tube(0,-D/2,H*.16,H*.62,D*.45,D*.43,fabric);tube(0,-D/2,H*.62,H*.86,D*.43,D*.16,fabric);tube(0,-D/2,H*.86,H,D*.16,D*.20,fabric);m.ring(0,-D/2,H*.83,H*.87,D*.18,D*.14,trim,12);

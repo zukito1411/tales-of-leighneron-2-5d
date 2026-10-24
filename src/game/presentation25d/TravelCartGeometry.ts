@@ -1,4 +1,4 @@
-import {ModelMesh,paintedMaterial,atlasMaterial,type Patch} from './ModelMesh';
+import {ModelMesh,atlasMaterial} from './ModelMesh';
 import type {FurnitureShape} from './FurnitureGeometry';
 
 export function travelCartShape():FurnitureShape{
@@ -6,17 +6,18 @@ export function travelCartShape():FurnitureShape{
     rise:.98,depth:1.20,patch:[.3,.5,.4,.6],bounds:{left:-.62,right:.62,bottom:0,top:1.02,back:-1.60,front:.65}};
 }
 export function travelHorseShape(pose:number):FurnitureShape{
-  return {art:'travel-horse',kit:'source-horse',key:'source-horse:'+pose,pose,left:0,top:0,width:1,height:1,
-    rise:.66,depth:1,patch:[.3,.5,.4,.6],bounds:{left:-.22,right:.22,bottom:-.02,top:.68,back:-.5,front:.5}};
+  return {art:'travel-horse',kit:'painted-rigged-horse',key:'painted-rigged-horse:'+pose,pose,left:0,top:0,width:1,height:1,
+    rise:.84,depth:1,patch:[.3,.5,.4,.6],bounds:{left:-.22,right:.22,bottom:-.04,top:.90,back:-.6,front:.6}};
 }
 /** Source cart: open timber wagon, cream sacks, green bedroll, one barrel,
  * iron axles and four genuinely round, distance-driven spoke wheels. */
 export function createTravelCartGeometry(shape:FurnitureShape,emission=false){
-  const m=new ModelMesh({left:0,top:0,width:1,height:1},emission),fit=320/622,left=(384-330*fit)/2,top=364-337*fit;
-  const crop=([l,t,r,b]:Patch):Patch=>[(left+(l-252)*fit)/384,(top+(t-13)*fit)/384,(left+(r-252)*fit)/384,(top+(b-13)*fit)/384];
-  const wood=paintedMaterial(crop([385,197,435,211]),.32,.25),rim=paintedMaterial(crop([341,216,410,226]),.28,.08);
-  const cream=paintedMaterial(crop([370,93,391,109]),.32,.32),green=paintedMaterial(crop([330,75,350,105]),.25,.32);
-  const iron=atlasMaterial('furnishings',3,.25,.25),rope=atlasMaterial('furnishings',13,.25,.25);
+  const m=new ModelMesh({left:0,top:0,width:1,height:1},emission);
+  // Full material tiles preserve illustrated grain/folds on every elevation.
+  // Tiny patches from the cart painting enlarged into blurry plain surfaces.
+  const wood=atlasMaterial('furnishings',0,.42,.55),rim=atlasMaterial('furnishings',2,.30,.45);
+  const cream=atlasMaterial('furnishings',4,.32,.38),green=atlasMaterial('furnishings',5,.32,.42);
+  const iron=atlasMaterial('furnishings',3,.25,.25),rope=atlasMaterial('furnishings',4,.08,.08);
   m.softBox(-.45,.45,.27,.33,-.53,.52,wood,.015);
   for(const side of [-1,1]){
     for(let row=0;row<3;row++)m.softBox(side*.44-.025,side*.44+.025,.34+row*.10,.425+row*.10,-.55,.54,wood,.008);
@@ -39,11 +40,11 @@ export function createTravelCartGeometry(shape:FurnitureShape,emission=false){
     });
   }
   for(const [x,z,b] of [[.12,-.24,.34],[-.06,.18,.34],[.17,.13,.61]]){
-    m.cylinder(x,z,b,b+.05,.11,.18,cream,16);
-    m.cylinder(x,z,b+.05,b+.16,.18,.17,cream,16);
-    m.cylinder(x,z,b+.16,b+.25,.17,.045,cream,16);
-    m.cylinder(x,z,b+.25,b+.28,.045,.065,cream,12);
+    // Rounded linen belly narrows into a tied neck and a flared gathered lip.
+    const profile=[[0,.10],[.025,.15],[.075,.18],[.14,.175],[.20,.13],[.25,.035],[.28,.06]];
+    for(let i=1;i<profile.length;i++)m.cylinder(x,z,b+profile[i-1][0],b+profile[i][0],profile[i-1][1],profile[i][1],cream,20);
     m.ring(x,z,b+.24,b+.26,.05,.04,rope,12);
+    for(const sign of [-1,1])m.beam([x,b+.25,z+.035],[x+sign*.06,b+.22,z+.065],.008,rope,6);
   }
   m.beam([-.29,.55,-.40],[-.29,.55,.39],.13,green,16);
   for(const z of [-.23,.23])m.ring(-.29,z,.52,.56,.14,.11,rope,12);

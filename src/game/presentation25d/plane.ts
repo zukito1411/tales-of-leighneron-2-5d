@@ -53,12 +53,16 @@ export interface PresentationHint {
   furniture?:FurnitureShape;
   /** Distance-driven rigid wheel angle; no independent animation clock. */
   wheelAngle?:number;
+  /** Fraction between baked complete rig poses, consumed by the shared shader. */
+  poseBlend?:number;
   /** Artwork mounted on furniture, such as a player's displayed weapon. */
   fixture?:{owner:Phaser.GameObjects.Image;right:number;height:number;depth:number};
   /** Keep attachments, names and health bars on their owner's foot plane. */
   anchor?: {x:number;y:number;depth?:number;rotation?:number;presentationElevation?:number};
   /** Project world-attached light/FX into the ordered screen compositor. */
   overlay?: boolean;
+  /** World-attached glow must respect foreground geometry in the depth buffer. */
+  occlude?:boolean;
   /** Small ground separation for layered floors and decals. */
   elevation?: number;
   /** Waterline decals stay level instead of following the submerged bed. */
@@ -184,9 +188,14 @@ const attachmentFurniture={x:0,y:0,width:0,heading:0,lift:0};
 /** Authored lamps share their owner's billboard or fixed house facade. */
 /** Exact 3D point of a lamp on its authored billboard or house facade.
  * Keeping its depth lets the night renderer reject behind-camera lights. */
-export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number;z:number}){
+export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number;z:number},fixture?:PresentationHint['fixture']){
   const hint=owner.getData(PRESENTATION_HINT) as PresentationHint|undefined,house=hint?.house,furniture=hint?.furniture;
-  if(furniture){
+  if(fixture){
+    const a=fixture.owner.rotation,c=Math.cos(a),s=Math.sin(a);
+    out.x=fixture.owner.x+fixture.right*c-fixture.depth*s;
+    out.y=worldHeight(scene,fixture.owner.x,fixture.owner.y)+fixture.height;
+    out.z=fixture.owner.y+fixture.right*s+fixture.depth*c;
+  }else if(furniture){
     const f=furniture,p=furniturePlacement(owner,f,attachmentFurniture);
     const sourceX=((x-owner.x)/Math.abs(owner.displayWidth)+owner.originX-f.left)/f.width;
     const sourceY=((y-owner.y)/Math.abs(owner.displayHeight)+owner.originY-f.top)/f.height;
@@ -219,7 +228,7 @@ export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.Game
 }
 
 /** Authored lamps share their owner's billboard or fixed house facade. */
-export function presentationAttachment(scene:Phaser.Scene,owner:Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number}){
+export function presentationAttachment(scene:Phaser.Scene,owner:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,x:number,y:number,out:{x:number;y:number}){
   if(gameViews.has(scene.game)){
     presentationAttachmentWorld(scene,owner,x,y,attachmentPoint);
     return projectWorldPoint(scene,attachmentPoint.x,attachmentPoint.y,attachmentPoint.z,out);
@@ -230,10 +239,10 @@ export function presentationAttachment(scene:Phaser.Scene,owner:Phaser.GameObjec
   return out;
 }
 
-export function onOverlay<T extends Phaser.GameObjects.GameObject>(object:T,anchor?:{x:number;y:number;depth?:number}):T {
+export function onOverlay<T extends Phaser.GameObjects.GameObject>(object:T,anchor?:{x:number;y:number;depth?:number},occlude=false):T {
   const owner=anchor as {getData?:(key:string)=>unknown}|undefined;
   const hint=owner?.getData?.(PRESENTATION_HINT) as PresentationHint|undefined,house=hint?.house,furniture=hint?.furniture;
-  object.setData(PRESENTATION_HINT,{plane:'upright',anchor,overlay:true,...(house?{house}:{}),...(furniture?{furniture}:{})} satisfies PresentationHint);
+  object.setData(PRESENTATION_HINT,{plane:'upright',anchor,overlay:true,occlude,...(house?{house}:{}),...(furniture?{furniture}:{})} satisfies PresentationHint);
   return object;
 }
 

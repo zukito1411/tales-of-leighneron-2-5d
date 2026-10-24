@@ -16,6 +16,8 @@ export class OrbitCamera {
   private readonly lookTarget=new Vector3();
   private combatLocked=false;
   private wasLocked=false;private releasing=false;
+  private readonly altKeys=new Set<string>();
+  private resumeCapture=false;private destroyed=false;
   private readonly finePointer=window.matchMedia('(pointer: fine)');
   private readonly ray=new Raycaster();private readonly ndc=new Vector2();
   private readonly touches=new Map<number,{x:number;y:number;startX:number;startY:number;moved:boolean}>();
@@ -24,24 +26,47 @@ export class OrbitCamera {
   private readonly hint:HTMLButtonElement;
   readonly bounds={left:0,top:0,right:0,bottom:0};
   readonly focusGround={x:0,y:0};
-  constructor(private readonly canvas:HTMLCanvasElement,parent:HTMLElement,private readonly pick:(event:PointerEvent)=>void,private readonly pause:()=>void){
+  constructor(private readonly canvas:HTMLCanvasElement,parent:HTMLElement,private readonly pick:(event:PointerEvent)=>void,private readonly pause:()=>void,
+    private readonly controlsAllowed:()=>boolean=()=>this.enabled){
     this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · R lock · Esc to release';
     Object.assign(this.hint.style,{position:'absolute',left:'50%',top:'12px',transform:'translateX(-50%)',zIndex:'8',padding:'7px 12px',background:'#18201ee6',color:'#f2e6c7',border:'1px solid #8b7954',borderRadius:'5px',fontSize:'12px',cursor:'pointer'});
     this.hint.hidden=true;parent.append(this.hint);this.hint.addEventListener('click',this.capture);
+    this.hint.textContent='Mouse look · click to capture · hold Alt for cursor · R lock · Esc to release';
     canvas.addEventListener('pointerdown',this.down);canvas.addEventListener('pointermove',this.touchMove);canvas.addEventListener('pointerup',this.up);canvas.addEventListener('pointercancel',this.up);
     canvas.addEventListener('wheel',this.wheel,{passive:false});canvas.addEventListener('contextmenu',this.contextMenu);
     document.addEventListener('mousemove',this.mouseMove);document.addEventListener('mouseup',this.mouseUp);document.addEventListener('pointerlockchange',this.lockChanged);
-    window.addEventListener('blur',this.release);window.addEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
+    document.addEventListener('keydown',this.keyDown,true);document.addEventListener('keyup',this.keyUp,true);
+    document.addEventListener('visibilitychange',this.visibilityChanged);
+    window.addEventListener('blur',this.clearControls);window.addEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
   }
   get locked(){return document.pointerLockElement===this.canvas;}
   private readonly capture=()=>{
-    if(!this.enabled)return;
-    try{const result=this.canvas.requestPointerLock?.();if(result)void result.catch(()=>{});}catch{/* Touch/unsupported WebViews retain drag orbit. */}
+    if(this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)return;
+    try{const result=this.canvas.requestPointerLock?.();if(result)void result.then(()=>{
+      if(this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)this.release();
+    }).catch(()=>{});}catch{/* Touch/unsupported WebViews retain drag orbit. */}
   };
   private readonly release=()=>{mobileInput.setAttackHeld(false);if(this.locked){this.releasing=true;document.exitPointerLock();}this.touches.clear();};
-  private readonly lockChanged=()=>{const locked=this.locked;if(!locked){mobileInput.setAttackHeld(false);if(this.wasLocked&&!this.releasing&&this.enabled)this.pause();this.releasing=false;}this.wasLocked=locked;};
+  private readonly clearControls=()=>{this.altKeys.clear();this.resumeCapture=false;this.release();};
+  private readonly visibilityChanged=()=>{if(document.hidden)this.clearControls();};
+  private readonly keyDown=(event:KeyboardEvent)=>{
+    if(event.code!=='AltLeft'&&event.code!=='AltRight')return;
+    if(!this.enabled&&!this.locked&&!this.altKeys.size)return;
+    event.preventDefault();
+    if(this.altKeys.has(event.code))return;
+    this.resumeCapture ||=this.locked;
+    this.altKeys.add(event.code);this.release();
+  };
+  private readonly keyUp=(event:KeyboardEvent)=>{
+    if(!this.altKeys.delete(event.code))return;
+    event.preventDefault();if(this.altKeys.size)return;
+    const resume=this.resumeCapture;this.resumeCapture=false;
+    if(resume)this.capture();
+  };
+  private readonly lockChanged=()=>{const locked=this.locked;if(locked&&(this.altKeys.size||!this.controlsAllowed())){this.release();return;}if(!locked){mobileInput.setAttackHeld(false);if(this.wasLocked&&!this.releasing&&this.enabled)this.pause();this.releasing=false;}this.wasLocked=locked;};
   private readonly contextMenu=(event:MouseEvent)=>{if(this.enabled)event.preventDefault();};
   private readonly down=(event:PointerEvent)=>{
+    if(this.altKeys.size){if(event.button===0)this.pick(event);return;}
     if(!this.enabled){if(event.button===0)this.pick(event);return;}
     if(event.pointerType==='touch'){
       this.canvas.setPointerCapture(event.pointerId);this.touches.set(event.pointerId,{x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false});this.touchDistance=0;return;
@@ -55,7 +80,7 @@ export class OrbitCamera {
     this.targetYaw-=Math.max(-140,Math.min(140,dx))*scale;
     this.targetPitch=Math.max(-60*RAD,Math.min(75*RAD,this.targetPitch+dy*scale*(this.settings.invertY?-1:1)));
   }
-  private readonly mouseMove=(event:MouseEvent)=>{if(this.enabled&&this.locked)this.rotate(event.movementX,event.movementY);};
+  private readonly mouseMove=(event:MouseEvent)=>{if(this.enabled&&!this.altKeys.size&&this.locked&&this.controlsAllowed())this.rotate(event.movementX,event.movementY);};
   private readonly mouseUp=()=>{mobileInput.setAttackHeld(false);};
   private readonly touchMove=(event:PointerEvent)=>{
     const touch=this.touches.get(event.pointerId);if(!touch||!this.enabled)return;
@@ -71,10 +96,10 @@ export class OrbitCamera {
     if(touch&&!touch.moved&&event.type!=='pointercancel')this.pick(event);
     if(this.canvas.hasPointerCapture(event.pointerId))this.canvas.releasePointerCapture(event.pointerId);
   };
-  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled)return;event.preventDefault();this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
+  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
     lockedTarget?:{x:number;y:number}){
-    if(this.enabled&&!enabled)this.release();this.enabled=enabled;
+    if(this.enabled&&!enabled){if(!this.altKeys.size)this.resumeCapture=false;this.release();}this.enabled=enabled;
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
     this.combatLocked=enabled&&Boolean(lockedTarget);
     if(this.combatLocked&&lockedTarget){
@@ -135,10 +160,13 @@ export class OrbitCamera {
     this.bounds.left=left;this.bounds.right=right;this.bounds.top=top;this.bounds.bottom=bottom;
   }
   destroy(){
-    this.release();this.hint.removeEventListener('click',this.capture);this.hint.remove();
+    this.destroyed=true;this.enabled=false;
+    this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();
     this.canvas.removeEventListener('pointerdown',this.down);this.canvas.removeEventListener('pointermove',this.touchMove);this.canvas.removeEventListener('pointerup',this.up);this.canvas.removeEventListener('pointercancel',this.up);
     this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('contextmenu',this.contextMenu);
     document.removeEventListener('mousemove',this.mouseMove);document.removeEventListener('mouseup',this.mouseUp);document.removeEventListener('pointerlockchange',this.lockChanged);
-    window.removeEventListener('blur',this.release);window.removeEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
+    document.removeEventListener('keydown',this.keyDown,true);document.removeEventListener('keyup',this.keyUp,true);
+    document.removeEventListener('visibilitychange',this.visibilityChanged);
+    window.removeEventListener('blur',this.clearControls);window.removeEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
   }
 }
