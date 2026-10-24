@@ -21,6 +21,7 @@ import {MAP_BLACKSMITHS} from '../../data/mapServices';
 import {CAVE_ART_PATH,CAVE_ART_FRAMES,CAVE_FLOOR} from '../../data/caveArt';
 import {TOWER_ENTRY_ID,towerKnown,towerCampaignComplete,towerEntryFloor,TOWER_CHAMBERS,TOWER_DOOR_ART,TOWER_NORTH_DOOR} from '../../data/towerOfMight';
 import {TOWER_ROOM_ART,TOWER_ROOM_SIZE,TOWER_ROOM_ART_EXTENT,TOWER_SOUTH_DOOR} from '../../data/towerRoom';
+import {interiorFloorSurfaces} from './interiorFloorSurfaces';
 
 const DEPTH=10_000_000;
 const SOURCE='interior-source',ATLAS='interior-furniture';
@@ -438,8 +439,14 @@ export class InteriorSession {
       .setOrigin(0).setScrollFactor(0).setDepth(DEPTH-1000).setName('interior-backdrop'));this.fitBackdrop();
     if(plan.roundFloor)this.own(scene.add.image(this.origin.x+TOWER_ROOM_SIZE/2,this.origin.y+TOWER_ROOM_SIZE/2,SOURCE)
       .setDisplaySize(TOWER_ROOM_ART_EXTENT,TOWER_ROOM_ART_EXTENT).setDepth(DEPTH-900).setName('tower-round-chamber').setData('presentation25d',{plane:'ground'}));
-    else for(const floor of plan.floors)this.own(scene.add.tileSprite(this.origin.x+floor.x,this.origin.y+floor.y,
-      floor.width,floor.height,FLOORS[interiorFloorIndex(entry.kit,floor.kind)]).setOrigin(0).setDepth(DEPTH-900));
+    else{
+      const spatial=scene.game.registry.get('presentation')==='three-2.5d';
+      for(const floor of spatial?interiorFloorSurfaces(plan.floors):plan.floors){
+        const image=this.own(scene.add.tileSprite(this.origin.x+floor.x,this.origin.y+floor.y,
+          floor.width,floor.height,FLOORS[interiorFloorIndex(entry.kit,floor.kind)]).setOrigin(0).setDepth(DEPTH-900));
+        if(spatial)image.setTilePosition(floor.x,floor.y);
+      }
+    }
     for(const object of plan.objects){
       const image=this.drawArt(object.art,object.x,object.y,object.width,
         object.art==='rug'?DEPTH-800:DEPTH+object.y);

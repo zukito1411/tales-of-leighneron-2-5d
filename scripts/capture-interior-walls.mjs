@@ -24,9 +24,9 @@ try{
   await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:360000});
   console.log('World ready; unobstructed elven glazing and forward castle towers');
   await page.evaluate(async()=>{
-    const {useGameStore}=await import('/src/store/gameStore.ts');
+    const {useGameStore}=await import('/src/store/gameStore.ts');window.captureStore=useGameStore;
     const s=window.__mernondnaGame.scene.getScene('world');
-    s.cinematicDirector.destroy();
+    s.cinematicDirector.destroy();if(s.interiors.cinematicContext)s.interiors.recoverCinematicLocation();
     useGameStore.getState().hydrate({pendingCinematic:null,cinematicQueue:[],cinematic:null,dialogue:null,panel:null,storyFlags:{'scene:highmere-arrival':true}});
     s.dayNight.minuteOfDay=10*60;s.dayNight.update(0,s.player.x,s.player.y);
     // Keep this isolated preview session from dying while scenery streams.
@@ -85,7 +85,7 @@ async function enter(townId,profile){
   async function leave(){
     await page.evaluate(()=>{
       const s=window.__mernondnaGame.scene.getScene('world'),p=s.interiors.localPoint(s.interiors.plan.entrance);
-      s.player.restoreAt(p.x,p.y);s.player.resetInput();window.captureFocus=null;s.tryInteract(p.x,p.y);
+      s.player.restoreAt(p.x,p.y);s.player.resetInput();window.captureFocus=null;const state=window.captureStore.getState();console.log('EXIT STATE',JSON.stringify({panel:state.panel,dialogue:state.dialogue?.npcId,cinematicContext:Boolean(s.interiors.cinematicContext),local:s.interiors.plan.entrance}));s.tryInteract(p.x,p.y);
     });
     await page.waitForFunction(()=>!window.__mernondnaGame.scene.getScene('world').activeInteriorId,null,{timeout:15000});
     console.log('Actual south-exit interaction returned outside');
