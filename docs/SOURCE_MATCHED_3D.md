@@ -57,3 +57,8 @@ holes. Horse/cart meshes opt out of the scenery cutaway; houses and walls retain
 the character sight-line opening. The merchant bedroll is green and its cream
 sacks have tapered, tied necks. Flower fence posts follow the original spacing,
 with the same physical height across horizontal and vertical source views.
+
+Final source checks keep the regular village well's timber, beige stone and
+slate roof as separate surveyed materials, rather than treating its water as
+masonry. The outdoor trough follows the supplied rectangular pump-and-trough
+image. Elven chest lid emblems follow the actual curved lid between its straps.

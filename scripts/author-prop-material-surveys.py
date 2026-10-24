@@ -33,7 +33,7 @@ for key in world:
  sx,sy=image.width/size[0],image.height/size[1];x,y,w,h=region
  crop=image.crop((round(x*sx),round(y*sy),round((x+w)*sx),round((y+h)*sy)))
  kind='stone' if texture in ['woodland_props','climate_props'] and index not in [4,5,9] or texture=='desert_props' and index in [4,5,11] or texture=='world_assets' and index==2 else 'wood'
- if texture in ['others','native_civic_bare'] and index in [1,3,6,10,13]:kind='stone'
+ if texture in ['others','native_civic_bare'] and index in [1,3,13]:kind='stone'
  if texture in ['native_story_props','native_story_bare'] and index in [3,6,11]:kind='stone'
  if texture=='native_quest_landmarks' and index in [0,1,3,4]:kind='stone'
  if texture=='climate_props' and index in [2,6]:kind='color'
