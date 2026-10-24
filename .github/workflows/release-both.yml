@@ -1,4 +1,4 @@
-name: Build and release 2.5D Android APK
+name: Build and release 2.5D Android APK + Windows EXE
 
 on:
   push:
@@ -8,8 +8,9 @@ on:
 permissions:
   contents: write
 
+# Cancel superseded builds together: never publish half of a platform pair.
 concurrency:
-  group: android-25d-${{ github.ref }}
+  group: leighneron-combined-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -129,43 +130,6 @@ jobs:
           if grep -q '^application-debuggable' <<< "$metadata"; then echo "::error::APK still debuggable"; exit 1; fi
           cp "$apk" Tales-of-Leighneron-2.5D.apk
           sha256sum Tales-of-Leighneron-2.5D.apk > Tales-of-Leighneron-2.5D.apk.sha256
-          cat > release-notes.md <<NOTES
-          # Tales of Leighneron — Experimental 2.5D Android release
-
-          Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
-          Release-variant, non-debuggable, signed APK. This edition retains the original
-          simulation, quests, combat, and save payload, with a Three.js projected world.
-          House door clearance now extends the ground floor without stretching
-          roofs, glazing or carvings. Furniture proportions and source materials
-          restore regional chest panels, barrel bands, upholstery and runners.
-          Elarion fences retain painted flowers and greenery. The inner Highmere
-          precinct now uses physical walls. The horse uses complete source-shaped
-          volume poses; its cart has solid cargo and distance-driven 3D wheels.
-          The Tree of Life retains its original silhouette, carving and foliage
-          on a fixed rounded 3D shell. Tree foot registration no longer includes
-          transparent atlas padding. Edge smoothing runs in the existing world
-          composite; material mipmaps reduce shimmer and sharpening is removed.
-          Streaming, manual zoom, cutaways, saves and signing identity remain.
-
-          **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
-          The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.
-
-          Signing certificate SHA-256: \`$certificate_sha\`. Compare this value with the next APK to confirm update-compatible signing.
-
-          **Experimental**: This workflow verifies compilation, package ID, APK signing
-          and the non-debuggable manifest. Real-device rendering, FPS and gameplay have
-          **not** been visually verified. Back up saves before changing installations.
-          NOTES
-      - name: Publish APK to GitHub Releases
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="android-25d-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          gh release create "$tag" Tales-of-Leighneron-2.5D.apk Tales-of-Leighneron-2.5D.apk.sha256 \
-            --target "$GITHUB_SHA" --title "2.5D experimental Android build ${GITHUB_SHA:0:7}" \
-            --notes-file release-notes.md --latest
-          echo "APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D.apk" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:
           name: Tales-of-Leighneron-2.5D-Android-Release
@@ -174,3 +138,118 @@ jobs:
             Tales-of-Leighneron-2.5D.apk.sha256
           if-no-files-found: error
           retention-days: 14
+
+  portable-exe:
+    runs-on: windows-latest
+    timeout-minutes: 65
+    steps:
+      - name: Checkout game
+        uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Install existing game dependencies
+        run: npm ci
+      - name: Check TypeScript without starting the game
+        run: |
+          npm run test:types
+          npm exec --no -- tsc -p tsconfig.node.json --noEmit
+      - name: Bundle the complete offline game
+        run: npm run build
+      - name: Install pinned Windows desktop packaging tools
+        run: npm install --no-save --package-lock=false electron@45.0.0 electron-builder@26.18.0
+      - name: Package portable Windows executable
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: npx --no-install electron-builder --win portable --x64 --publish never
+      - name: Verify executable and record SHA256
+        shell: pwsh
+        run: |
+          $exe = Join-Path $PWD 'windows-release/Tales-of-Leighneron-2.5D-Windows.exe'
+          if (-not (Test-Path $exe)) { throw 'Windows EXE was not created.' }
+          $file = Get-Item $exe
+          if ($file.Length -lt 10000000) { throw 'Windows EXE looks incomplete.' }
+          $stream = [System.IO.File]::OpenRead($exe)
+          try {
+            if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) {
+              throw 'Windows EXE lacks the MZ header.'
+            }
+          } finally { $stream.Dispose() }
+          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $($file.Name)" | Set-Content "$exe.sha256" -Encoding ascii
+          Write-Host "Portable Windows EXE: $($file.Length) bytes, SHA256 $hash"
+      - name: Upload verified Windows EXE and checksum
+        uses: actions/upload-artifact@v4
+        with:
+          name: Tales-of-Leighneron-2.5D-Windows-Release
+          path: |
+            windows-release/Tales-of-Leighneron-2.5D-Windows.exe
+            windows-release/Tales-of-Leighneron-2.5D-Windows.exe.sha256
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 14
+
+  publish:
+    name: Publish one Android + Windows release
+    needs: [android, portable-exe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Download both verified platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: Tales-of-Leighneron-2.5D-*-Release
+          path: release-assets
+          merge-multiple: true
+      - name: Verify Android and Windows release payloads
+        working-directory: release-assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s Tales-of-Leighneron-2.5D.apk
+          test -s Tales-of-Leighneron-2.5D.apk.sha256
+          test -s Tales-of-Leighneron-2.5D-Windows.exe
+          test -s Tales-of-Leighneron-2.5D-Windows.exe.sha256
+          sha256sum --check Tales-of-Leighneron-2.5D.apk.sha256
+          sha256sum --check Tales-of-Leighneron-2.5D-Windows.exe.sha256
+      - name: Publish both files in the SAME GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="leighneron-25d-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          cat > release-notes.md <<'NOTES'
+          # Tales of Leighneron 2.5D — Android and Windows
+
+          Both downloads are built from the same source commit and published
+          together. The Android APK is the non-debuggable, signature-verified
+          application com.mernondna.rpg25d; it retains the existing keystore
+          fingerprint for installation updates. The Windows x64 EXE is a portable,
+          offline Electron edition with its own persistent local save storage.
+
+          Traveling horse caravans have been removed from both platforms.
+          Boats, quests, combat, saves and the 2.5D world remain available.
+
+          Windows EXE is not Authenticode-signed. SmartScreen may display an
+          unknown-publisher warning. Real-device gameplay and FPS are not
+          established by CI compilation and packaging alone. Back up saves
+          before installation changes.
+          NOTES
+          gh release create "$tag" \
+            release-assets/Tales-of-Leighneron-2.5D.apk \
+            release-assets/Tales-of-Leighneron-2.5D.apk.sha256 \
+            release-assets/Tales-of-Leighneron-2.5D-Windows.exe \
+            release-assets/Tales-of-Leighneron-2.5D-Windows.exe.sha256 \
+            --target "$GITHUB_SHA" \
+            --title "Tales of Leighneron 2.5D - Android + Windows ($tag)" \
+            --notes-file release-notes.md \
+            --latest
+          {
+            echo "### Both platforms are in one release"
+            echo "- Android APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D.apk"
+            echo "- Windows EXE: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Windows.exe"
+            echo "- Combined release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+          } >> "$GITHUB_STEP_SUMMARY"
