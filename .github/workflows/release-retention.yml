@@ -1,0 +1,47 @@
+name: Keep only four GitHub Releases
+
+on:
+  push:
+    branches: [main]
+    paths:
+      # Run once for this maintenance-only change, without APK/EXE builds.
+      - '.github/workflows/release-retention.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-retention-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Delete published releases beyond the newest four
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # List ALL published releases, including older platform-specific ones.
+          # Sort by actual publish time: API order is not always chronological.
+          rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false) | [(.published_at // .created_at), .tag_name] | @tsv')"
+          if [[ -z "$rows" ]]; then
+            echo 'No published releases to prune.'
+            exit 0
+          fi
+          mapfile -t tags < <(printf '%s\n' "$rows" | LC_ALL=C sort -r | cut -f2)
+          echo "Published releases before cleanup: ${#tags[@]}"
+          for ((index=4; index<${#tags[@]}; index++)); do
+            tag="${tags[index]}"
+            if [[ -z "$tag" ]]; then echo 'Empty tag, refusing cleanup'; exit 1; fi
+            echo "Removing old release and tag: $tag"
+            gh release delete "$tag" --repo "$GH_REPO" --cleanup-tag --yes
+          done
+          echo 'Finished: keep only the four most recently published releases.'

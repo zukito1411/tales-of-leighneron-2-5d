@@ -3,6 +3,9 @@ name: Build 2.5D browser game
 on:
   push:
     branches: [main]
+    # No browser rebuild for workflow-only maintenance.
+    paths-ignore:
+      - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
