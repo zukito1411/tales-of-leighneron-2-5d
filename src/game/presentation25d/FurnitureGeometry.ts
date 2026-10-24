@@ -1,7 +1,5 @@
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
 import {createSourceVolumeGeometry} from './SourceVolumeGeometry';
-import {createTravelCartGeometry} from './TravelCartGeometry';
-import {createTravelHorseGeometry} from './TravelHorseGeometry';
 import {createRockGeometry} from './RockGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
 import {createCoastalBoatGeometry} from './CoastalBoatGeometry';
@@ -11,7 +9,7 @@ import type {HomeFurnitureArt} from '../../data/housing';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 
-export type PropArt='travel-horse'|'travel-cart'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat';
+export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
@@ -68,9 +66,7 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
 /** Furniture is assembled from closed, detailed mesh parts. Only naturally
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
-  if(shape.art==='travel-horse')return createTravelHorseGeometry(shape);
   if(shape.art==='life-tree')return createSourceVolumeGeometry(shape,emission);
-  if(shape.art==='travel-cart')return createTravelCartGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);

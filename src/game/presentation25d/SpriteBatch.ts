@@ -68,18 +68,7 @@ void main(){
   atlasUV=atlasRect.xy+uv*atlasRect.zw;
   repeatUV=uv*tileRepeat.xy+tileRepeat.zw;frameRect=atlasRect;
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
-  vec3 localPosition=position,localNormal=normal;
-#ifdef STRUCTURE_SURFACES
-  if(cutoutPivot.w<-1.5){
-    localPosition+=cutoutPivot.xyz*tileRepeat.x;
-  }else if(cutoutPivot.w<-.5){
-    float c=cos(tileRepeat.z),s=sin(tileRepeat.z);
-    vec2 d=position.yz-cutoutPivot.yz;
-    localPosition.yz=cutoutPivot.yz+vec2(c*d.x-s*d.y,s*d.x+c*d.y);
-    localNormal.yz=vec2(c*normal.y-s*normal.z,s*normal.y+c*normal.z);
-  }
-#endif
-  vec4 world=instanceMatrix*vec4(localPosition,1.0);
+  vec4 world=instanceMatrix*vec4(position,1.0);
   if(billboard){
     float horizontal=world.x-tileRepeat.x;
     world.x=tileRepeat.x+horizontal*billboardRight.x;
@@ -101,7 +90,7 @@ void main(){
 #endif
   ){
     mat3 basis=mat3(instanceMatrix);
-    vec3 n=normalize(basis*(localNormal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
+    vec3 n=normalize(basis*(normal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
     // Hemisphere fill and the shared sun/moon key reveal every elevation.
     // Vertex lighting keeps the painted materials and fragment cost intact.
     tint.rgb*=min(vec3(1.05),structureFill*(.90+.10*max(n.y,0.0))+structureKey*max(0.0,dot(n,structureLightDirection)));
