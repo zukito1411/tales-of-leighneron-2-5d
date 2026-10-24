@@ -135,23 +135,18 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Buildings, furnishings and props use purpose-made painted timber, stone,
-          roofing, metal and regional fabrics on solid model surfaces. Warped object
-          paintings have been removed from ordinary furniture and house surfaces.
-          Regional centerpieces and smithies retain their distinct forms. Fire uses the supplied artwork with subtle shader motion;
-          broken quest beacons stay unlit. Trees and flowers keep their artwork.
+          Buildings now use authored assemblies following the original human
+          and elven building sheets: rounded thatch and dormers, layered slate
+          roofs, timber framing, curved teal roofs, lancet windows and leaf trim.
+          Castles have connected halls, a keep and four round towers; the elven
+          palace has open side arcades. Roof shells, side/rear windows, entrances,
+          balconies, workshop bays and stone foundations are separate parts.
 
-          Bridges have level surveyed decks, plank/post textures, supports and
-          sagging ropes. Ship walking height is separate from the seabed: its deck
-          no longer creates a dirt island or follows the coarse terrain slopes.
-          The original deck details and black/red rig return. Attack warnings and
-          deck shadows blend after the model with depth testing.
-
-          Circular towers, character-relative furniture heights, manual camera
-          zoom, wall cutaways, distance atmosphere and the existing streaming,
-          upload and residency limits are retained. TypeScript compilation is
-          checked by CI. No gameplay/browser test or device frame-time measurement
-          was performed for this update.
+          Incorrect old material samples containing pieces of doors, windows
+          and plants are no longer repeated across structural surfaces. Original
+          glass, banners, signs and foliage use a shared detail atlas mapped to
+          their corresponding parts; roofs use clean cultural material swatches. Existing watchtowers, gameplay, saves, streaming,
+          manual camera zoom, cutaways and atmosphere systems are retained.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.

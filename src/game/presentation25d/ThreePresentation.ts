@@ -107,7 +107,7 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly rasters:RasterCache;
   private readonly transform=new Phaser.GameObjects.Components.TransformMatrix();
@@ -212,6 +212,8 @@ export class ThreePresentation {
     const arch=scene.textures.exists(PAINTED_MODEL_ATLASES[0].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[0].key):undefined,furnishings=scene.textures.exists(PAINTED_MODEL_ATLASES[1].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[1].key):undefined;
     if(arch?.source.image)this.atmosphere.architectureAtlas.value=this.textures.get(arch.source,this.frame);
     if(furnishings?.source.image)this.atmosphere.furnishingsAtlas.value=this.textures.get(furnishings.source,this.frame);
+    const details=scene.textures.exists(PAINTED_MODEL_ATLASES[2].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[2].key):undefined;
+    if(details?.source.image)this.atmosphere.buildingDetailsAtlas.value=this.textures.get(details.source,this.frame);
     this.atmosphere.visualTime.value=this.game.loop.time/1000;
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);

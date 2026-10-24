@@ -1,6 +1,7 @@
 import {ModelMesh,atlasMaterial,paintedMaterial,brass,glass,pigment,regionalFabric,regionalWood,masonry,roofMaterial,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
+import {createAuthoredArchitecture} from './ArchitectureGeometry';
 
 type Point=readonly [number,number];
 type Patch=readonly [number,number,number,number];
@@ -150,6 +151,7 @@ export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,ind
 /** Structural surfaces use material swatches and modeled joinery. A complete
  * painted building is never placed across a facade or wrapped over a tower. */
 export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
+  const authored=createAuthoredArchitecture(shape,emission);if(authored)return authored;
   const {profile,left,top,width,height,depth}=shape;
   const m=new ModelMesh(shape,emission,width);
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
