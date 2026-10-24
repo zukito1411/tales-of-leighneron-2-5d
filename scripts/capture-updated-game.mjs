@@ -6,7 +6,7 @@ const output='game-captures';
 await mkdir(output,{recursive:true});
 const server=spawn(process.execPath,['node_modules/vite/bin/vite.js','--host','127.0.0.1','--port','5174','--strictPort'],{stdio:'inherit',detached:true});
 let browser,context,page;
-const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Ship warning uses the game AttackTelegraph renderer.',captures:[],errors:[]};
+const notes={gameCommit:process.env.GAME_COMMIT,viewport:{width:1280,height:720},device:'Android-style touch browser; not a physical Android device',staging:'Fresh save; camera positions staged through existing development scene access. Ship warning uses the game AttackTelegraph renderer. Terrain field prepared after cross-map camera staging.',captures:[],errors:[]};
 try{
   for(let i=0;i<120;i++){
     try{if((await fetch('http://127.0.0.1:5174')).ok)break;}catch{}
@@ -42,6 +42,11 @@ try{
       else if(kind==='bridge'){const {HIGHMERE_BRIDGE_POINTS}=await import('/src/data/rivers.ts');const b=HIGHMERE_BRIDGE_POINTS[2];p={x:b.x+180,y:b.y+85};}
       else if(kind==='ship'){const {shipPoint}=await import('/src/data/pirateFlagship.ts');p=shipPoint(410,840);}
       else{const t=TOWN_BY_ID.oakmere.world;p={x:t.x+160,y:t.y+110};}
+      // A direct cross-map pose is outside the old height field. Prepare a
+      // fresh field for this capture; normal walking/budgets are unchanged.
+      const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');
+      const original=ElevationField.prototype.prepare;
+      ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=original;return original.apply(this,args);};
       s.player.restoreAt(p.x,p.y);s.lastSafe={...p};s.player.resetInput();
       s.cameras.main.setZoom(kind==='ship'?1:1.3).startFollow(s.player,true,1,1);
       s.streamCinematicView(p.x,p.y);
@@ -54,16 +59,14 @@ try{
       await page.screenshot({path:output+'/'+name+'.png',timeout:90000});notes.captures.push(name);console.log('Saved',name);
     }catch(e){notes.errors.push(name+': '+e.message);console.log('CAPTURE ERROR',name,e.message);}
   }
-  await shot('01-painted-town-mobile',()=>warp('town'));
-  await shot('02-smithy-mobile',()=>warp('smithy'));
-  await shot('03-level-bridge-mobile',()=>warp('bridge'));
+  // Town and bridge already captured from this exact game commit.
   await shot('04-ship-and-warning-mobile',async()=>{
     await warp('ship');
-    notes.ship=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return s.children.list.filter(o=>/flagship/.test(o.name)||o.texture?.key==='pirate_flagship').map(o=>({name:o.name,type:o.type,x:o.x,y:o.y,width:o.width,height:o.height,displayWidth:o.displayWidth,displayHeight:o.displayHeight,originX:o.originX,originY:o.originY,visible:o.visible,alpha:o.alpha,depth:o.depth,hint:o.getData('presentation25d')}));});
+    notes.ship=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return s.children.list.filter(o=>o.texture?.key==='pirate_flagship').map(o=>({name:o.name,x:o.x,y:o.y,width:o.width,displayWidth:o.displayWidth,alpha:o.alpha,visible:o.visible,plane:o.getData('presentation25d')?.plane,art:o.getData('presentation25d')?.furniture?.art}));});
     await page.evaluate(async()=>{
       const s=window.__mernondnaGame.scene.getScene('world');
       const {AttackTelegraph}=await import('/src/game/systems/AttackTelegraph.ts');
-      s.physics.world.pause();
+      s.scene.pause();s.physics.world.pause();
       const warning=new AttackTelegraph(s,'capture-attack-warning',false);
       warning.draw({kind:'cone',x:s.player.x-75,y:s.player.y-90,angle:1.10,radius:180,halfAngle:.65},.62,s.player.y);
     });
@@ -71,24 +74,26 @@ try{
   });
   await shot('05-interior-mobile',async()=>{
     await page.evaluate(async()=>{
-      const s=window.__mernondnaGame.scene.getScene('world');s.scene.resume();
+      const s=window.__mernondnaGame.scene.getScene('world');s.scene.resume();s.physics.world.resume();
       s.children.getByName('capture-attack-warning')?.destroy();
       const {INTERIOR_ENTRIES}=await import('/src/data/interiors.ts');
       const entry=INTERIOR_ENTRIES.find(e=>e.townId==='oakmere'&&/lodge|inn/i.test(e.name))??INTERIOR_ENTRIES.find(e=>e.townId==='oakmere'&&!e.hall);
       if(!entry)throw new Error('No Oakmere interior');
+      s.player.restoreAt(entry.door.x,entry.door.y);s.lastSafe={...entry.door};
       for(const enemy of s.enemySteeringActors())if(Math.hypot(enemy.x-s.player.x,enemy.y-s.player.y)<600)enemy.destroy();
-      s.player.restoreAt(entry.door.x,entry.door.y);s.lastSafe={...entry.door};s.interiors.enter(entry);
+      s.interiors.enter(entry);
+      const ready=await s.interiors.loadingPromise;
+      if(!ready)throw new Error('Interior did not finish loading');
     });
-    await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').interiors.ready,null,{timeout:240000});
     await page.waitForTimeout(14000);
-    notes.interior=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return {ready:s.interiors.ready,entry:s.interiors.currentEntry,player:{x:s.player.x,y:s.player.y},objects:s.children.list.filter(o=>/interior|floor/.test(o.name)||o.texture?.key?.startsWith('interior')).map(o=>({name:o.name,type:o.type,x:o.x,y:o.y,width:o.width,height:o.height,visible:o.visible,alpha:o.alpha,cameraFilter:o.cameraFilter,depth:o.depth,hint:o.getData('presentation25d')}))};});
+    notes.interior=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return {ready:s.interiors.ready,entry:s.interiors.currentEntry?.id,player:{x:s.player.x,y:s.player.y}};});
   });
   if(!notes.captures.length)throw new Error('No game captures were produced');
 }catch(e){notes.errors.push(e.stack??e.message);console.error(e);if(page)await page.screenshot({path:output+'/capture-blocker.png',timeout:15000}).catch(()=>{});process.exitCode=1;}
 finally{
   await writeFile(output+'/provenance.json',JSON.stringify(notes,null,2));
   await page?.close().catch(()=>{});await context?.close().catch(()=>{});await browser?.close().catch(()=>{});
-  if(server.exitCode===null){process.kill(-server.pid,'SIGTERM');await Promise.race([new Promise(r=>server.once('close',r)),new Promise(r=>setTimeout(r,5000))]);}
-  if(server.exitCode===null)process.kill(-server.pid,'SIGKILL');
+  if(server.exitCode===null){try{process.kill(-server.pid,'SIGTERM');}catch{}await Promise.race([new Promise(r=>server.once('close',r)),new Promise(r=>setTimeout(r,5000))]);}
+  if(server.exitCode===null){try{process.kill(-server.pid,'SIGKILL');}catch{}}
   console.log('Capture browser/context closed; owned Vite server stopped');
 }
