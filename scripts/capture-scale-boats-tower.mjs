@@ -82,9 +82,9 @@ try{
     const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');const prepare=ElevationField.prototype.prepare;ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=prepare;return prepare.apply(this,args);};
     const port=PORT_BY_ID.tidewatch;
     let p;
-    for(const [dx,dy] of [[600,800],[-600,800],[0,900],[900,0]]){
+    for(const [dx,dy] of [[0,8000],[6000,6000],[-6000,6000],[0,12000]]){
       const q={x:port.boat.x+dx,y:port.boat.y+dy};
-      if(s.worldGenerator.getTerrainAt(q.x,q.y)==='water'){p=q;break;}
+      if([[0,0],[700,0],[-700,0],[0,700],[0,-700]].every(([x,y])=>s.worldGenerator.getTerrainAt(q.x+x,q.y+y)==='water')){p=q;break;}
     }
     if(!p)throw new Error('No clear water for boat capture');
     s.player.restoreAt(p.x,p.y);s.lastSafe={...p};s.player.setVisible(false);window.captureLandCollision=s.enforceLandCollision;s.enforceLandCollision=()=>{};s.syncState();s.updateNavigation();window.captureFocus=p;window.captureYaw=25*Math.PI/180;window.captureAimHeight=90;
