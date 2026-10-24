@@ -1,0 +1,28 @@
+name: Capture source art restoration
+on:
+  push:
+    branches: ['capture/source-style-review']
+    paths: ['scripts/capture-source-style.mjs','.github/workflows/capture-source-style.yml']
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 22
+    env:
+      GAME_COMMIT: bb391d64a74e87207e7c377c414da0e9301d52ee
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: node scripts/capture-source-style.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Leighneron-source-style-review
+          path: style-captures/
+          retention-days: 3
+          if-no-files-found: warn
