@@ -17,8 +17,8 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const ground=Y(base),pt=(x:number,y:number,z:number):V3=>[X(x),Y(y),z];
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
   // The old material surveys contain door frames, windows and foliage.
-  // Never repeat those over a wall. Only verified roof-only patches from the
-  // original sheets are admitted; plaster/masonry use clean diffuse swatches.
+  // Never repeat those over a wall. Clean cultural diffuse swatches and a
+  // registered part-detail atlas are independent of packed sprite-frame UVs.
   const plaster=/cottage|inn|manor|hall|storehouse|stable|smithy/.test(id)&&!elf;
   const wall=atlasMaterial('architecture',plaster?2:8,W*.20,W*.16);
   const roofing=atlasMaterial(/inn/.test(id)?'buildingDetails':'architecture',/inn/.test(id)?11:elf?6:/cottage/.test(id)?5:4,W*.22,H*.18);
@@ -103,7 +103,9 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
         m.quad(p(edge,t),p(edge,u),p(edge,t,thickness),p(edge,u,thickness),hip?roofing:trim);
         beam(p(edge,t,.002*W),p(edge,u,.002*W),hip?.011:.007,hip?roofing:trim);
         const lower=(v:number):V3=>axis==='x'?[edge===0?a:b,eave,back+(front-back)*v]:[a+(b-a)*v,eave,edge===0?back:front];
-        m.quad(p(edge,t,thickness),p(edge,u,thickness),lower(t),lower(u),hip?roofing:wall);
+        // Front-facing gables already have an authored wall below this shell.
+        // Filling down to their eaves again hides glazing mounted on that wall.
+        if(axis==='x')m.quad(p(edge,t,thickness),p(edge,u,thickness),lower(t),lower(u),hip?roofing:wall);
       }
     }
     for(const t of [0,1]){m.quad(p(0,t),p(1,t),p(0,t,thickness),p(1,t,thickness),hip?roofing:trim);beam(p(0,t),p(1,t),.009,hip?roofing:trim);}
@@ -179,7 +181,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const tower=(cx:number,z:number,r:number,eave:number,peak:number,crenels=false)=>{
     const x=X(cx);m.cylinder(x,z,ground,eave,r,r,stone,16);
     for(const y of [ground+.055*H,eave-.025*H])m.ring(x,z,y,y+.018*H,r*1.055,r*.94,stone,16);
-    for(let i=0;i<4;i++){const a=i*Math.PI/2;window(x+Math.sin(a)*r,ground+(eave-ground)*.46,z+Math.cos(a)*r,r*.48,(eave-ground)*.20,Math.cos(a),-Math.sin(a));}
+    for(let i=0;i<4;i++){const a=i*Math.PI/2;window(x+Math.sin(a)*r,ground+(eave-ground)*.72,z+Math.cos(a)*r,r*.48,(eave-ground)*.16,Math.cos(a),-Math.sin(a));}
     if(crenels){
       m.ring(x,z,eave,eave+.027*H,r*1.12,r*.80,stone,16);
       for(let i=0;i<10;i++){const a=i/10*Math.PI*2,xx=x+Math.sin(a)*r,zz=z+Math.cos(a)*r;m.box(xx-r*.19,xx+r*.19,eave+.02*H,eave+.075*H,zz-r*.19,zz+r*.19,stone);}
@@ -218,7 +220,15 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(palace){gate(.20,.39,wing,Y(.49),-D*.12,-D*.66);gate(.61,.80,wing,Y(.49),-D*.12,-D*.66);}
     else roof(.12,.88,-D*.98,-D*.06,wing,Y(.49),'x');
     body(.36,.64,-D*.67,.012*W,keep,false);
-    gable(.35,.65,-D*.69,.025*W,keep,Y(palace?.14:.10));
+    gable(.35,.65,-D*.69,.025*W,keep,Y(palace?.14:.18));
+    if(!palace){
+      // The source castle has a fortified rear keep rising behind its front
+      // gable. Give it a stone crown rather than another oversized pitched roof.
+      const crown=Y(.14);box(.42,.58,ground,crown,-D*.94,-D*.60,stone);
+      box(.408,.592,crown-.018*H,crown+.014*H,-D*.96,-D*.58,stone);
+      for(let i=0;i<4;i++)for(const z of [-D*.96,-D*.60])box(.413+i*.045,.438+i*.045,crown,crown+.060*H,z,z+.022*W,stone);
+      for(const x of [.408,.57])for(let i=1;i<3;i++)box(x,x+.022,crown,crown+.060*H,-D*.92+D*.30*i/3,-D*.92+D*.30*i/3+.022*W,stone);
+    }
     door(.50,.030*W,.15,H*.25);
     if(palace)window(X(.50),Y(.43),.037*W,W*.16,H*.27,1,0,true);
     else banner(.50,Y(.57),.040*W,.11,H*.25,8);

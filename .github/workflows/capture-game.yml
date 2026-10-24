@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      GAME_COMMIT: reference-building-preview
+      GAME_COMMIT: 5e960fbf0cf950f564214cead3966c7a0e680035
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

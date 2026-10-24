@@ -12,7 +12,7 @@ lost the shape of roofs and projecting wings.
 | Thatched cottage | Low stone foundation, timber/plaster body, rounded hip roof, projecting dormer, offset arched door, windows, chimney, planter and barrel |
 | Inn and manor | Two floors, timber framing, a separate main roof and forward gable, upper/lower windows, sign or balcony, chimney |
 | Human hall and storehouse | Long slate roof, dormer, arched entry, rear/side windows, blue banner or cargo barrels |
-| Human castle | Connected wings, forward keep, four cylindrical towers with slate caps, windows, banner, projecting buttresses and steps |
+| Human castle | Connected wings, forward keep, crenellated rear crown, four cylindrical towers with slate caps, windows, banner, projecting buttresses and steps |
 | Elven houses and guildhall | Curved teal roof shells with raised tips, gold verges and leaf finials, lancet glazing, pointed doors, planters |
 | Elven manor and estate | Layered curved gables, large upper lancet, balcony and side/rear windows; estate also has wing turrets |
 | Elven palace | Great hall and large stained-glass lancet, four curved-roof towers, open side arcades, banners and buttresses |

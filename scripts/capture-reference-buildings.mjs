@@ -22,7 +22,7 @@ try{
   await page.goto('http://127.0.0.1:5174/?e2e',{waitUntil:'domcontentloaded'});
   await page.getByRole('button',{name:'Start New Game',exact:true}).click();
   await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:360000});
-  console.log('World ready; source detail atlas and authored architecture revision 3');
+  console.log('World ready; final gable glazing, separated tower banners and rear keep crown');
   await page.evaluate(async()=>{
     const {useGameStore}=await import('/src/store/gameStore.ts');
     const s=window.__mernondnaGame.scene.getScene('world');
@@ -38,15 +38,21 @@ try{
     Object.defineProperty(s,'presentationFocus',{configurable:true,get:()=>window.captureFocus??s.player});
     Object.defineProperty(s,'presentationControlsEnabled',{configurable:true,get:()=>false});
   });
-  async function capture(name,townId,frame,zoom){
+  async function capture(name,townId,frame,zoom,yaw=25){
     try{
       console.log('Preparing',name);
-      const meta=await page.evaluate(async({townId,frame,zoom})=>{
+      const meta=await page.evaluate(async({townId,frame,zoom,yaw})=>{
         const s=window.__mernondnaGame.scene.getScene('world');
         const {TOWN_BY_ID}=await import('/src/data/towns.ts');
         const {SETTLEMENT_BY_ID}=await import('/src/data/settlements.ts');
         const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');
         const {presentationView}=await import('/src/game/presentation25d/plane.ts');
+        const {OrbitCamera}=await import('/src/game/presentation25d/OrbitCamera.ts');
+        if(!window.captureOrbitUpdate){
+          window.captureOrbitUpdate=OrbitCamera.prototype.update;
+          OrbitCamera.prototype.update=function(...args){this.targetYaw=window.captureYaw;return window.captureOrbitUpdate.apply(this,args);};
+        }
+        window.captureYaw=yaw*Math.PI/180;
         presentationView(s).camera.fov=frame===8||frame===9?68:38;
         const t=TOWN_BY_ID[townId];let p={x:t.world.x+160,y:t.world.y+110},focus={...p},lot;
         if(frame!==null){
@@ -59,8 +65,8 @@ try{
         ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=original;return original.apply(this,args);};
         s.player.restoreAt(p.x,p.y);s.lastSafe={...p};s.player.resetInput();window.captureFocus=focus;
         s.cameras.main.stopFollow().setZoom(zoom).centerOn(focus.x,focus.y);s.streamCinematicView(focus.x,focus.y);
-        return {townId,frame,zoom,lot:lot?.label,player:p,focus};
-      },{townId,frame,zoom});
+        return {townId,frame,zoom,yaw,lot:lot?.label,player:p,focus};
+      },{townId,frame,zoom,yaw});
       await page.waitForTimeout(16000);
       await page.screenshot({path:output+'/'+name+'.png',timeout:60000});
       notes.captures.push({name,...meta});console.log('Saved',name);
@@ -71,6 +77,8 @@ try{
   await capture('02-human-castle','highmere',8,.65);
   await capture('03-elven-manor','elarion',1,1.1);
   await capture('04-elven-palace','elarion',9,.7);
+  await capture('05-elven-manor-rear','elarion',1,1.1,205);
+  await capture('06-human-castle-rear','highmere',8,.65,205);
   if(!notes.captures.length)throw new Error('No game captures were produced');
 }catch(e){notes.errors.push(e.stack??e.message);console.error(e);process.exitCode=1;}
 finally{
