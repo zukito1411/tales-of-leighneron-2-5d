@@ -12,7 +12,7 @@ import {onFlagshipDeck,onFlagshipBoarding} from '../../data/pirateFlagship';
 import {questNpcLabel,contentQuestLocation} from './questDestinations';
 import {REGION_BY_ID} from '../../data/regions';
 import {STORY_ENCOUNTER_BY_ID,storyEncounterInCourtyard} from '../../data/adventure';
-import {TOWER_ENTRY_ID,TOWER_DOOR} from '../../data/towerOfMight';
+import {TOWER_ENTRY_ID,TOWER_APPROACH} from '../../data/towerOfMight';
 
 const geography=new WorldGenerator();
 const candidatesByObjective=new Map<string,ContentDefinition[]>();
@@ -62,7 +62,7 @@ export function resolveQuestTarget(quests:Record<string,QuestRuntimeState>,world
   const active=activeObjective(quests,trackedQuestId);
   if(!active||visited.has(active.questId))return null;
   const {objective:o,questId}=active;visited.add(questId);
-  if(o.targetId===TOWER_ENTRY_ID)return withTravelHint({...TOWER_DOOR,contentId:TOWER_ENTRY_ID,
+  if(o.targetId===TOWER_ENTRY_ID)return withTravelHint({...TOWER_APPROACH,contentId:TOWER_ENTRY_ID,
     label:'Tower of Might — north of Oakmere, Trandum',questId,objectiveId:o.id,type:o.type},player,interiorId);
   if(o.type==='encounter'){
     const e=STORY_ENCOUNTER_BY_ID[o.targetId];if(!e)return null;

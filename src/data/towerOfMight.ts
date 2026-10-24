@@ -36,6 +36,9 @@ export const TOWER_DOOR_ART='assets/world/tower-doors-v1.png';
 export const TOWER_NORTH_DOOR={x:900,y:330};
 export const TOWER_PORTAL={x:900,y:900};
 export const TOWER_DOOR={x:TOWN_BY_ID.oakmere.world.x,y:TOWN_BY_ID.oakmere.world.y-2400};
+/** Reachable standing point south of the original cylinder and its full feet
+ * clearance. Keep the tower/collider fixed so old outdoor saves stay valid. */
+export const TOWER_APPROACH={x:TOWER_DOOR.x,y:TOWER_DOOR.y+48};
 export const inTowerClearing=(x:number,y:number,padding=0)=>Math.abs(x-TOWER_DOOR.x)<300+padding
  &&y>TOWER_DOOR.y-300-padding&&y<TOWER_DOOR.y+160+padding;
 export const onTowerApproach=(x:number,y:number)=>Math.abs(x-TOWER_DOOR.x)<65
@@ -56,7 +59,7 @@ export const TOWER_CHAMBERS=[
 export const TOWER_FLOORS:readonly DungeonDefinition[]=TOWER_CHAMBERS.flatMap((chamber,index)=>
  Array.from({length:5},(_,floor)=>{
   const boss=floor===4,id=`might-${index+1}-${floor+1}`,count=boss?1:[10,12,14,15][floor];
-  return {id,name:`Tower of Might · ${index+1}-${floor+1}`,townId:'oakmere',regionId:'trandum' as const,door:TOWER_DOOR,
+  return {id,name:`Tower of Might · ${index+1}-${floor+1}`,townId:'oakmere',regionId:'trandum' as const,door:TOWER_APPROACH,
    directions:'north of Oakmere, Trandum',description:'An endgame trial with fixed combat strength, independent of monster levels.',
    enemies:Array.from({length:count},()=>boss?chamber.enemyId:chamber.pool[floor]),enemyPool:[boss?chamber.enemyId:chamber.pool[floor]],
    captain:chamber.enemyId==='grand-magus'?chamber.name:`Echo of ${chamber.name}`,

@@ -103,18 +103,18 @@ try{
   await page.evaluate(async()=>{
     const s=window.__mernondnaGame.scene.getScene('world');s.events.off('update',window.captureVesselUpdate);s.traffic.releaseVessel(window.captureVessel);window.captureVesselPose=null;
     const {useGameStore}=await import('/src/store/gameStore.ts');
-    const {TOWER_DOOR,TOWER_UNLOCKED,TOWER_STORY_PREREQUISITE}=await import('/src/data/towerOfMight.ts');
+    const {TOWER_DOOR,TOWER_APPROACH,TOWER_UNLOCKED,TOWER_STORY_PREREQUISITE}=await import('/src/data/towerOfMight.ts');
     const {presentationView}=await import('/src/game/presentation25d/plane.ts');
     const {ElevationField}=await import('/src/game/presentation25d/ElevationField.ts');const prepare=ElevationField.prototype.prepare;ElevationField.prototype.prepare=function(...args){this.columns=0;ElevationField.prototype.prepare=prepare;return prepare.apply(this,args);};
     const state=useGameStore.getState();state.hydrate({quests:{...state.quests,[TOWER_STORY_PREREQUISITE]:{...state.quests[TOWER_STORY_PREREQUISITE],status:'completed'}},storyFlags:{...state.storyFlags,[TOWER_UNLOCKED]:true},defeatedBosses:[...new Set([...state.defeatedBosses,'captain-varr'])]});
-    const p={x:TOWER_DOOR.x,y:TOWER_DOOR.y+45};s.player.restoreAt(p.x,p.y);s.lastSafe=p;s.player.resetInput();
+    const p={x:TOWER_APPROACH.x,y:TOWER_APPROACH.y+30};s.player.restoreAt(p.x,p.y);s.lastSafe=p;s.player.resetInput();
     window.captureFocus={x:TOWER_DOOR.x,y:TOWER_DOOR.y-100};window.captureYaw=25*Math.PI/180;window.captureAimHeight=235;
     presentationView(s).camera.fov=55;s.cameras.main.setZoom(.7).centerOn(window.captureFocus.x,window.captureFocus.y);s.streamCinematicView(p.x,p.y);s.dungeons.exteriorMarkers();
   });
   await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').children.getByName('Tower of Might'),null,{timeout:120000});
   await page.waitForTimeout(16000);
   const entrance=await page.evaluate(async()=>{
-    const s=window.__mernondnaGame.scene.getScene('world');const {TOWER_DOOR}=await import('/src/data/towerOfMight.ts');
+    const s=window.__mernondnaGame.scene.getScene('world');const {TOWER_APPROACH:TOWER_DOOR}=await import('/src/data/towerOfMight.ts');
     const actor=s.children.getByName('Tower of Might'),body=actor.body;
     const samples=[{x:TOWER_DOOR.x,y:TOWER_DOOR.y},{x:TOWER_DOOR.x,y:TOWER_DOOR.y+45},{x:TOWER_DOOR.x-32,y:TOWER_DOOR.y+30},{x:TOWER_DOOR.x+32,y:TOWER_DOOR.y+30}].map(p=>({...p,clear:s.interiorDoorClear(p.x,p.y),path:s.hasClearPath(p.x,p.y,TOWER_DOOR.x,TOWER_DOOR.y),entry:s.interiors.nearest(p.x,p.y)?.id}));
     return {samples,body:{x:body.x,y:body.y,bottom:body.bottom,radius:body.radius},player:{x:s.player.x,y:s.player.y},image:{x:actor.x,y:actor.y}};
