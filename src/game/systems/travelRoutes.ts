@@ -1,6 +1,4 @@
 import type {Vec2} from '../types';
-import {ROAD_ROUTES} from '../../data/roadRoutes';
-import {settlementAt} from '../../data/settlements';
 import {harborBay} from '../../data/worldLandscape';
 import {CHUNK_SIZE,WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
 import {seededRandom} from '../../utils/seededRandom';
@@ -9,9 +7,9 @@ import type {WorldGenerator} from './WorldGenerator';
 import {BOAT_HULL_CLEARANCE} from './VehicleArt';
 
 export interface TravelPath {id:string;points:Vec2[];length:number;speed:number;phase:number;endpointClearance?:number}
-export interface TrafficRoute extends TravelPath {kind:'boat'|'cart'}
+export interface TrafficRoute extends TravelPath {kind:'boat'}
 export function pathLength(points:Vec2[]){return points.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p.x-points[i].x,p.y-points[i].y),0);}
-// Merchants on the same run share its immutable points and length table.
+// Boats on the same lane reuse the immutable route length table.
 const routeLengths=new WeakMap<Vec2[],number[]>();
 /** Active-play clock gives stable positions across renderer unloading. Endpoints
  * have a short loading pause; direction reverses without teleporting. */
@@ -25,8 +23,7 @@ export function routePosition(route:TravelPath,elapsedMs:number){
   return {...point,distance,forward:outbound,dx:point.dx*(outbound?1:-1),dy:point.dy*(outbound?1:-1),moving:outbound?time<travel:time<travel*2+pause};
 }
 
-/** Sample the vehicle assembly's center along its measured route. Horse/cart
- * joints are registered together in WorldTrafficSystem, not sampled apart. */
+/** Sample a boat's center along its measured lane. */
 export function routePointAtDistance(route:TravelPath,distance:number){
   distance=Math.max(0,Math.min(route.length,distance));
   let cumulative=routeLengths.get(route.points);
@@ -34,43 +31,6 @@ export function routePointAtDistance(route:TravelPath,distance:number){
   let lo=1,hi=cumulative.length-1;while(lo<hi){const mid=(lo+hi)>>1;if(cumulative[mid]<distance)lo=mid+1;else hi=mid;}
   const a=route.points[lo-1],b=route.points[lo],length=cumulative[lo]-cumulative[lo-1],t=length?Math.max(0,Math.min(1,(distance-cumulative[lo-1])/length)):0;
   return {x:a.x+(b.x-a.x)*t,y:a.y+(b.y-a.y)*t,dx:b.x-a.x,dy:b.y-a.y};
-}
-
-export function cartRoutes(world:WorldGenerator):TrafficRoute[]{
-  const result:TrafficRoute[]=[];
-  for(const road of ROAD_ROUTES){
-    let run:Vec2[]=[];let serial=0;
-    const flush=()=>{
-      const length=pathLength(run);
-      // Reserve road beyond both loading stops for the full horse/cart train.
-      if(length>=720){const id='cart:'+road.id+':'+serial++,rng=seededRandom(id);
-        // Several separated merchants on long corridors, all locally streamed.
-        const count=Math.min(6,Math.max(1,Math.floor(length/3500)));
-        for(let i=0;i<count;i++)result.push({id:id+':'+i,kind:'cart',points:run,length,speed:42+rng()*10,phase:i*length/count/48*1000+rng()*8000,endpointClearance:180});}
-      run=[];
-    };
-    for(let i=1;i<road.points.length;i++){
-      const a=road.points[i-1],b=road.points[i],length=Math.hypot(b.x-a.x,b.y-a.y),steps=Math.ceil(length/16);
-      if(length<.001)continue;
-      // Project the centered rigid train onto the road normal. Diagonals need
-      // extra lateral room; cardinal side views retain their shallow footprint.
-      const side=Math.abs(b.x-a.x)>Math.abs(b.y-a.y)*1.15;
-      const clearance=side?12+Math.abs(b.y-a.y)/length*81.5+Math.abs(b.x-a.x)/length*3
-        :44+Math.abs(b.x-a.x)/length*50;
-      const nx=-(b.y-a.y)/length*clearance,ny=(b.x-a.x)/length*clearance;
-      for(let s=i===1?0:1;s<=steps;s++){
-        const p={x:a.x+(b.x-a.x)*s/steps,y:a.y+(b.y-a.y)*s/steps};
-        // Town centers have authored alleys/walls; caravans turn at approaches
-        // rather than following a regional centerline through buildings.
-        const previous=run.at(-1);
-        if(!settlementAt(p.x,p.y)&&world.isWalkable(p.x,p.y)&&world.isWalkable(p.x+nx,p.y+ny)&&world.isWalkable(p.x-nx,p.y-ny)
-          &&(!previous||!fortificationBlocksPath(previous,p,clearance)))run.push(p);
-        else flush();
-      }
-    }
-    flush();
-  }
-  return result;
 }
 
 export function isSailingWater(world:WorldGenerator,x:number,y:number){
