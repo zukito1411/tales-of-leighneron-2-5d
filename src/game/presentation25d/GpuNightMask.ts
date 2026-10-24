@@ -4,16 +4,18 @@ import type {DayNightSystem} from '../systems/DayNightSystem';
 import {presentationAttachmentWorld,presentationView} from './plane';
 import {FOG_START,VIEW_DISTANCE} from './environment';
 import {getEffectsQuality} from '../systems/effectsQuality';
+import {lightOcclusionShader} from './LightOcclusion';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 
-const eraseVertex=`attribute vec4 light;attribute float lightDepth;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying float sourceDepth;void main(){localUV=uv;sourceUV=light.xy*.5+.5;sourceDepth=lightDepth;gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);screenUV=gl_Position.xy*.5+.5;}`;
-const eraseFragment=`uniform sampler2D worldDepth;uniform vec2 clipRange;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying float sourceDepth;
-float eyeDepth(vec2 uv){float d=texture2D(worldDepth,uv).r;return clipRange.x*clipRange.y/(clipRange.y-d*(clipRange.y-clipRange.x));}
+const eraseVertex=`attribute vec4 light;attribute vec2 lightDepth;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying vec2 sourceDepth;void main(){localUV=uv;sourceUV=light.xy*.5+.5;sourceDepth=lightDepth;gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);screenUV=gl_Position.xy*.5+.5;}`;
+const eraseFragment=`uniform sampler2D worldDepth;uniform vec2 clipRange;uniform vec2 depthTexel;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying vec2 sourceDepth;
+${lightOcclusionShader}
 void main(){float r=length((localUV-.5)*2.0);if(r>1.0)discard;
 // A light hidden by a wall must not erase darkness through that wall. Also
 // clip a visible light's pocket where nearer surfaces cover its outer halo.
-if(eyeDepth(sourceUV)+3.0<sourceDepth||eyeDepth(screenUV)+1.0<sourceDepth)discard;
-float a=r<.3?mix(.88,.65,r/.3):.65*(1.0-(r-.3)/.7);gl_FragColor=vec4(0.0,0.0,0.0,a);}`;
+float visible=lightVisibility(worldDepth,sourceUV,screenUV,sourceDepth.x,clipRange,depthTexel,sourceDepth.y);
+if(visible<.001)discard;
+float a=r<.3?mix(.88,.65,r/.3):.65*(1.0-(r-.3)/.7);gl_FragColor=vec4(0.0,0.0,0.0,a*visible);}`;
 const overlayVertex=`varying vec2 screenUV;void main(){screenUV=uv;gl_Position=vec4(position.xy,0.0,1.0);}`;
 const overlayFragment=`uniform sampler2D mask;uniform sampler2D worldDepth;uniform float darkness;uniform mat4 inverseVP;uniform vec2 focus;uniform vec2 fogRange;varying vec2 screenUV;void main(){
   float depth=texture2D(worldDepth,screenUV).r;if(depth>.999999)discard;
@@ -29,8 +31,8 @@ export class GpuNightMask {
   private readonly scene=new Scene();private readonly camera=new OrthographicCamera(-1,1,1,-1,0,1);
   private readonly geometry=new PlaneGeometry(1,1);private readonly overlayGeometry=new PlaneGeometry(2,2);
   private readonly lights=new InstancedBufferAttribute(new Float32Array(512*4),4).setUsage(DynamicDrawUsage);
-  private readonly lightDepths=new InstancedBufferAttribute(new Float32Array(512),1).setUsage(DynamicDrawUsage);
-  private readonly eraseUniforms={worldDepth:{value:null as Texture|null},clipRange:{value:new Vector2(2,4000)}};
+  private readonly lightDepths=new InstancedBufferAttribute(new Float32Array(512*2),2).setUsage(DynamicDrawUsage);
+  private readonly eraseUniforms={worldDepth:{value:null as Texture|null},clipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)}};
   private readonly erase=new ShaderMaterial({uniforms:this.eraseUniforms,vertexShader:eraseVertex,fragmentShader:eraseFragment,transparent:true,depthTest:false,depthWrite:false,
     blending:CustomBlending,blendEquation:AddEquation,blendSrc:ZeroFactor,blendDst:OneMinusSrcAlphaFactor,blendSrcAlpha:ZeroFactor,blendDstAlpha:OneMinusSrcAlphaFactor});
   private readonly holes=new InstancedMesh(this.geometry,this.erase,512);
@@ -77,11 +79,12 @@ export class GpuNightMask {
       const rx=Math.min(1.2,Math.abs(this.projected.x-x)),ry=rx*camera.width/camera.height;
       if(rx<=0||x+rx<-1||x-rx>1||y+ry<-1||y-ry>1)continue;
       const flicker=node.fire?.96+Math.sin(source.presentationTime*.013+node.phase)*.04:1;
-      this.lightDepths.setX(count,depth);this.lights.setXYZW(count++,x,y,rx*flicker,ry*flicker);
+      this.lightDepths.setXY(count,depth,node.occlusionBias??3);this.lights.setXYZW(count++,x,y,rx*flicker,ry*flicker);
       if(count>=(low?18:512))break;
     }
     this.holes.count=count;this.holes.visible=count>0;this.lights.clearUpdateRanges();if(count){this.lights.addUpdateRange(0,count*4);this.lights.needsUpdate=true;}
-    this.lightDepths.clearUpdateRanges();if(count){this.lightDepths.addUpdateRange(0,count);this.lightDepths.needsUpdate=true;}
+    this.lightDepths.clearUpdateRanges();if(count){this.lightDepths.addUpdateRange(0,count*2);this.lightDepths.needsUpdate=true;}
+    this.eraseUniforms.depthTexel.value.set(1/renderer.domElement.width,1/renderer.domElement.height);
     this.eraseUniforms.worldDepth.value=depth;this.eraseUniforms.clipRange.value.set(view.camera.near,view.camera.far);
     const previous=renderer.getRenderTarget(),alpha=renderer.getClearAlpha();renderer.getClearColor(this.color);
     try{renderer.setRenderTarget(this.target);renderer.setClearColor(0x000000,1);renderer.clear();if(count)renderer.render(this.scene,this.camera);}

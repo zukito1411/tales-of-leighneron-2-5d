@@ -50,6 +50,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(rx===1&&rz===0)m.extrude(outline.map(a=>[a[0],a[1]] as const),z+.005*W,z-.006*W,pane);
     else for(let i=1;i<path.length-1;i++)m.triangle(p(...path[0]),p(...path[i]),p(...path[i+1]),pane);
     detailPolygon(path,(x,v)=>p(x,v,.007),glassTile);
+    if(emission)for(let i=1;i<path.length-1;i++)m.triangle(p(...path[0],.0072),p(...path[i],.0072),p(...path[i+1],.0072),pane);
     for(let i=0;i<path.length;i++){
       const a=path[i],b=path[(i+1)%path.length];beam(p(...a,.013),p(...b,.013),large?.010:.006,square?timber:stone);
       if(elf)beam(p(a[0]*.94,a[1],.020),p(b[0]*.94,b[1],.020),.0025,gold);

@@ -32,6 +32,8 @@ export function towerCombatStats(chamber:number,floor:number,enemy:EnemyDefiniti
    damage:Math.round((42+step*4)*Math.max(.8,Math.min(1.4,enemy.damage/12))),defense:.08+step*.008};
 }
 export const TOWER_ART='assets/world/tower-of-might-v2.png';
+/** Presentation dimensions; the 50 combat floors and entry ID are unchanged. */
+export const TOWER_EXTERIOR={width:520,height:1900,baseRadius:.325,centreDepth:.325};
 export const TOWER_DOOR_ART='assets/world/tower-doors-v1.png';
 export const TOWER_NORTH_DOOR={x:900,y:330};
 export const TOWER_PORTAL={x:900,y:900};
@@ -40,7 +42,7 @@ export const TOWER_DOOR={x:TOWN_BY_ID.oakmere.world.x,y:TOWN_BY_ID.oakmere.world
  * clearance. Keep the tower/collider fixed so old outdoor saves stay valid. */
 export const TOWER_APPROACH={x:TOWER_DOOR.x,y:TOWER_DOOR.y+48};
 export const inTowerClearing=(x:number,y:number,padding=0)=>Math.abs(x-TOWER_DOOR.x)<300+padding
- &&y>TOWER_DOOR.y-300-padding&&y<TOWER_DOOR.y+160+padding;
+ &&y>TOWER_DOOR.y-400-padding&&y<TOWER_DOOR.y+160+padding;
 export const onTowerApproach=(x:number,y:number)=>Math.abs(x-TOWER_DOOR.x)<65
  &&y>=TOWER_DOOR.y+100&&y<=TOWN_BY_ID.oakmere.world.y-1200;
 export const TOWER_CHAMBERS=[

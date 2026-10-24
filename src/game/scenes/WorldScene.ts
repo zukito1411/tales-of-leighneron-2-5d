@@ -16,7 +16,7 @@ import {InteriorSession} from '../systems/InteriorSession';
 import {DungeonSystem} from '../systems/DungeonSystem';
 import {DUNGEON_LEADER_SCALE,type DungeonDefinition} from '../../data/dungeons';
 import {TOWER_BOSS_PROFILES} from '../../data/bossCombatProfiles';
-import {TOWER_ENTRY_ID,towerCombatStats} from '../../data/towerOfMight';
+import {TOWER_ENTRY_ID,TOWER_EXTERIOR,TOWER_APPROACH,towerCombatStats} from '../../data/towerOfMight';
 import {TOWER_MUSIC} from '../systems/regionMusic';
 import {CAVE_LEADER_PROFILES} from '../../data/bossCombatProfiles';
 import {StoryEncounterSystem} from '../systems/StoryEncounterSystem';
@@ -206,10 +206,17 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.physics.add.existing(image,true);this.buildings.add(image);
     const body=image.body as Phaser.Physics.Arcade.StaticBody;
     if(tower){
-      const radius=120;body.setCircle(radius);
+      const spatial=this.game.registry.get('presentation')==='three-2.5d';
+      const radius=spatial?TOWER_EXTERIOR.width*TOWER_EXTERIOR.baseRadius:120;
+      const offset=spatial?TOWER_EXTERIOR.width*TOWER_EXTERIOR.centreDepth:124;
+      body.setCircle(radius);
       this.physics.world.remove(body);
-      body.position.set(image.x-radius,image.y-124-radius);body.updateCenter();
+      body.position.set(image.x-radius,image.y-offset-radius);body.updateCenter();
       this.physics.world.add(body);
+      // An older outdoor save can stand inside the newly wider foundation.
+      // Recover only that overlap to the shared, reachable southern approach.
+      if(spatial&&Math.hypot(this.player.x-image.x,this.player.y-(image.y-offset))<radius+16)
+        this.restoreOutsidePosition(TOWER_APPROACH);
     }
     else{body.setSize(150,60);body.position.set(image.x-75,image.y-image.displayHeight+35);body.center.set(body.x+75,body.y+30);}
   }

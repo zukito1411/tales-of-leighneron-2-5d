@@ -1,7 +1,7 @@
 import {ModelMesh,paintedMaterial,pigment,type ModelMaterial,type Patch,type V3} from './ModelMesh';
 import type {HouseShape} from './HouseGeometry';
 
-/** tower-of-might-v2.png: round masonry, four storeys, purple rune hangings,
+/** tower-of-might-v2.png: round masonry, stacked arcane galleries, purple rune hangings,
  * gold stone collars, lancets and a crenellated crown. Only individual painted
  * ornaments are reused; the complete tower is never a flat front panel. */
 export function createMagusTowerGeometry(shape:HouseShape,emission=false){
@@ -24,12 +24,17 @@ export function createMagusTowerGeometry(shape:HouseShape,emission=false){
       for(const t of i===0?[a]:i===sides-1?[c]:[])m.quad(p(t,inner,low),p(t,outer,low),p(t,inner,high),p(t,outer,high),mat);
     }
   };
-  openBand(b,y(.055),W*.325,W*.27,stone,.43);
-  openBand(y(.055),y(.225),r,r*.82,stone);
-  m.cylinder(x,z,y(.225),y(.85),r,r,stone,sides);
-  for(const v of [.055,.255,.455,.655,.835]){
-    if(v===.055){openBand(y(v),y(v+.021),r*1.11,r*.96,gold);openBand(y(v+.021),y(v+.035),r*1.065,r*.96,stone);}
-    else{m.ring(x,z,y(v),y(v+.021),r*1.11,r*.96,gold,sides);m.ring(x,z,y(v+.021),y(v+.035),r*1.065,r*.96,stone,sides);}
+  // Add repeated galleries instead of stretching four rooms and their art.
+  // The southern aperture stays at the original feet/interaction coordinate.
+  const floors=14,base=.10,step=.74/floors;
+  const levels=Array.from({length:floors+1},(_,i)=>base+i*step);
+  openBand(b,y(.014),W*.325,W*.27,stone,.43);
+  openBand(y(.014),y(base),r,r*.82,stone);
+  m.cylinder(x,z,y(base),y(.85),r,r,stone,sides);
+  openBand(y(.014),y(.020),r*1.11,r*.96,gold);
+  for(const [i,v] of levels.entries()){
+    m.ring(x,z,y(v),y(v+.0045),r*(i%3===0?1.11:1.045),r*.96,gold,sides);
+    m.ring(x,z,y(v+.0045),y(v+.008),r*1.04,r*.96,stone,sides);
   }
   const path:readonly (readonly [number,number])[]=[[-.5,0],[.5,0],[.5,.65],[.34,.84],[0,1],[-.34,.84],[-.5,.65]];
   const lancet=(a:number,base:number,h:number,w:number,portal=false)=>{
@@ -48,34 +53,34 @@ export function createMagusTowerGeometry(shape:HouseShape,emission=false){
   for(let i=0;i<8;i++){
     const a=i/8*Math.PI*2,nx=Math.sin(a),nz=Math.cos(a),px=x+nx*r*1.025,pz=z+nz*r*1.025;
     // Pilasters and buttresses follow the cylinder instead of forming a box.
-    m.cylinder(px,pz,i===0?y(.225):b,y(.79),W*.019,W*.016,stone,8);
-    for(const v of [.08,.27,.47,.67])if(i!==0||v!==.08)m.cylinder(px,pz,y(v),y(v+.027),W*.032,W*.026,gold,8);
+    m.cylinder(px,pz,i===0?y(base):b,y(.85),W*.019,W*.016,stone,8);
+    for(const v of levels)m.cylinder(px,pz,y(v),y(v+.007),W*.027,W*.024,gold,8);
     const wx=x+nx*r*.99,wz=z+nz*r*.99;
-    m.cylinder(wx,wz,y(.83),y(.95),W*.035,W*.035,stone,8);
-    m.cylinder(wx,wz,y(.95),y(.984),W*.044,0,gold,8);
-    for(const v of [.09,.29,.49,.69])if(v!==.09||Math.cos(a+Math.PI/8)<.8)lancet(a+Math.PI/8,v,H*.115,W*.072);
-    for(const level of [.28,.48,.68]){
-      const rx=nz,rz=-nx,rr=r*1.14,cy=y(level),ww=W*.052,hh=H*.14;
+    m.cylinder(wx,wz,y(.83),y(.89),W*.035,W*.035,stone,8);
+    m.cylinder(wx,wz,y(.89),y(.905),W*.044,0,gold,8);
+    for(const v of levels.slice(0,-1))lancet(a+Math.PI/8,v+.014,H*.030,W*.065);
+    for(const level of [.17,.33,.49,.65,.79]){
+      const rx=nz,rz=-nx,rr=r*1.14,cy=y(level),ww=W*.060,hh=H*.050;
       const point=(u:number,v:number):V3=>[x+nx*rr+rx*u*ww,cy+v*hh,z+nz*rr+rz*u*ww];
       if(!emission)m.cutout(point(-.5,0),point(.5,0),point(-.5,1),point(.5,1),[.475,.485,.525,.62]);
       for(const u of [-.58,.58])m.beam(point(u,0),point(u,1),W*.004,gold,4);
     }
   }
   // Open ring with regularly spaced merlons, not a generic flat crown.
-  m.ring(x,z,y(.835),y(.90),r*1.06,r*.87,stone,sides);
+  m.ring(x,z,y(.835),y(.855),r*1.06,r*.87,stone,sides);
   for(let i=0;i<24;i++){
     const a=i/24*Math.PI*2,xx=x+Math.sin(a)*r*.975,zz=z+Math.cos(a)*r*.975;
-    m.cylinder(xx,zz,y(.89),y(.934),W*.020,W*.020,stone,6);
+    m.cylinder(xx,zz,y(.852),y(.870),W*.020,W*.020,stone,6);
   }
-  lancet(0,.012,H*.19,W*.22,true);
+  lancet(0,.003,H*.080,W*.22,true);
   // Stair top meets the portal at foot height; the interaction target remains
   // in front of all collision. No visual stair is used as a physics ramp.
-  for(let i=0;i<4;i++)m.box(x-W*(.14+i*.014),x+W*(.14+i*.014),b-H*.006,y(.012*(4-i)/4),z+r+W*.005,z+r+W*(.035+i*.030),stone);
+  for(let i=0;i<4;i++)m.box(x-W*(.14+i*.014),x+W*(.14+i*.014),b-H*.0015,y(.003*(4-i)/4),z+r+W*.005,z+r+W*(.035+i*.030),stone);
   for(const side of [-1,1]){
     const px=x+side*W*.165,pz=z+r*.87;
-    m.cylinder(px,pz,b,y(.22),W*.025,W*.022,stone,8);
-    m.cylinder(px,pz,y(.22),y(.25),W*.034,0,gold,8);
-    if(!emission)m.cutout([px-W*.026,y(.055),pz+W*.025],[px+W*.026,y(.055),pz+W*.025],[px-W*.026,y(.19),pz+W*.025],[px+W*.026,y(.19),pz+W*.025],[.345,.756,.402,.851]);
+    m.cylinder(px,pz,b,y(.085),W*.025,W*.022,stone,8);
+    m.cylinder(px,pz,y(.085),y(.094),W*.034,0,gold,8);
+    if(!emission)m.cutout([px-W*.026,y(.020),pz+W*.025],[px+W*.026,y(.020),pz+W*.025],[px-W*.026,y(.077),pz+W*.025],[px+W*.026,y(.077),pz+W*.025],[.345,.756,.402,.851]);
   }
   return m.finish();
 }

@@ -1,3 +1,4 @@
+import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
 import {PAINTED_MODEL_ATLASES} from './PaintedMaterials';
 import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork,releaseFrameWork} from './FrameWorkBudget';
@@ -109,7 +110,7 @@ export class ThreePresentation {
   private readonly gpuWater:GpuWater;
   private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
-  private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},
+  private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},
     fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
   private nightScene:Phaser.Scene|undefined;private nightSource:DayNightSystem|undefined;
   private nightAmount=0;private nightDensity=1;private nightMerged=false;
@@ -297,6 +298,7 @@ export class ThreePresentation {
       afterWorldRender:this.prepareNight,weather:weather?.presentation,mist:this.gpuWeather.fog});
     this.overlayAtmosphere.worldDepth.value=this.postFX.depth;
     this.overlayAtmosphere.depthClipRange.value.set(this.orbit.camera.near,this.orbit.camera.far);
+    this.overlayAtmosphere.depthTexel.value.set(1/this.renderer.domElement.width,1/this.renderer.domElement.height);
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
 
     const profRender=this.frameDiagnostics?performance.now():0;
@@ -525,6 +527,14 @@ export class ThreePresentation {
         out.set(px+(out.x-beam.x)*(1-t),out.y*(1-t)+endHeight*t,py+(out.z-beam.y)*(1-t));
       }
       else if(plane==='ground')out.set(px,(deck??0)+lift,py);
+      else if(hint?.overlay&&hint.occlude&&(hint.fixture||hint.anchor instanceof Phaser.GameObjects.Image||hint.anchor instanceof Phaser.GameObjects.Sprite)){
+        // One world-space emitter for the halo and darkness pocket. Every halo
+        // faces the camera, including rotated indoor furniture and houses.
+        const owner=hint.fixture?.owner??hint.anchor as Phaser.GameObjects.Image|Phaser.GameObjects.Sprite;
+        presentationAttachmentWorld(object.scene,owner,this.transform.tx,this.transform.ty,out,hint.fixture);
+        const sx=Math.hypot(this.transform.a,this.transform.b),sy=Math.hypot(this.transform.c,this.transform.d);
+        out.x+=x*sx*this.yawCos;out.y-=y*sy;out.z-=x*sx*this.yawSin;
+      }
       else if(furniture&&hint?.overlay&&hint.anchor instanceof Phaser.GameObjects.Sprite){
         presentationAttachmentWorld(object.scene,hint.anchor,this.transform.tx,this.transform.ty,out);
         out.x+=x*Math.hypot(this.transform.a,this.transform.b)*this.yawCos;out.y-=y*Math.hypot(this.transform.c,this.transform.d);out.z-=x*Math.hypot(this.transform.a,this.transform.b)*this.yawSin;
@@ -564,7 +574,7 @@ export class ThreePresentation {
       this.projected.copy(this.p1).add(this.p2).multiplyScalar(.5).project(this.orbit.camera);
       if(!Number.isFinite(this.projected.z)||this.projected.z< -1||this.projected.z>1)return;
       repeat=this.tileRepeat;repeat[0]=(this.projected.x+1)/2;repeat[1]=(this.projected.y+1)/2;
-      repeat[2]=(this.projected.z+1)/2;repeat[3]=2;
+      repeat[2]=(this.projected.z+1)/2;repeat[3]=hint.lightOcclusionBias??3;
     }
     if(hint?.overlay&&plane!=='screen'){
       // Preserve world anchoring while sharing exact depth order with screen
@@ -582,7 +592,7 @@ export class ThreePresentation {
     // ground/billboard matrices. Raycasting must use the rendered transform.
     const nx=xy*yz-xz*yy,ny=xz*yx-xx*yz,nz=xx*yy-xy*yx,length=Math.hypot(nx,ny,nz)||1;
     const normalScale=volumeDepth>0?Math.hypot(xx,xy,xz):1;
-    const facadeOffset=house&&emissionOwner ? .015 : 0;
+    const facadeOffset=0; // Emitting faces own their surface offset, independent of camera heading.
     this.model.set(xx,yx,nx/length*normalScale,this.p0.x+(xx+yx)/2+offset*this.pitchCos*this.yawSin-facadeOffset*houseSin,
       xy,yy,ny/length*normalScale,this.p0.y+(xy+yy)/2+offset*this.pitchSin,
       xz,yz,nz/length*normalScale,this.p0.z+(xz+yz)/2+offset*this.pitchCos*this.yawCos+facadeOffset*houseCos,0,0,0,1);
@@ -597,7 +607,7 @@ export class ThreePresentation {
       // Saved rotation is a heading on the floor, never a tilt of the painted
       // sprite's vertical axis. Match the existing front-foot/footprint anchor.
       const p=furniturePlacement(emissionOwner??object,furniture,this.furniturePosition),w=p.width,c=Math.cos(p.heading),s=Math.sin(p.heading);
-      const offset=emissionOwner?.018:0;
+      const offset=0; // Base and emission instances must share the same world transform.
       this.model.set(w*c,0,-w*s,p.x-offset*s,0,w,0,(furniture.fixedGround??this.heightAt(p.x,p.y))+p.lift,w*s,0,w*c,p.y+offset*c,0,0,0,1);
     }
     if(houseVolume)applyHouseRise(this.model,house!);
@@ -804,7 +814,7 @@ export class ThreePresentation {
     if(this.game.input.touch&&this.originalTouchEnabled!==undefined)this.game.input.touch.enabled=this.originalTouchEnabled;
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
-    this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
+    releaseLifeTreeGeometry();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();

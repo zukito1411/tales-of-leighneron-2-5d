@@ -331,7 +331,7 @@ WORLD_CONTENT.push({id:'sign:pirate-flagship',kind:'interactable',world:shipPoin
   repeatText:'The pirate flagship lies west across the wooden gangplank. The Salt King commands his crew from the aft deck.'});
 const elarion=TOWN_BY_ID.elarion;
 WORLD_CONTENT.push({id:'landmark:elarion-tree-of-life',kind:'prop',
-  world:{x:elarion.world.x+540,y:elarion.world.y-1050},texture:'elarion_tree',frame:0,scale:.8,solid:true,
+  world:{x:elarion.world.x+1120,y:elarion.world.y-1260},texture:'elarion_tree',frame:0,scale:.8,solid:true,
   footprint:{width:78,height:62},streamRadiusChunks:2});
 WORLD_CONTENT.push({id:'landmark:darkav-cinderpeak',kind:'prop',world:{...LAVA_FLOW[0]},texture:'darkav_volcano',frame:0,
   scale:3.2,solid:true,streamRadiusChunks:2,label:'Cinderpeak Volcano'});

@@ -59,6 +59,8 @@ export interface PresentationHint {
   overlay?: boolean;
   /** World-attached glow must respect foreground geometry in the depth buffer. */
   occlude?:boolean;
+  /** Only the emitting bulb may overlap its own opaque fixture. World units. */
+  lightOcclusionBias?:number;
   /** Small ground separation for layered floors and decals. */
   elevation?: number;
   /** Waterline decals stay level instead of following the submerged bed. */
@@ -201,7 +203,7 @@ export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.Game
     out.z=p.y+dx*Math.sin(p.heading)+z*Math.cos(p.heading);
   }else if(house){
     const dx=x-owner.x;
-    let localX=dx,localZ=0;
+    let localX=dx,localZ=Math.abs(owner.displayWidth)*.085+2;
     if(house.profile.tiers){
       const w=Math.abs(owner.displayWidth),h=Math.abs(owner.displayHeight);
       const sourceX=(dx/w+owner.originX-house.left)/house.width;
@@ -215,7 +217,7 @@ export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.Game
       }
     }
     out.x=owner.x+localX*Math.cos(owner.rotation)-localZ*Math.sin(owner.rotation);
-    out.y=worldHeight(scene,owner.x,owner.y)+(owner.y-y)*(house.riseScale??1);
+    out.y=worldHeight(scene,owner.x,owner.y)+(owner.y-y)*(house.riseScale??1)+(house.floorLift??0)*Math.abs(owner.displayHeight);
     out.z=owner.y+localX*Math.sin(owner.rotation)+localZ*Math.cos(owner.rotation);
   }else uprightPoint(x,y,owner.x,owner.y,out,scene);
   const elevation='presentationElevation' in owner&&typeof owner.presentationElevation==='number'?owner.presentationElevation:0;

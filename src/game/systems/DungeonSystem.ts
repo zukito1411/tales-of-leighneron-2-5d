@@ -7,7 +7,7 @@ import {saveGame} from '../../utils/save';
 import type {WorldScene} from '../scenes/WorldScene';
 import type {Enemy} from '../entities/Enemy';
 import type {NavigationMarker,Vec2} from '../types';
-import {TOWER_ART,TOWER_ENTRY_ID,TOWER_DOOR,TOWER_APPROACH,TOWER_UNLOCKED,TOWER_CHAMBERS,TOWER_FLOORS,towerEntryFloor,towerCampaignComplete,towerKnown,TOWER_NORTH_DOOR,TOWER_PORTAL,towerPracticeAvailable,towerFloorProgress} from '../../data/towerOfMight';
+import {TOWER_ART,TOWER_EXTERIOR,TOWER_ENTRY_ID,TOWER_DOOR,TOWER_APPROACH,TOWER_UNLOCKED,TOWER_CHAMBERS,TOWER_FLOORS,towerEntryFloor,towerCampaignComplete,towerKnown,TOWER_NORTH_DOOR,TOWER_PORTAL,towerPracticeAvailable,towerFloorProgress} from '../../data/towerOfMight';
 import {artScale} from '../../data/art';
 import {grandMagusFarewell} from './GrandMagusArt';
 import {TOWER_SOUTH_ENTRY} from '../../data/towerRoom';
@@ -85,10 +85,11 @@ export class DungeonSystem {
         this.scene.load.image({key:TOWER_TEXTURE,url:TOWER_ART,xhrSettings:{responseType:'blob',timeout:15000}});this.scene.load.start();
       }
       if(!site&&this.scene.textures.exists(TOWER_TEXTURE)){
-        // Keep the authored exterior and collider fixed. The shared standing
-        // target is south of it, with clearance for the player’s full feet.
+        // Keep the southern foot/standing target fixed. The larger cylinder
+        // extends north into its clearing; the portal is authored at ground.
+        const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
         const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y+12,TOWER_TEXTURE).setOrigin(.5,1)
-          .setDisplaySize(380,570).setDepth(TOWER_DOOR.y-50).setName('Tower of Might');
+          .setDisplaySize(spatial?TOWER_EXTERIOR.width:380,spatial?TOWER_EXTERIOR.height:570).setDepth(TOWER_DOOR.y-50).setName('Tower of Might');
         image.setData(PRESENTATION_HINT,{plane:'upright',house:towerOfMightShape()} satisfies PresentationHint);
         this.scene.registerDungeonEntrance(image,true);
         image.setInteractive({useHandCursor:true}).on('pointerdown',()=>{

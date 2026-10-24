@@ -1,5 +1,5 @@
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
-import {createSourceVolumeGeometry} from './SourceVolumeGeometry';
+import {createLifeTreeGeometry} from './LifeTreeGeometry';
 import {createRockGeometry} from './RockGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
 import {createCoastalBoatGeometry} from './CoastalBoatGeometry';
@@ -66,7 +66,7 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
 /** Furniture is assembled from closed, detailed mesh parts. Only naturally
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
-  if(shape.art==='life-tree')return createSourceVolumeGeometry(shape,emission);
+  if(shape.art==='life-tree')return createLifeTreeGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
@@ -301,6 +301,9 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       const x=art==='lantern'?0:shape.ornamentX??.25,b=art==='lantern'?H*.12:H*.40,t=art==='lantern'?H*.80:H*.72,r=Math.min(.13,D*.40);
       if(art==='lampPost')m.beam([0,H*.86,z],[x,H*.86,z],.025,metal);
       box(x-r,x+r,b,t,z-r,z+r,lampGlass);
+      // Both side/rear panes emit on their own outward face. A world-Z nudge
+      // disappears into the housing when the camera crosses to the back.
+      if(emission){const e=.0012;box(x-r-e,x+r+e,b,t,z-r-e,z+r+e,lampGlass);}
       const pane:Patch=kit.startsWith('world:native_story')?[.29,.47,.64,.77]:kit.startsWith('world:')?(kit.endsWith(':1')?[.34,.12,.64,.41]:kit.endsWith(':2')?[.63,.42,.89,.62]:[.72,.27,.93,.48]):[.40,.46,.68,.82];
       const q=r*.84;
       m.cutout([x-q,b,z+r+.001],[x+q,b,z+r+.001],[x-q,t,z+r+.001],[x+q,t,z+r+.001],pane);

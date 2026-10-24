@@ -9,11 +9,13 @@ import {getGraphicEffects} from './graphicsEffects';
 import {ensureNightLightArt,nightLightFrame} from './NightLightArt';
 import {INN_MORNING_MINUTE,innRestAvailable} from '../../data/innRest';
 import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay,onPlane,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {LIFE_TREE_LIGHTS} from '../presentation25d/LifeTreeDesign';
+import {VIEW_DISTANCE,FOG_START} from '../presentation25d/environment';
 import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
 
 export interface LocalLight {
   actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite; x:number; y:number; radius:number; fire:boolean; phase:number;
-  fixture?:PresentationHint['fixture'];
+  fixture?:PresentationHint['fixture'];occlusionBias?:number;
   glow:Phaser.GameObjects.Image;
   cutout:Phaser.GameObjects.Image;
 }
@@ -81,7 +83,10 @@ export class DayNightSystem {
     });
   }
   register(actor:Phaser.GameObjects.Sprite,key:ArtTextureKey,frame:number,scale:number) {
-    const points=environmentLightPoints(key,frame);
+    const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+    const shape=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    const tree=spatial&&shape?.art==='life-tree';
+    const points=tree?LIFE_TREE_LIGHTS.map(()=>({x:0,y:0,radius:100,fire:false,mask:0})):environmentLightPoints(key,frame);
     const owned:LocalLight[]=[];
     for(const [index,p] of points.entries()) {
       const glow=this.scene.add.image(actor.x,actor.y,'warm-light').setDepth(1_000_001).setBlendMode(Phaser.BlendModes.ADD)
@@ -92,12 +97,30 @@ export class DayNightSystem {
         cutout:this.scene.game.registry.get('presentation')==='three-2.5d'?this.scene.make.image({key:'warm-light',add:false})
           :this.scene.make.image({key:ensureNightLightArt(this.scene),frame:nightLightFrame(false,0,0),add:false})};
       onOverlay(glow,actor,true);
+      if(spatial&&shape){
+        const p=furniturePlacement(actor,shape,{x:0,y:0,width:0,heading:0,lift:0}),w=p.width,H=shape.rise;
+        const art=shape.art,bulb=art==='lantern'||art==='lampPost',brazier=art==='brazier';
+        if(tree||bulb||brazier){
+          const lamp=tree?LIFE_TREE_LIGHTS[index]:undefined;
+          const right=lamp?.[0]??(art==='lampPost'?shape.ornamentX??.25:0);
+          const height=lamp?lamp[1]*H:H*(brazier?.76:art==='lantern'?.46:.56);
+          const depth=lamp?.[2]??-shape.depth/2;
+          const a=shape.heading??0,c=Math.cos(a),sn=Math.sin(a);
+          node.fixture={owner:actor,right:((shape.footX??0)+right*c-depth*sn)*w,
+            height:p.lift+height*w,depth:((shape.footY??0)+right*sn+depth*c)*w};
+          // Glass panes are opaque in the inexpensive depth prepass. Permit
+          // only this bulb's own housing, not the depth of another building.
+          node.occlusionBias=bulb?Math.min(.13,shape.depth*.40)*w+2:tree?.028*w+2:3;
+          const hint=glow.getData(PRESENTATION_HINT) as PresentationHint;
+          hint.fixture=node.fixture;hint.lightOcclusionBias=node.occlusionBias;
+        }
+      }
       this.lights.add(node);owned.push(node);
     }
     const ownedEmissions:Phaser.GameObjects.Sprite[]=[];
     const volumeTree=key==='elarion_tree'&&this.scene.game.registry.get('presentation')==='three-2.5d';
     if(this.scene.textures.exists(key+':emission')) {
-      if(this.scene.textures.exists(key+':rune-glow')){
+      if(!tree&&this.scene.textures.exists(key+':rune-glow')){
         const runeGlow=this.scene.add.sprite(actor.x,actor.y,key+':rune-glow',frame).setOrigin(actor.originX,actor.originY)
           .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.004)
           .setBlendMode(Phaser.BlendModes.ADD).setData('emissionOwner',actor).setData('emissionType','tree-rune-glow')
@@ -148,13 +171,20 @@ export class DayNightSystem {
     if(effects.lightBloom){
     for(const node of this.lights) {
       const x=node.actor.x+node.x,y=node.actor.y+node.y,r=node.radius;
-      const visible=node.actor.visible&&effects.lightBloom&&night>0&&x+r>=view.left&&x-r<=view.right&&y+r>=view.top&&y-r<=view.bottom;
+      // Elevated lamps cannot be culled against a ground-only rectangle: its
+      // shape changes as the camera turns. The presentation frustum handles
+      // screen visibility after projecting the actual emitter.
+      const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+      const distance=Math.hypot(node.actor.x-playerX,node.actor.y-playerY);
+      const inRange=spatial?distance<VIEW_DISTANCE+r:x+r>=view.left&&x-r<=view.right&&y+r>=view.top&&y-r<=view.bottom;
+      const visible=node.actor.active&&node.actor.visible&&effects.lightBloom&&night>0&&inRange;
       node.glow.setVisible(visible);
       if(night===0)node.glow.setAlpha(0);
       if(!visible)continue;
       const flicker=node.fire ? .92+Math.sin(this.elapsed*.013+node.phase)*.055+Math.sin(this.elapsed*.021+node.phase)*.025 : 1;
       const intensity=node.actor.texture.key==='elven_villas'?.28:.15;
-      node.glow.setPosition(x,y).setAlpha(night*intensity*flicker);
+      const t=spatial?Math.max(0,Math.min(1,(distance-FOG_START)/(VIEW_DISTANCE-FOG_START))):0;
+      node.glow.setPosition(x,y).setAlpha(night*intensity*flicker*(1-t*t*(3-2*t)));
     }
     for(const emission of this.emissions){
       const owner=emission.getData('emissionOwner') as Phaser.GameObjects.Sprite;
@@ -166,7 +196,7 @@ export class DayNightSystem {
         const runeGlow=type==='tree-rune-glow';
         const depth=runeGlow?1_000_002:1_000_003;
         if(emission.depth!==depth)emission.setDepth(depth);
-        const intensity=emission.getData('volumeRune')===true?(runeGlow?.20+.15*pulse:.40+.10*pulse):(runeGlow?.48+.42*pulse:.88+.12*pulse);
+        const intensity=emission.getData('volumeRune')===true?(runeGlow?.24:.55):(runeGlow?.48+.42*pulse:.88+.12*pulse);
         emission.setPosition(owner.x,owner.y).setAlpha(intensity)
           .setVisible(effects.lightBloom&&owner.visible);
       }else {
@@ -273,12 +303,13 @@ export class DayNightSystem {
     const shape=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;if(!shape)return;
     const p=furniturePlacement(actor,shape,{x:0,y:0,width:0,heading:0,lift:0}),w=p.width,H=shape.rise;
     const candle=art==='table'||art==='counter'||art==='workstation';
-    const fixture={owner:actor,right:(candle?.28:0)*w,height:p.lift+H*w*(candle?1.18:art==='hearth'?.38:.46),depth:-shape.depth*w*(candle?.75:.12)};
+    const fixture={owner:actor,right:(candle?.28:0)*w,height:p.lift+H*w*(candle?1.24:art==='hearth'?.375:.46),depth:candle?-shape.depth*w*.75:art==='hearth'?-.055*w:-shape.depth*w/2};
+    const occlusionBias=art==='lantern'?Math.min(.13,shape.depth*.40)*w+2:3;
     const radius=art==='hearth'?190:candle?115:150;
     const glow=this.scene.add.image(actor.x,actor.y,'warm-light').setDisplaySize(radius*2,radius*2)
       .setBlendMode(Phaser.BlendModes.ADD).setDepth(1_000_001).setVisible(false).setName('interior-light:'+art);
-    glow.setData(PRESENTATION_HINT,{plane:'upright',overlay:true,occlude:true,fixture} satisfies PresentationHint);
-    const node:LocalLight={actor,x:0,y:0,radius,fire:true,phase:actor.x*.013+actor.y*.019,fixture,glow,
+    glow.setData(PRESENTATION_HINT,{plane:'upright',overlay:true,occlude:true,fixture,lightOcclusionBias:occlusionBias} satisfies PresentationHint);
+    const node:LocalLight={actor,x:0,y:0,radius,fire:true,phase:actor.x*.013+actor.y*.019,fixture,occlusionBias,glow,
       cutout:this.scene.make.image({key:'warm-light',add:false})};
     this.lights.add(node);
     actor.once('destroy',()=>{this.lights.delete(node);glow.destroy();node.cutout.destroy();this.maskDirty=true;});
