@@ -38,7 +38,7 @@ try{
       const s=window.__mernondnaGame.scene.getScene('world');
       const {TOWN_BY_ID}=await import('/src/data/towns.ts');
       let p;
-      if(kind==='smithy'){const t=TOWN_BY_ID.highmere.world;p={x:t.x+1050,y:t.y+1010};}
+      if(kind==='smithy'){const t=TOWN_BY_ID.highmere.world;p={x:t.x+1220,y:t.y+1180};}
       else if(kind==='bridge'){const {HIGHMERE_BRIDGE_POINTS}=await import('/src/data/rivers.ts');const b=HIGHMERE_BRIDGE_POINTS[2];p={x:b.x+180,y:b.y+85};}
       else if(kind==='ship'){const {shipPoint}=await import('/src/data/pirateFlagship.ts');p=shipPoint(410,840);}
       else{const t=TOWN_BY_ID.oakmere.world;p={x:t.x+160,y:t.y+110};}
@@ -59,10 +59,11 @@ try{
   await shot('03-level-bridge-mobile',()=>warp('bridge'));
   await shot('04-ship-and-warning-mobile',async()=>{
     await warp('ship');
+    notes.ship=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return s.children.list.filter(o=>/flagship/.test(o.name)||o.texture?.key==='pirate_flagship').map(o=>({name:o.name,type:o.type,x:o.x,y:o.y,width:o.width,height:o.height,displayWidth:o.displayWidth,displayHeight:o.displayHeight,originX:o.originX,originY:o.originY,visible:o.visible,alpha:o.alpha,depth:o.depth,hint:o.getData('presentation25d')}));});
     await page.evaluate(async()=>{
       const s=window.__mernondnaGame.scene.getScene('world');
       const {AttackTelegraph}=await import('/src/game/systems/AttackTelegraph.ts');
-      s.scene.pause();s.physics.world.pause();
+      s.physics.world.pause();
       const warning=new AttackTelegraph(s,'capture-attack-warning',false);
       warning.draw({kind:'cone',x:s.player.x-75,y:s.player.y-90,angle:1.10,radius:180,halfAngle:.65},.62,s.player.y);
     });
@@ -78,8 +79,9 @@ try{
       for(const enemy of s.enemySteeringActors())if(Math.hypot(enemy.x-s.player.x,enemy.y-s.player.y)<600)enemy.destroy();
       s.player.restoreAt(entry.door.x,entry.door.y);s.lastSafe={...entry.door};s.interiors.enter(entry);
     });
-    await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').inInterior,null,{timeout:120000});
-    await page.waitForTimeout(8000);
+    await page.waitForFunction(()=>window.__mernondnaGame.scene.getScene('world').interiors.ready,null,{timeout:240000});
+    await page.waitForTimeout(14000);
+    notes.interior=await page.evaluate(()=>{const s=window.__mernondnaGame.scene.getScene('world');return {ready:s.interiors.ready,entry:s.interiors.currentEntry,player:{x:s.player.x,y:s.player.y},objects:s.children.list.filter(o=>/interior|floor/.test(o.name)||o.texture?.key?.startsWith('interior')).map(o=>({name:o.name,type:o.type,x:o.x,y:o.y,width:o.width,height:o.height,visible:o.visible,alpha:o.alpha,cameraFilter:o.cameraFilter,depth:o.depth,hint:o.getData('presentation25d')}))};});
   });
   if(!notes.captures.length)throw new Error('No game captures were produced');
 }catch(e){notes.errors.push(e.stack??e.message);console.error(e);if(page)await page.screenshot({path:output+'/capture-blocker.png',timeout:15000}).catch(()=>{});process.exitCode=1;}
