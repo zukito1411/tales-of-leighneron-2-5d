@@ -51,6 +51,8 @@ export interface PresentationHint {
   house?:HouseShape;
   /** Fixed room furnishing; its model uses a world-facing, floor-based basis. */
   furniture?:FurnitureShape;
+  /** Distance-driven rigid wheel angle; no independent animation clock. */
+  wheelAngle?:number;
   /** Artwork mounted on furniture, such as a player's displayed weapon. */
   fixture?:{owner:Phaser.GameObjects.Image;right:number;height:number;depth:number};
   /** Keep attachments, names and health bars on their owner's foot plane. */

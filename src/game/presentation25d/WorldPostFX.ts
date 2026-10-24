@@ -123,14 +123,24 @@ void main(){
     float contrast=high-low;
     // Render-target edges bypass default framebuffer MSAA. Reuse these four
     // existing detail taps and filter only strong silhouette edges in this pass.
-    if(edgeSmoothing>.5&&contrast>max(.055,high*.19)){
-      vec2 tangent=abs(n+s-2.0*center)>abs(e+w-2.0*center)?vec2(sourceTexel.x,0.0):vec2(0.0,sourceTexel.y);
-      vec3 aa=(texture2D(sourceColor,vUv+tangent*.5).rgb+texture2D(sourceColor,vUv-tangent*.5).rgb)*.5;
-      color=mix(original,aa,.65);
+    if(edgeSmoothing>.5&&contrast>max(.035,high*.12)){
+      // FXAA direction follows the edge, using the existing four luma taps.
+      // No multisample depth buffer, history, extra world render or FXAA pass.
+      vec2 gradient=vec2(w-e,s-n);
+      vec2 tangent=vec2(-gradient.y,gradient.x);
+      float reduce=max((e+w+n+s)*.03125,.0078125);
+      tangent=clamp(tangent/(min(abs(tangent.x),abs(tangent.y))+reduce),vec2(-6.0),vec2(6.0))*sourceTexel;
+      vec3 inner=(texture2D(sourceColor,vUv-tangent/6.0).rgb+texture2D(sourceColor,vUv+tangent/6.0).rgb)*.5;
+      vec3 outer=inner*.5+(texture2D(sourceColor,vUv-tangent*.5).rgb+texture2D(sourceColor,vUv+tangent*.5).rgb)*.25;
+      float outerLuma=dot(outer,luma);
+      color=outerLuma<low||outerLuma>high?inner:outer;
+      // Soften subpixel stair steps without blurring the whole scene.
+      float subpixel=clamp(abs(dot(neighborhood,luma)-center)/max(contrast,.001)-.2,0.0,.55);
+      color=mix(color,neighborhood,subpixel*subpixel);
     }
     // Small bounded detail contrast retains painted timber/stone texture in
     // focus. It never adds noise, outlines or replacement artwork.
-    if(gradingEnabled>.5)color+=clamp(original-neighborhood,vec3(-0.025),vec3(0.025))*.12*(1.0-smoothstep(.07,.25,contrast));
+    // Preserve the painterly diffuse texture; no unsharp-mask contrast boost.
   }
   if(dofEnabled>0.5||bloomStrength>.001){
     vec4 filtered=texture2D(blurredColor,vUv);

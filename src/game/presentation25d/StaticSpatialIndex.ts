@@ -17,7 +17,8 @@ export class StaticSpatialIndex {
   add(image:StaticImage){
     const previous=this.entries.get(image);
     if(previous)for(const key of previous.keys){const bucket=this.buckets.get(key);bucket?.delete(image);if(!bucket?.size)this.buckets.delete(key);}
-    const rise=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house?.riseScale??1;
+    const house=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
+    const rise=(house?.riseScale??1)+(house?.floorLift??0);
     const radius=Math.max(960,Math.max(Math.abs(image.displayWidth),Math.abs(image.displayHeight)*rise)*1.7+512);
     const entry={x:image.x,y:image.y,width:image.displayWidth,height:image.displayHeight,keys:[] as string[]};
     for(let y=Math.floor((image.y-radius)/CELL);y<=Math.floor((image.y+radius)/CELL);y++)

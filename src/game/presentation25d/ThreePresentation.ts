@@ -590,7 +590,7 @@ export class ThreePresentation {
       this.model.set(rx*span,0,-rz*thickness,anchorX,0,height,0,anchorHeight+height/2,
         rz*span,0,rx*thickness,anchorY,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall)))return;
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -616,7 +616,7 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
+    const key=Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?undefined:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway);this.batches.set(key,batch);}
     const colors=this.colors;
@@ -631,6 +631,7 @@ export class ThreePresentation {
       this.neutralModel.copy(this.model);this.rotateModel(this.neutralModel,anchorX,anchorY,-this.orbit.yaw);submitted=this.neutralModel;
       repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=repeat[3]=0;
     }
+    if(hint?.wheelAngle!==undefined){repeat=this.tileRepeat;repeat[0]=repeat[1]=repeat[3]=0;repeat[2]=hint.wheelAngle;}
     batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
     if(staticImage&&source)this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
@@ -664,14 +665,14 @@ export class ThreePresentation {
     camera.addToRenderList(object);return true;
   }
 
-  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false){
+  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false,heightLift=0){
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
     const count=furniture||backDepth>0?8:ground?5:4;
     for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
       if(furniture){const b=furniture.bounds;
         this.projected.set(b?(x<0?b.left:b.right):x*1.1,b?(y<0?b.bottom:b.top):(y+.5)*furniture.rise*1.06,
           b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
-      else this.projected.set(x,y,i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
+      else this.projected.set(x,y+(y>0?heightLift:0),i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
       this.projected.applyMatrix4(this.model);
       if(ground)this.projected.y+=this.heightAt(this.projected.x,this.projected.z);
       this.projected.project(this.orbit.camera);

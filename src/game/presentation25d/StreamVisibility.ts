@@ -30,7 +30,8 @@ export class StreamVisibility {
     if(key.startsWith('chunk:')||key==='shared-ocean-chunk')
       return this.intersects(image.x-image.originX*w,image.y-image.originY*h,image.x+(1-image.originX)*w,image.y+(1-image.originY)*h,256);
     // Also cover rotated ground art/bridges with a non-central origin.
-    const rise=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house?.riseScale??1;
+    const house=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house;
+    const rise=(house?.riseScale??1)+(house?.floorLift??0);
     const radius=Math.max(w,h*rise)+128;
     return this.intersects(image.x-radius,image.y-radius,image.x+radius,image.y+radius,Math.max(256,h*rise+384));
   }

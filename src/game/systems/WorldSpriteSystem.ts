@@ -44,6 +44,10 @@ export class WorldSpriteSystem {
       actor.setOrigin((visible.left+(sourceAnchor[0]-sourceRegion[0])/sourceRegion[2]*visible.width)/sheet.frameWidth,
         (visible.top+(sourceAnchor[1]-sourceRegion[1])/sourceRegion[3]*visible.height)/sheet.frameHeight);
     }
+    if(isTreeArt(texture,frame)&&this.scene.game.registry.get('presentation')==='three-2.5d'){
+      const bottom=(visible.top+visible.height)/sheet.frameHeight-2/Math.max(1,actor.displayHeight);
+      actor.setOrigin(actor.originX,bottom);
+    }
     const cos=Math.cos(actor.rotation),sin=Math.sin(actor.rotation);
     const point=(x:number,y:number)=>({
       x:actor.x+(visible.left+x*visible.width-sheet.frameWidth*actor.originX)*scale*cos
@@ -151,7 +155,7 @@ export class WorldSpriteSystem {
         const footprint=outline.map(([x,y])=>[actor.x+x*cos-y*sin,actor.y+x*sin+y*cos] as GroundPoint);
         for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
       }
-      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','keepsake','banner'].includes(furniture.art)){
+      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','keepsake','banner','life-tree'].includes(furniture.art)){
         // Deeper props need matching clearance, as buildings already do.
         // Add the body behind its existing front contact; keep old surveyed
         // stoops/details and open fence/arch passages intact. These bodies use

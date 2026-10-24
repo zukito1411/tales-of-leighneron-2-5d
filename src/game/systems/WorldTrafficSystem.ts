@@ -1,3 +1,4 @@
+import {travelCartShape,travelHorseShape} from '../presentation25d/TravelCartGeometry';
 import {groundWorldView,onPlane,onGround,viewDirection,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {coastalBoatShape,BOAT_DECK_RATIO} from '../presentation25d/CoastalBoatGeometry';
 import Phaser from 'phaser';
@@ -32,6 +33,8 @@ export class WorldTrafficSystem {
   private seaCenter='';private routes:TrafficRoute[];
   private lastSeaBounds='';
   private readonly viewHeading={x:0,y:0};
+  private readonly cartModel=travelCartShape();
+  private readonly horseModels=[0,1,2,3].map(travelHorseShape);
   private readonly reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(private readonly scene:Phaser.Scene,private readonly world:WorldGenerator,private readonly shadows:GroundShadowSystem){
     this.roads=cartRoutes(world);this.routes=this.roads;
@@ -88,7 +91,7 @@ export class WorldTrafficSystem {
       let vehicle=this.active.get(route.id);
       if(!vehicle){vehicle=this.create(route,point.x,point.y);this.active.set(route.id,vehicle);}
       const direction=trafficDirection(point.dx,point.dy),distance=trafficDistance(route,this.elapsed);
-      if(route.kind==='cart')this.presentCart(vehicle,point.x,point.y,direction,distance,point.moving);
+      if(route.kind==='cart')this.presentCart(vehicle,point.x,point.y,direction,distance,point.moving,point.dx,point.dy);
       else this.presentBoat(vehicle,point.x,point.y,point.dx,point.dy,direction,point.moving);
     }
     for(const [id,vehicle] of this.active)if(!wanted.has(id)){this.release(vehicle);this.active.delete(id);}
@@ -107,6 +110,11 @@ export class WorldTrafficSystem {
         (wheel.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=.6;
       }
       onPlane(vehicle.horse,'upright',sprite);
+      if(this.scene.game.registry.get('presentation')==='three-2.5d'){
+        sprite.setData(PRESENTATION_HINT,{plane:'upright',furniture:this.cartModel,wheelAngle:0} satisfies PresentationHint);
+        vehicle.horse.setData(PRESENTATION_HINT,{plane:'upright',furniture:this.horseModels[0]} satisfies PresentationHint);
+        for(const wheel of vehicle.wheels)wheel.setVisible(false);
+      }
     }else{
       sprite.setScale(BOAT_SCALE).setOrigin(.5,364/384);
       this.shadows.register(sprite,false,{projection:.35,contactScale:.8});
@@ -137,7 +145,20 @@ export class WorldTrafficSystem {
   }
   positionVessel(vehicle:Vehicle,x:number,y:number,dx:number,dy:number,moving=true){this.presentBoat(vehicle,x,y,dx,dy,trafficDirection(dx,dy),moving);}
   releaseVessel(vehicle:Vehicle){this.release(vehicle);}
-  private presentCart(vehicle:Vehicle,x:number,y:number,direction:number,distance:number,moving:boolean){
+  private presentCart(vehicle:Vehicle,x:number,y:number,direction:number,distance:number,moving:boolean,dx:number,dy:number){
+    if(this.scene.game.registry.get('presentation')==='three-2.5d'){
+      const length=Math.hypot(dx,dy)||1,vx=dx/length,vy=dy/length,heading=Math.atan2(dx,-dy);
+      const wagon=vehicle.sprite,horse=vehicle.horse!,pose=moving?horseWalkFrame(distance):0;
+      const cx=x-vx*65,cy=y-vy*65,hx=x+vx*65,hy=y+vy*65;
+      setDepthIfChanged(wagon,cy).setFrame(0).setOrigin(.5,364/384).setRotation(heading).setPosition(cx,cy);
+      const cartHint=wagon.getData(PRESENTATION_HINT) as PresentationHint;
+      cartHint.wheelAngle=-distance/(wagon.displayWidth*this.cartModel.width*.22);
+      setDepthIfChanged(horse,hy).setTexture('horse-east',pose).setFlipX(false).setRotation(heading).setPosition(hx,hy);
+      (horse.getData(PRESENTATION_HINT) as PresentationHint).furniture=this.horseModels[pose];
+      // Rigid train shares an elevation through the hitch on slopes.
+      vehicle.ground.x=cx;vehicle.ground.y=cy;
+      return;
+    }
     const heading=HEADINGS[direction];
     viewDirection(this.scene,heading[0],heading[1],this.viewHeading);
     direction=trafficDirection(this.viewHeading.x,this.viewHeading.y);

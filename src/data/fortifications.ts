@@ -27,14 +27,14 @@ for(const [edge,line] of ROYAL_WALL_LINES.slice(0,4).entries()) {
   const dx=line.b.x-line.a.x,dy=line.b.y-line.a.y,count=Math.ceil(Math.abs(dx)/110);
   const sourceSpan=line.frame===0?94:90,scale=Math.abs(dx)/count/sourceSpan/fit;
   for(let i=0;i<count;i++)ROYAL_FORTIFICATION_PROPS.push({id:`fort:highmere:curtain:${edge}:${i}`,kind:'prop',
-    world:{x:line.a.x+dx*(i+.5)/count,y:line.a.y+dy*(i+.5)/count},texture:'royal_walls',frame:line.frame,scale,solid:false,anchor:'center'});
+    world:{x:line.a.x+dx*(i+.5)/count,y:line.a.y+dy*(i+.5)/count},texture:'royal_walls',frame:line.frame,scale,solid:false,anchor:'center',wallSegment:{dx:dx/count,dy:dy/count}});
 }
 // Gate shoulders join short horizontal returns. Decorative ivy overlaps at
 // the seams, but stone endpoints use the same ground line and uniform scale.
 const shoulderSpan=285*fit*gateScale;
 for(const [i,[a,b]] of [[-1400,-1000-shoulderSpan/2],[-1000+shoulderSpan/2,-600]].entries()) {
   const count=Math.ceil((b-a)/180),scale=(b-a)/count/285/fit;
-  for(let j=0;j<count;j++)ROYAL_FORTIFICATION_PROPS.push({id:`fort:highmere:return:${i}:${j}`,kind:'prop',world:world(a+(b-a)*(j+.5)/count,-1300),texture:'royal_walls',frame:2,scale,solid:false,anchor:'center'});
+  for(let j=0;j<count;j++)ROYAL_FORTIFICATION_PROPS.push({id:`fort:highmere:return:${i}:${j}`,kind:'prop',world:world(a+(b-a)*(j+.5)/count,-1300),texture:'royal_walls',frame:2,scale,solid:false,anchor:'center',wallSegment:{dx:(b-a)/count,dy:0}});
 }
 ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:south-gate',kind:'prop',world:gate,texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',label:'Royal Audience Gate'});
 for(const [i,p] of vertices.entries())ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:corner:'+i,kind:'prop',world:p,texture:'royal_walls',frame:3,scale:1.3,solid:true,footprint:{width:65,height:31},anchor:'center'});

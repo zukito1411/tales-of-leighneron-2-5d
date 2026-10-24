@@ -92,7 +92,7 @@ export class GpuShadows {
         }
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
-        this.repeat[0]=caster.projectionBottom??1;
+        this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=hint?.wheelAngle??0;
         this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house,furniture);
       }
     }
@@ -109,7 +109,7 @@ export class GpuShadows {
   private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape){
     const deck=furniture?.fixedGround??walkSurfaceHeight(actor.x,actor.y);
     if(deck!==undefined)this.matrix.elements[13]+=deck;
-    const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+(house?.segment?':surveyed':'');
+    const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);

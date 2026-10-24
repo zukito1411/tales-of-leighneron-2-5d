@@ -26,11 +26,12 @@ export class TextureCache {
       this.coldCreates++;
       const texture=new Texture(source.image);
       texture.colorSpace=SRGBColorSpace;texture.minFilter=texture.magFilter=LinearFilter;
-      // Only standalone painted ground uses mipmaps. Atlas sprites retain
-      // their existing filtering, so neighboring animation cells never bleed.
+      // Ground and the guttered model material tiles use mipmaps. Sprite
+      // animation atlases retain their filtering to avoid neighboring poses.
       const ground=source.texture.key.startsWith('chunk:')||source.texture.key==='shared-ocean-chunk';
-      texture.generateMipmaps=ground;
-      if(ground){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=4;}
+      const materials=source.texture.key.startsWith('painted-model-');
+      texture.generateMipmaps=ground||materials;
+      if(ground||materials){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=ground?4:2;}
       texture.needsUpdate=true;
       texture.onUpdate=()=>{const current=this.entries.get(source);if(current){current.uploadedVersion=texture.version;this.pending.delete(source);}};
       const original=source.update;

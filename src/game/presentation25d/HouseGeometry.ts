@@ -20,6 +20,8 @@ export interface HouseShape {
   profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;ground?:number;
   /** Height only: retain the surveyed X/Z lot, entry and collider footprint. */
   riseScale?:number;
+  /** Ground-floor clearance only; roof, glazing and carvings keep authored proportions. */
+  floorLift?:number;doorHeight?:number;
   segment?:WallSegment&{height:number;thickness:number};
   /** Original survey rectangle within the retained (possibly alpha-trimmed) art. */
   paintRegion?:readonly [number,number,number,number];
@@ -144,10 +146,12 @@ export function towerDiameter(profile:HouseProfile){return Math.max(...(profile.
 /** Size against a standing body, not the padded sprite frame. A small house
  * gets a usable ground floor; its roof cannot spread across a street or NPC. */
 export function sizeHouseForPlayer(shape:HouseShape,displayHeight:number){
-  if(shape.segment||shape.profile.board||shape.profile.opening?.length||/^masonry-|^panel$/.test(shape.profile.id))return;
-  const id=shape.profile.id;
-  const doorway=/cottage/.test(id)?.34:/inn|manor|estate/.test(id)?.24:shape.profile.tiers?.28:.25;
-  shape.riseScale=Math.max(id==='tower-of-might'?1:1.25,HERO_BODY_HEIGHT*1.30/Math.max(1,displayHeight*shape.height*doorway));
+  if(shape.segment||shape.profile.board||shape.profile.opening?.length||shape.profile.tiers||/^masonry-|^panel$/.test(shape.profile.id))return;
+  const id=shape.profile.id,doorway=/cottage/.test(id)?.34:/inn|manor|estate/.test(id)?.24:.25;
+  const target=HERO_BODY_HEIGHT*1.25/Math.max(1,displayHeight);
+  shape.doorHeight=Math.max(shape.height*doorway,target);
+  shape.floorLift=Math.max(0,target-shape.height*doorway);
+  shape.riseScale=1;
 }
 
 /** Apply at submission so different lot sizes still share one prefab. Keep

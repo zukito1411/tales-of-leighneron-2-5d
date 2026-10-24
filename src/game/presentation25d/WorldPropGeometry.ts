@@ -24,12 +24,20 @@ const kinds:Partial<Record<ArtTextureKey,Readonly<Record<number,FurnitureArt>>>>
 /** Shared prefabs keep real atlas registration, authored floor orientation
  * and the original collision survey. Called once when a streamed prop enters. */
 export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,texture:ArtTextureKey,index:number):FurnitureShape|undefined {
-  const art=kinds[texture]?.[index];if(!art)return;
+  const art=texture==='elarion_tree'?'life-tree':kinds[texture]?.[index];if(!art)return;
   const sheet=ART_BY_KEY[texture],frame=actor.frame;
   const meta=frame.customData as {visibleBounds?:{left:number;top:number;width:number;height:number};sourceRegion?:readonly number[]}|undefined;
   const b=meta?.visibleBounds;if(!b)return;
   const d=sheet.density,w=b.width*d,h=b.height*d;
   const width=w/frame.cutWidth,height=h/frame.cutHeight,left=b.left*d/frame.cutWidth,top=b.top*d/frame.cutHeight;
+  if(art==='life-tree'){
+    const source=meta?.sourceRegion??[0,0,1280,1280];
+    return {art,kit:'elarion-tree-of-life',key:['life-tree',left,top,width,height,...source].join(':'),
+      left,top,width,height,rise:h/w,depth:.62,patch:[.45,.60,.5,.65],
+      footY:(b.top*d+.965*h-actor.originY*frame.cutHeight)/w,
+      sourceRegion:[source[0]/1280,source[1]/1280,source[2]/1280,source[3]/1280],
+      bounds:{left:-.6,right:.6,bottom:-.03,top:h/w,back:-.35,front:.35}};
+  }
   const profile=worldSpriteProfile(texture,index),polygons=profile?.solids??[];
   let l=.08,r=.92,t=.70,bottom=.97;
   if(polygons.length){l=Math.min(...polygons.flatMap(p=>p.map(v=>v[0])));r=Math.max(...polygons.flatMap(p=>p.map(v=>v[0])));

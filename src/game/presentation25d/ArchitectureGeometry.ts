@@ -13,8 +13,9 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const id=shape.profile.id;if(!BUILDINGS.has(id))return;
   const {width:W,height:H,depth:D}=shape,elf=id.startsWith('elven-');
   const m=new ModelMesh(shape,emission,W),base=Math.max(.96,shape.ground??.96);
-  const X=(x:number)=>shape.left+x*W-.5,Y=(y:number)=>.5-shape.top-y*H;
-  const ground=Y(base),pt=(x:number,y:number,z:number):V3=>[X(x),Y(y),z];
+  const lift=shape.floorLift??0;
+  const X=(x:number)=>shape.left+x*W-.5,Y=(y:number)=>.5-shape.top-y*H+lift;
+  const ground=Y(base)-lift,pt=(x:number,y:number,z:number):V3=>[X(x),Y(y),z];
   const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
   // The old material surveys contain door frames, windows and foliage.
   // Never repeat those over a wall. Clean cultural diffuse swatches and a
@@ -64,6 +65,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     m.extrude(points,z+.004*W,z-.004*W,gold);beam([cx,y,z+.007*W],[cx,y+size*.92,z+.007*W],.0025,timber);
   };
   const door=(cx:number,z:number,w=.16,h=.28*H,pointed=elf,bottom=ground)=>{
+    h=Math.max(h,shape.doorHeight??0);w=Math.max(w,Math.min(.31,h/W*.52));
     const x=X(cx),path=arch(pointed),p=(u:number,v:number,out=0):V3=>[x+u*w*W,bottom+v*h,z+out*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,bottom+v*h] as const),z+.005*W,z-.012*W,woodDoor);
     for(let i=0;i<path.length;i++)beam(p(...path[i],.018),p(...path[(i+1)%path.length],.018),.014,stone);
@@ -150,7 +152,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(curved&&!/manor|estate|palace|chapel|shrine/.test(id))leaf(cx,eave+(peak-eave)*.12,front+.018*W,(peak-eave)*.55);
   };
   const sideWindows=(l:number,r:number,eave:number,front=0,back=-D,count=2)=>{
-    const y=ground+(eave-ground)*.29,h=(eave-ground)*.39,w=Math.min(W*.105,D*.22);
+    const y=ground+(eave-ground)*.29,h=Math.min((eave-ground)*.39,H*.21),w=Math.min(W*.105,D*.22);
     for(let i=0;i<count;i++)for(const side of [-1,1])window(X(side<0?l:r)+side*.007*W,y,back+(front-back)*(i+.5)/count,w,h,0,-side);
     for(const cx of [l+(r-l)*.24,l+(r-l)*.76])window(X(cx),y,back-.008*W,W*.105,h,-1,0);
   };

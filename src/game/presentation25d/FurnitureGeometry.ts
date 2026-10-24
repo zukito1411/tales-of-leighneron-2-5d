@@ -1,13 +1,15 @@
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
+import {createSourceVolumeGeometry} from './SourceVolumeGeometry';
+import {createTravelCartGeometry} from './TravelCartGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
 import {createCoastalBoatGeometry} from './CoastalBoatGeometry';
-import {ModelMesh,atlasMaterial,brass,metal,glass,lampGlass,water,pigment,regionalFabric,regionalWood,masonry,type ModelMaterial,type V3} from './ModelMesh';
+import {ModelMesh,atlasMaterial,paintedMaterial,brass,metal,glass,lampGlass,water,pigment,regionalFabric,regionalWood,masonry,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import type {HomeFurnitureArt} from '../../data/housing';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 
-export type PropArt='crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat';
+export type PropArt='travel-horse'|'travel-cart'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
@@ -18,7 +20,7 @@ export interface FurnitureShape {
   rise:number;depth:number;patch:Patch;
   footX?:number;footY?:number;heading?:number;modelScale?:number;lift?:number;quarterTurnUV?:boolean;
   paintOffset?:number;ornamentX?:number;
-  fixedGround?:number;
+  fixedGround?:number;pose?:number;
   fire?:boolean;canopy?:boolean;
   sourceRegion?:readonly [number,number,number,number];
   bounds?:{left:number;right:number;bottom:number;top:number;back:number;front:number};
@@ -30,13 +32,15 @@ export function furniturePlacement(owner:Pick<Phaser.GameObjects.Image,'x'|'y'|'
   out.x=owner.x+x*c-y*s;out.y=owner.y+x*s+y*c;out.width=width;out.heading=a+(shape.heading??0);out.lift=(shape.lift??0)*width;return out;
 }
 const depths:Partial<Record<FurnitureArt,number>>={bed:1.1,wardrobe:.34,bookcase:.30,chest:.45,table:.5,bench:.32,chair:.5,
-  counter:.32,hearth:.30,planter:.35,barrel:.5,pantry:.34,weaponRack:.22,lantern:.22,stairs:.85,arch:.18,
+  counter:.32,hearth:.30,planter:.55,barrel:.86,pantry:.34,weaponRack:.22,lantern:.22,stairs:.85,arch:.18,
   workstation:.30,signature:.35,window:.16,doorway:.22,'tower-door-closed':.22,'tower-door-open':.22,openChest:.6};
 // Human-scale elevations, independent of a room's authored furniture width.
 // Counter paint sits at .883 of the mesh envelope; chair seats at .383 and
 // mattresses at .424. Keep those surfaces in proportion to the standing body.
 const bodyHeights:Partial<Record<FurnitureArt,number>>={
-  bed:.72,table:.44,bench:.27,chair:.72,counter:.58/.883,workstation:.48,
+  bed:.72,table:.44,bench:.27,chair:.90,counter:.58/.883,workstation:.48,
+  wardrobe:1.45,bookcase:1.42,pantry:1.18,hearth:1.20,barrel:.76,chest:.56,openChest:.56,
+  planter:.70,weaponRack:1.20,lantern:.52,stairs:1.15,arch:1.70,doorway:1.70,window:1.05,
 };
 
 /** Frame dimensions are authored during the existing bounded room preparation.
@@ -62,16 +66,25 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
 /** Furniture is assembled from closed, detailed mesh parts. Only naturally
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
+  if(shape.art==='travel-horse'||shape.art==='life-tree')return createSourceVolumeGeometry(shape,emission);
+  if(shape.art==='travel-cart')return createTravelCartGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
-  const wood=regionalWood(kit),ivory=atlasMaterial('furnishings',4,.70,.70);
-  const fabric=regionalFabric(kit);
+  const sourceKit=kit!=='flagship';
+  const wood=sourceKit?paintedMaterial(shape.patch,.38,.48):regionalWood(kit),ivory=atlasMaterial('furnishings',4,.70,.70);
+  const clothPatches:Partial<Record<FurnitureArt,Patch>>={bed:[.25,.60,.40,.73],chair:[.24,.56,.40,.64],
+    bench:[.26,.23,.44,.39],table:[.42,.48,.52,.63],counter:[.25,.42,.34,.60],workstation:[.29,.54,.40,.63],chest:[.26,.70,.36,.80],openChest:[.26,.70,.36,.80]};
+  const cloth=clothPatches[art];
+  const worldCloth:Partial<Record<FurnitureArt,Patch>>={stall:[.22,.12,.43,.23],tent:[.28,.21,.43,.33],banner:[.25,.25,.55,.50],sack:[.35,.40,.55,.60]};
+  const sourceCloth=kit.startsWith('world:')?worldCloth[art]:cloth;
+  const fabric=sourceCloth?paintedMaterial(sourceCloth,.42,.42):regionalFabric(kit);
+  const cultural=/noble|elven/.test(kit);
   const face=(l:number,r:number,b:number,t:number,z:number,source:Patch)=>m.cutout([l,b,z],[r,b,z],[l,t,z],[r,t,z],source);
   const top=(l:number,r:number,back:number,front:number,y:number,source:Patch)=>m.cutout([l,y,front],[r,y,front],[l,y,back],[r,y,back],source);
   const decorated=/noble|elven|orcan|obsidian|dwarven/.test(kit);
 
-  const dark=atlasMaterial('furnishings',2,.42,.65),stone=masonry(kit);
+  const dark=atlasMaterial('furnishings',2,.72,.85),stone=kit.startsWith('world:')&&['rock','columns','crystals','waystone','shrine','well','fountain'].includes(art)?paintedMaterial(shape.patch,.42,.36):masonry(kit);
   const trim=/noble|elven/.test(kit)?atlasMaterial('furnishings',1,.22,.42):/orcan|obsidian|dwarven/.test(kit)?brass:dark;
   const box=(l:number,r:number,b:number,t:number,back:number,front:number,mat:ModelMaterial=wood)=>m.box(l,r,b,t,back,front,mat);
   const tube=(x:number,z:number,b:number,t:number,r:number,s=r,mat:ModelMaterial=wood)=>m.cylinder(x,z,b,t,r,s,mat);
@@ -91,7 +104,12 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   };
   const barrel=(x:number,z:number,b:number,t:number,r:number)=>{
     m.cylinder(x,z,b,b+(t-b)*.2,r*.82,r,wood,20);m.cylinder(x,z,b+(t-b)*.2,t-(t-b)*.2,r,r,wood,20);m.cylinder(x,z,t-(t-b)*.2,t,r,r*.82,wood,20);
-    for(const y of [.15,.78])m.ring(x,z,b+(t-b)*y,b+(t-b)*(y+.055),r*1.015,r*.94,metal,20);
+    for(const y of [.15,.78]){
+      const band=cultural?paintedMaterial([.17,.28,.30,.32],.36,.08):metal;
+      m.ring(x,z,b+(t-b)*y,b+(t-b)*(y+.085),r*1.025,r*.94,band,20);
+      if(cultural)for(const edge of [y,y+.073])m.ring(x,z,b+(t-b)*edge,b+(t-b)*(edge+.012),r*1.035,r*.95,brass,20);
+    }
+    if(cultural&&art==='barrel')face(-r*.42,r*.42,b+(t-b)*.29,b+(t-b)*.68,z+r+.004,[.30,.48,.65,.79]);
     m.ring(x,z,t-(t-b)*.035,t+.003,r*.84,r*.74,trim,20);
   };
   const crate=(l:number,r:number,b:number,t:number,back:number,front:number)=>{
@@ -114,6 +132,10 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     box(-.43,.43,H*.88,H*.97,-D,-D+.07,trim);
     if(throne||decorated){box(-.34,.34,seat+H*.10,H*.86,-D+.014,-D+.056,fabric);}
     else for(let i=0;i<3;i++)box(-.34+i*.26,-.28+i*.26,seat+H*.08,H*.88,-D+.02,-D+.055);
+    if(!kit.startsWith('world:')){
+      face(-.31,.31,seat+H*.16,H*.86,-D+.058,[.24,.18,.76,.49]);
+      top(-.34,.34,-D+.06,-.03,seat+H*.046,[.13,.51,.86,.72]);
+    }
     if(throne)for(const x of [-.42,.42]){box(x-.035,x+.035,seat,seat+H*.24,-D*.20,-D*.12,trim);box(x-.045,x+.045,seat+H*.22,seat+H*.28,-D*.87,-D*.10,trim);}
   };
   const table=(bench=false,desk=false)=>{
@@ -123,7 +145,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     for(const z of [-D-.01,-.02])box(-.46,.46,seat*.95,seat+.004,z,z+.03,trim);
     box(-.40,.40,seat*.31,seat*.37,-D*.55,-D*.45);
     if(backrest){for(const x of [-.43,.43])box(x-.025,x+.025,seat,H,-D,-D+.05);for(const y of [.58,.78,.94])box(-.43,.43,H*y,H*(y+.055),-D,-D+.04);}
-    if(!bench)box(-.14,.14,seat+.002,seat+.009,-D+.018,-.018,fabric);
+    if(!bench){box(-.14,.14,seat+.002,seat+.009,-D+.018,-.018,fabric);if(!kit.startsWith('world:'))top(-.14,.14,-D+.018,-.018,seat+.010,[.39,.46,.67,.88]);}
     if(!bench){
       if(desk){box(-.38,-.05,seat,seat+H*.10,-D*.7,-D*.35,fabric);box(-.34,-.01,seat+H*.10,seat+H*.17,-D*.68,-D*.35,ivory);}
       else{tube(-.18,-D*.5,seat,seat+H*.018,.10,.10,ivory);cup(.19,-D*.40,seat,H*.07);}
@@ -179,17 +201,24 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     for(const z of [.006,-D-.006])for(let i=0;i<4;i++){const x=-.42+i*.22;box(x,x+.18,H*.15,H*.65,z-.006,z+.006,trim);box(x+.016,x+.164,H*.18,H*.62,z+.007,z+.010);}
   }else if(art==='chest'||art==='openChest'){
     crate(-.46,.46,0,H*.56,-D,0);
+    // Original painted panels are mounted within the physical lid/base rails.
+    // Side/back surfaces use the same object's timber and cultural upholstery.
+    if(!kit.startsWith('world:')){
+      face(-.37,.37,H*.12,H*.51,.008,[.18,.66,.83,.88]);
+      if(cultural)for(const z of [-D+.01,-.01])box(-.37,.37,H*.10,H*.52,z-.006,z+.006,fabric);
+      if(cultural)face(-.37,.37,H*.12,H*.51,.016,[.18,.66,.83,.88]);
+    }
     if(art==='openChest'){box(-.46,.46,H*.56,H*.98,-D-.025,-D+.035);box(-.40,.40,H*.58,H*.92,-D+.036,-D+.044,dark);box(-.40,.40,H*.54,H*.56,-D+.05,-.035,dark);}
     else{
       const profile: Array<readonly [number,number]>=[];
       for(let i=0;i<=8;i++){const a=i/8*Math.PI;profile.push([-D/2+Math.cos(a)*D/2,H*.56+Math.sin(a)*H*.25]);}
       // Rounded lid runs across the depth. Extrude in local Z then rotate the
       // complete lid mesh basis through swapped axes without flattening it.
-      for(let i=1;i<profile.length;i++){const [za,ya]=profile[i-1],[zb,yb]=profile[i];m.quad([-.46,ya,za],[.46,ya,za],[-.46,yb,zb],[.46,yb,zb],wood);for(const x of [-.46,.46])m.triangle([x,H*.56,-D/2],[x,ya,za],[x,yb,zb],trim);}
-      for(const x of [-.30,.30])for(let i=1;i<profile.length;i++){const [za,ya]=profile[i-1],[zb,yb]=profile[i];m.quad([x-.025,ya+.004,za],[x+.025,ya+.004,za],[x-.025,yb+.004,zb],[x+.025,yb+.004,zb],metal);}
+      for(let i=1;i<profile.length;i++){const [za,ya]=profile[i-1],[zb,yb]=profile[i];m.quad([-.46,ya,za],[.46,ya,za],[-.46,yb,zb],[.46,yb,zb],/elven/.test(kit)?fabric:wood);for(const x of [-.46,.46])m.triangle([x,H*.56,-D/2],[x,ya,za],[x,yb,zb],trim);}
+      for(const x of [-.30,.30])for(let i=1;i<profile.length;i++){const [za,ya]=profile[i-1],[zb,yb]=profile[i];m.quad([x-.025,ya+.004,za],[x+.025,ya+.004,za],[x-.025,yb+.004,zb],[x+.025,yb+.004,zb],cultural?brass:metal);}
       box(-.035,.035,H*.37,H*.62,0,.025,brass);
     }
-  }else if(art==='barrel')barrel(0,-D/2,0,H*.96,Math.min(.46,D/2));
+  }else if(art==='barrel')barrel(0,-D/2,0,H*.96,Math.min(.44,D/2));
   else if(art==='barrels'){for(const [x,z,y,t] of [[-.24,-D*.3,0,H*.55],[.24,-D*.3,0,H*.55],[0,-D*.65,H*.45,H]])barrel(x,z,y,t,Math.min(.22,D*.28));}
   else if(art==='crate')crate(-.47,.47,0,H,-D,0);
   else if(art==='ledger'){
@@ -274,6 +303,22 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   }else if(art==='fence'){
     const n=Math.max(2,Math.min(5,Math.round(1/Math.max(.16,H))));for(let i=0;i<n;i++){const x=-.45+i*.9/(n-1);box(x-.03,x+.03,0,H,-D*.7,-D*.3);tube(x,-D/2,H*.96,H*1.04,.04,0,trim);}
     for(const y of [.28,.67])box(-.48,.48,H*y,H*(y+.09),-D*.7,-D*.3);
+    if(kit.startsWith('world:flower_fence:')&&!emission){
+      const hedge=(z:number,reverse=false)=>{
+        if(shape.quarterTurnUV){
+          const p=(u:number,v:number):V3=>[reverse?.48-u*.96:-.48+u*.96,H*(.10+v*.78),z];
+          const uv=(u:number,v:number):readonly [number,number]=>[shape.left+(.27+v*.48)*shape.width,1-shape.top-(.08+u*.86)*shape.height];
+          const pts=[p(0,0),p(1,0),p(0,1),p(1,1)],uvs=[uv(0,0),uv(1,0),uv(0,1),uv(1,1)];
+          m.triangle(pts[0],pts[1],pts[2],[0,0,1,1],undefined,undefined,uvs.slice(0,3));
+          m.triangle(pts[1],pts[3],pts[2],[0,0,1,1],undefined,undefined,[uvs[1],uvs[3],uvs[2]]);
+        }else for(const [l,r,u,v] of [[-.40,-.04,.09,.45],[.04,.40,.54,.91]]){
+          const a=reverse?-r:l,b=reverse?-l:r;
+          face(a,b,H*.10,H*.86,z,[u,.17,v,.85]);
+        }
+      };
+      hedge(-D*.22);hedge(-D*.78,true);
+      if(!shape.quarterTurnUV)top(-.48,.48,-D-.04,.04,.004,[.02,.84,.98,.99]);
+    }
   }else if(art==='sign'||art==='banner'||art==='lectern'||art==='dummy'){
     box(-.05,.05,0,H*.95,-D*.6,-D*.4);box(-.23,.23,0,H*.06,-D,0);
     if(art==='lectern'){m.extrude([[-.47,H*.60],[.47,H*.60],[.47,H*.68],[-.47,H*.68]],.015,-D,wood);box(-.34,.34,H*.68,H*.72,-D*.85,-D*.12,ivory);}
@@ -297,7 +342,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     m.cutout([0,H*.36,-D/2-.45],[0,H*.36,-D/2+.45],[0,H,-D/2-.45],[0,H,-D/2+.45],[0,0,1,.74]);
   }else if(art==='rock'||art==='columns'||art==='crystals'||art==='waystone'||art==='shrine'){
     const n=art==='columns'||art==='crystals'?5:art==='rock'?3:1;
-    const rock:ModelMaterial=masonry(kit),gem:ModelMaterial={color:pigment(0x719aaa),emission:pigment(0xadddec)};
+    const rock:ModelMaterial=paintedMaterial(shape.patch,.42,.38),gem:ModelMaterial=rock;
     for(let i=0;i<n;i++){const x=n===1?0:(i%3-1)*.27,z=-D/2+(i%2-.5)*D*.36,r=n===1?Math.min(.34,D*.45):Math.min(.19,D*.28),t=H*(i===1||n===1?1:.5+i*.06);m.cylinder(x,z,0,t*.80,r,r*.70,art==='crystals'?gem:art==='rock'?rock:stone,art==='crystals'?5:7);m.cylinder(x,z,t*.80,t,r*.70,art==='rock'?r*.30:art==='columns'?r*.60:0,art==='crystals'?gem:art==='rock'?rock:stone,art==='crystals'?5:7);}
     if(art==='waystone'||art==='shrine'){
       const rune:ModelMaterial={color:pigment(0x89bdcc),emission:pigment(0xa7e7fa)},z=-D/2+Math.min(.34,D*.45)*.91;

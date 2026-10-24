@@ -14,6 +14,7 @@ export class TreeSwaySystem {
   private readonly reducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(private readonly scene:Phaser.Scene){}
   register(tree:TreeActor,texture:string,frame:number){
+    if(texture==='elarion_tree'&&this.scene.game.registry.get('presentation')==='three-2.5d')return;
     if(!isTreeArt(texture,frame)||(texture==='climate_props'&&frame===1)||!this.scene.textures.exists(treeLayerKey(texture,'wood')))return;
     // The atlas cell dimensions are identical, so static bodies keep offsets.
     tree.setTexture(treeLayerKey(texture,'wood'),frame);

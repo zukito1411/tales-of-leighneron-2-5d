@@ -135,15 +135,16 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          House height and doors are sized against the standing player while
-          retaining their original ground footprints, approaches and collision.
-          Normal coastal boats now have closed plank hulls, decks, benches,
-          masts and original painted sails; crew stand on the rotating deck.
-          The Tower of Might follows the original rune-covered round tower
-          artwork, and its standing interaction point is clear of collision.
-          Interior wall panels now meet the full room/corridor floor perimeter,
-          including south-facing edges, with solid corners, caps and the original
-          wall art. The exit arch and shared corridor openings remain clear.
+          House door clearance now extends the ground floor without stretching
+          roofs, glazing or carvings. Furniture proportions and source materials
+          restore regional chest panels, barrel bands, upholstery and runners.
+          Elarion fences retain painted flowers and greenery. The inner Highmere
+          precinct now uses physical walls. The horse uses complete source-shaped
+          volume poses; its cart has solid cargo and distance-driven 3D wheels.
+          The Tree of Life retains its original silhouette, carving and foliage
+          on a fixed rounded 3D shell. Tree foot registration no longer includes
+          transparent atlas padding. Edge smoothing runs in the existing world
+          composite; material mipmaps reduce shimmer and sharpening is removed.
           Streaming, manual zoom, cutaways, saves and signing identity remain.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**

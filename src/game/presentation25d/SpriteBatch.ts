@@ -65,7 +65,16 @@ void main(){
   atlasUV=atlasRect.xy+uv*atlasRect.zw;
   repeatUV=uv*tileRepeat.xy+tileRepeat.zw;frameRect=atlasRect;
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
-  vec4 world=instanceMatrix*vec4(position,1.0);
+  vec3 localPosition=position,localNormal=normal;
+#ifdef STRUCTURE_SURFACES
+  if(cutoutPivot.w<-.5){
+    float c=cos(tileRepeat.z),s=sin(tileRepeat.z);
+    vec2 d=position.yz-cutoutPivot.yz;
+    localPosition.yz=cutoutPivot.yz+vec2(c*d.x-s*d.y,s*d.x+c*d.y);
+    localNormal.yz=vec2(c*normal.y-s*normal.z,s*normal.y+c*normal.z);
+  }
+#endif
+  vec4 world=instanceMatrix*vec4(localPosition,1.0);
   if(billboard){
     float horizontal=world.x-tileRepeat.x;
     world.x=tileRepeat.x+horizontal*billboardRight.x;
@@ -87,7 +96,7 @@ void main(){
 #endif
   ){
     mat3 basis=mat3(instanceMatrix);
-    vec3 n=normalize(basis*(normal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
+    vec3 n=normalize(basis*(localNormal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
     // Hemisphere fill and the shared sun/moon key reveal every elevation.
     // Vertex lighting keeps the painted materials and fragment cost intact.
     tint.rgb*=min(vec3(1.05),structureFill*(.90+.10*max(n.y,0.0))+structureKey*max(0.0,dot(n,structureLightDirection)));
@@ -146,8 +155,11 @@ vec2 paintedMaterialUV(){
 }
 vec3 paintedMaterialPixel(){
   vec2 uv=paintedMaterialUV();
-  if(materialRect.w< -17.5)return texture2D(buildingDetailsAtlas,uv).rgb;
-  return materialRect.w< -16.5?texture2D(furnishingsAtlas,uv).rgb:texture2D(architectureAtlas,uv).rgb;
+  // Derivatives must come from the continuous coordinates, not mirrored
+  // fract seams. Swatch gutters remain isolated through the useful mip levels.
+  vec2 dx=dFdx(materialUV)*.244,dy=dFdy(materialUV)*.244;
+  if(materialRect.w< -17.5)return textureGrad(buildingDetailsAtlas,uv,dx,dy).rgb;
+  return materialRect.w< -16.5?textureGrad(furnishingsAtlas,uv,dx,dy).rgb:textureGrad(architectureAtlas,uv,dx,dy).rgb;
 }
 vec3 modelPigment(){
   if(materialRect.w< -15.5)return paintedMaterialPixel();
@@ -207,8 +219,9 @@ vec4 warningPixel(){
 void main(){
   if(architecture){
     float reveal=max(cutaway(cutawaySubject),cutaway(cutawayTarget));
-    float pattern=fract(dot(floor(gl_FragCoord.xy),vec2(.75487766,.56984029)));
-    if(reveal>.999||pattern<reveal)discard;
+    // A stable sight-line cutout avoids crawling screen-door noise on walls.
+    // The existing FXAA pass smooths the rim while the character remains clear.
+    if(reveal>.25)discard;
   }
   if(clipCount>0){
     bool inside=false;
