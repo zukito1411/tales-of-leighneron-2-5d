@@ -11,7 +11,7 @@ import type {TextureCache} from './TextureCache';
 import type {ElevationField} from './ElevationField';
 import {sunDirection} from './environment';
 import {PRESENTATION_HINT,type PresentationHint} from './plane';
-import {createHouseGeometry,type HouseShape} from './HouseGeometry';
+import {createHouseGeometry,applyHouseRise,type HouseShape} from './HouseGeometry';
 import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 
 /** Draw the existing caster registry directly from shared original atlases.
@@ -50,7 +50,7 @@ export class GpuShadows {
         const art=caster.texture?scene.textures.getFrame(caster.texture,caster.frame):actor.frame;
         if(!art?.source?.image)continue;
         const width=art.cutWidth,height=art.cutHeight,projection=caster.projection??1;
-        const reachPx=(width+height*(projection+1))*Math.max(Math.abs(actor.scaleX),Math.abs(actor.scaleY));
+        const reachPx=(width+height*(house?.riseScale??1)*(projection+1))*Math.max(Math.abs(actor.scaleX),Math.abs(actor.scaleY));
         if(owner.x+reachPx<bounds.left||owner.x-reachPx>bounds.right||owner.y+reachPx<bounds.top||owner.y-reachPx>bounds.bottom)continue;
         const gx=(caster.groundPoint?.x??actor.originX)*width+(actor!==owner?(owner.x-actor.x)/actor.scaleX:0);
         const gy=(caster.groundPoint?.y??actor.originY)*height+(actor!==owner?(owner.y-actor.y)/actor.scaleY:0);
@@ -84,6 +84,7 @@ export class GpuShadows {
             0,0,.01,.065,
             segment.dy,h*lightZ,ux*t,owner.y+ux*t/2+h*lightZ/2,0,0,0,1);
         }
+        if(house)applyHouseRise(this.matrix,house);
         if(furniture){
           const p=furniturePlacement(actor,furniture,this.furniturePosition),w=p.width,c=Math.cos(p.heading),s=Math.sin(p.heading);
           this.matrix.set(w*c,w*lightX,-w*s,p.x+p.lift*lightX,

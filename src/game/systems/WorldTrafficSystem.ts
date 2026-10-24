@@ -1,4 +1,5 @@
-import {groundWorldView,onPlane,onGround,viewDirection,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {groundWorldView,onPlane,onGround,viewDirection,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {coastalBoatShape,BOAT_DECK_RATIO} from '../presentation25d/CoastalBoatGeometry';
 import Phaser from 'phaser';
 import {setDepthIfChanged} from './renderDepth';
 import {viewportChunks,streamViewKey} from './chunkNeighborhood';
@@ -114,6 +115,10 @@ export class WorldTrafficSystem {
       vehicle.rail=this.scene.add.sprite(x,y,'traffic-boat-rail',0).setScale(BOAT_SCALE).setOrigin(.5,364/384).setName('boat-rail:'+route.id);
       vehicle.wake=[0,1].map(i=>this.scene.add.sprite(x,y,'water-foam',0).setDepth(-970).setAlpha(.28-i*.08).setName('wake:'+route.id+':'+i));
       this.attachBoatLayer(vehicle,sprite,0);
+      if(this.scene.game.registry.get('presentation')==='three-2.5d'){
+        sprite.setData(PRESENTATION_HINT,{plane:'upright',furniture:coastalBoatShape()} satisfies PresentationHint);
+        vehicle.rail.setVisible(false);
+      }
       this.attachBoatLayer(vehicle,vehicle.helmsman,.8);this.attachBoatLayer(vehicle,vehicle.rail,1.6);
       for(const shadow of vehicle.deckShadows)this.attachBoatLayer(vehicle,shadow,.4);
       for(const wake of vehicle.wake)onGround(wake,.02);
@@ -160,26 +165,35 @@ export class WorldTrafficSystem {
     const bob=this.reducedMotion.matches?0:Math.sin(this.elapsed*.0025+vehicle.route.phase)*1.6,helm=boatHelm(direction);
     const scale=vehicle.scale??BOAT_SCALE,ratio=scale/BOAT_SCALE;
     const spatial=this.scene.game.registry.get('presentation')==='three-2.5d',paintedY=y+(spatial?0:bob);
-    vehicle.ground.x=x;vehicle.ground.y=y;vehicle.ground.depth=y;vehicle.ground.presentationElevation=spatial?bob:0;
-    setDepthIfChanged(vehicle.sprite,y).setScale(scale).setFrame(direction).setPosition(x,paintedY);
+    const length=Math.max(.001,Math.hypot(dx,dy)),vx=dx/length,vy=dy/length;
+    const heading=Math.atan2(dx,-dy),c=Math.cos(heading),s=Math.sin(heading),width=160*scale;
+    vehicle.ground.x=x;vehicle.ground.y=y;vehicle.ground.depth=y;
+    vehicle.ground.presentationElevation=spatial?width*BOAT_DECK_RATIO+bob:0;
+    setDepthIfChanged(vehicle.sprite,y).setScale(scale).setFrame(spatial?0:direction).setPosition(x,paintedY);
+    if(spatial){
+      vehicle.sprite.setRotation(heading);
+      (vehicle.sprite.getData(PRESENTATION_HINT) as PresentationHint).furniture!.lift=bob/width;
+    }
     const crew=vehicle.helmsman!,texture:ArtTextureKey=direction===0?'npc_adventurer_idle':'npc_adventurer_directional_idle';
     // A helmsman stands aboard; use complete directional idle poses, not the
     // replaced six-column walking atlas (nor a frozen mid-stride contact).
     const frame=direction===0?Math.floor(this.elapsed/400)%6:direction===1?0:direction===2?4:8;
     setDepthIfChanged(crew,y+.02).setTexture(texture,frame).setScale(actorScaleForHeight(texture,frame,80))
       .setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight).setPosition(x+helm.x*ratio,paintedY+helm.y*ratio);
+    if(spatial)crew.setPosition(x-width*.35*s,y+width*.35*c);
     const seat=boatPassenger(direction);
     if(vehicle.passenger){
       const side=direction===1||direction===2,texture=side?'leigneron_idle_sides':direction===3?'leigneron':'leigneron_idle',frame=direction===3?18:0;
       setDepthIfChanged(vehicle.passenger,y+.021).setTexture(texture,frame).setFlipX(direction===1)
         .setScale(actorScaleForHeight(texture,frame,80)).setOrigin(.5,1-2/ART_BY_KEY[texture].frameHeight)
         .setPosition(x+seat.x*ratio,paintedY+seat.y*ratio);
+      if(spatial)vehicle.passenger.setPosition(x+width*.14*c+width*.22*s,y+width*.14*s-width*.22*c);
     }
     vehicle.deckShadows!.forEach((shadow,i)=>{
       const actor=i===0?crew:vehicle.passenger!;setDepthIfChanged(shadow,y+.01+i*.001).setPosition(actor.x,actor.y).setVisible(actor.visible);
+      if(spatial)(shadow.getData(PRESENTATION_HINT) as PresentationHint).elevation=width*BOAT_DECK_RATIO+bob+.15;
     });
     setDepthIfChanged(vehicle.rail!,y+.03).setScale(scale).setFrame(direction).setPosition(x,paintedY);
-    const length=Math.max(.001,Math.hypot(dx,dy)),vx=dx/length,vy=dy/length;
     vehicle.wake!.forEach((wake,i)=>{
       const trail=130+i*60;
       wake.setVisible(moving).setFrame((Math.floor(this.elapsed/180)+i)%4).setScale(.65+i*.12)
@@ -187,7 +201,15 @@ export class WorldTrafficSystem {
     });
   }
   private attachBoatLayer(vehicle:Vehicle,object:Phaser.GameObjects.Sprite|Phaser.GameObjects.Image,depth:number){
-    onPlane(object,'upright',vehicle.ground);
+    const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+    const scene=this.scene;
+    if(spatial&&depth===.4){
+      object.setData(PRESENTATION_HINT,{plane:'ground',absoluteGround:true,elevation:0} satisfies PresentationHint);return;
+    }
+    // Crew feet occupy real deck positions. Sharing the boat's centre anchor
+    // would rotate their offsets toward the camera while the hull stays fixed.
+    const anchor=spatial?{get x(){return object.x;},get y(){return object.y;},get presentationElevation(){return vehicle.ground.presentationElevation-worldHeight(scene,object.x,object.y);}}:vehicle.ground;
+    onPlane(object,'upright',anchor);
     (object.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=depth;
   }
   private release(vehicle:Vehicle){

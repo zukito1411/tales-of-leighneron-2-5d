@@ -135,18 +135,13 @@ jobs:
           Separate Android app: \`com.mernondna.rpg25d\`. The original game and installation are unaffected.
           Release-variant, non-debuggable, signed APK. This edition retains the original
           simulation, quests, combat, and save payload, with a Three.js projected world.
-          Buildings now use authored assemblies following the original human
-          and elven building sheets: rounded thatch and dormers, layered slate
-          roofs, timber framing, curved teal roofs, lancet windows and leaf trim.
-          Castles have connected halls, a keep and four round towers; the elven
-          palace has open side arcades. Roof shells, side/rear windows, entrances,
-          balconies, workshop bays and stone foundations are separate parts.
-
-          Incorrect old material samples containing pieces of doors, windows
-          and plants are no longer repeated across structural surfaces. Original
-          glass, banners, signs and foliage use a shared detail atlas mapped to
-          their corresponding parts; roofs use clean cultural material swatches. Existing watchtowers, gameplay, saves, streaming,
-          manual camera zoom, cutaways and atmosphere systems are retained.
+          House height and doors are sized against the standing player while
+          retaining their original ground footprints, approaches and collision.
+          Normal coastal boats now have closed plank hulls, decks, benches,
+          masts and original painted sails; crew stand on the rotating deck.
+          The Tower of Might follows the original rune-covered round tower
+          artwork, and its standing interaction point is clear of collision.
+          Streaming, manual zoom, cutaways, saves and signing identity remain.
 
           **Signing mode: $SIGNING_MODE (stable GitHub Actions secret-backed keystore).**
           The APK is a non-debuggable release assembled by Gradle, not a debug variant. If signed using a debug certificate, it is intended for direct installation/testing rather than production app-store publication. Previous APKs signed with a different or ephemeral key cannot be updated in place; export saves before reinstalling.

@@ -85,7 +85,9 @@ export class DungeonSystem {
         this.scene.load.image({key:TOWER_TEXTURE,url:TOWER_ART,xhrSettings:{responseType:'blob',timeout:15000}});this.scene.load.start();
       }
       if(!site&&this.scene.textures.exists(TOWER_TEXTURE)){
-        const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y+12,TOWER_TEXTURE).setOrigin(.5,1)
+        // The standing target must be south of the cylinder, not inside it:
+        // InteriorSession.nearest deliberately rejects obstructed thresholds.
+        const image=this.scene.add.image(TOWER_DOOR.x,TOWER_DOOR.y-28,TOWER_TEXTURE).setOrigin(.5,1)
           .setDisplaySize(380,570).setDepth(TOWER_DOOR.y-50).setName('Tower of Might');
         image.setData(PRESENTATION_HINT,{plane:'upright',house:towerOfMightShape()} satisfies PresentationHint);
         this.scene.registerDungeonEntrance(image,true);

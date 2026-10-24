@@ -1,5 +1,6 @@
 import type Phaser from 'phaser';
 import type {StreamVisibility} from './StreamVisibility';
+import {PRESENTATION_HINT,type PresentationHint} from './plane';
 
 type StaticImage=Phaser.GameObjects.Image;
 interface Entry {x:number;y:number;width:number;height:number;keys:string[]}
@@ -16,7 +17,8 @@ export class StaticSpatialIndex {
   add(image:StaticImage){
     const previous=this.entries.get(image);
     if(previous)for(const key of previous.keys){const bucket=this.buckets.get(key);bucket?.delete(image);if(!bucket?.size)this.buckets.delete(key);}
-    const radius=Math.max(960,Math.max(Math.abs(image.displayWidth),Math.abs(image.displayHeight))*1.7+512);
+    const rise=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house?.riseScale??1;
+    const radius=Math.max(960,Math.max(Math.abs(image.displayWidth),Math.abs(image.displayHeight)*rise)*1.7+512);
     const entry={x:image.x,y:image.y,width:image.displayWidth,height:image.displayHeight,keys:[] as string[]};
     for(let y=Math.floor((image.y-radius)/CELL);y<=Math.floor((image.y+radius)/CELL);y++)
       for(let x=Math.floor((image.x-radius)/CELL);x<=Math.floor((image.x+radius)/CELL);x++){

@@ -207,7 +207,7 @@ export function presentationAttachmentWorld(scene:Phaser.Scene,owner:Phaser.Game
       }
     }
     out.x=owner.x+localX*Math.cos(owner.rotation)-localZ*Math.sin(owner.rotation);
-    out.y=worldHeight(scene,owner.x,owner.y)+owner.y-y;
+    out.y=worldHeight(scene,owner.x,owner.y)+(owner.y-y)*(house.riseScale??1);
     out.z=owner.y+localX*Math.sin(owner.rotation)+localZ*Math.cos(owner.rotation);
   }else uprightPoint(x,y,owner.x,owner.y,out,scene);
   const elevation='presentationElevation' in owner&&typeof owner.presentationElevation==='number'?owner.presentationElevation:0;

@@ -18,7 +18,7 @@ import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
-import {createHouseGeometry,createWallGeometry} from './HouseGeometry';
+import {createHouseGeometry,createWallGeometry,applyHouseRise} from './HouseGeometry';
 import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
@@ -531,7 +531,7 @@ export class ThreePresentation {
         }
         const dx=this.transform.tx-anchorX,angle=hint.anchor?.rotation??0;
         out.set(anchorX+dx*Math.cos(angle)+x*houseScaleX*this.yawCos,
-          anchorHeight+anchorY-this.transform.ty-y*houseScaleY+ownerElevation,
+          anchorHeight+(anchorY-this.transform.ty)*(house.riseScale??1)-y*houseScaleY+ownerElevation,
           anchorY+dx*Math.sin(angle)-x*houseScaleX*this.yawSin);
       }
       else if(house){
@@ -582,6 +582,7 @@ export class ThreePresentation {
       const offset=emissionOwner?.018:0;
       this.model.set(w*c,0,-w*s,p.x-offset*s,0,w,0,(furniture.fixedGround??this.heightAt(p.x,p.y))+p.lift,w*s,0,w*c,p.y+offset*c,0,0,0,1);
     }
+    if(houseVolume)applyHouseRise(this.model,house!);
     if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,volumeDepth,furnitureVolume?furniture:undefined))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.

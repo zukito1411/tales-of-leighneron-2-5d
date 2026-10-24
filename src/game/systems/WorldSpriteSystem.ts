@@ -3,7 +3,7 @@ import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
-import {houseShape,type WallSegment} from '../presentation25d/HouseGeometry';
+import {houseShape,sizeHouseForPlayer,type WallSegment} from '../presentation25d/HouseGeometry';
 import {worldPropShape,shipShape} from '../presentation25d/WorldPropGeometry';
 import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
@@ -60,6 +60,7 @@ export class WorldSpriteSystem {
     onPlane(actor,profile?.floor||texture==='port_dock'||texture==='pirate_flagship'?'ground':'upright');
     const house=houseShape(texture,actor.frame,frame,wallSegment);
     if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
+    if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
     if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){

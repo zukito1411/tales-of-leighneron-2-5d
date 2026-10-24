@@ -2,6 +2,9 @@ import {ModelMesh,atlasMaterial,paintedMaterial,brass,glass,pigment,regionalFabr
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {createAuthoredArchitecture} from './ArchitectureGeometry';
+import {createMagusTowerGeometry} from './MagusTowerGeometry';
+import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
+import type {Matrix4} from 'three';
 
 type Point=readonly [number,number];
 type Patch=readonly [number,number,number,number];
@@ -14,6 +17,8 @@ interface HouseProfile {
 export interface WallSegment {dx:number;dy:number}
 export interface HouseShape {
   profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;ground?:number;
+  /** Height only: retain the surveyed X/Z lot, entry and collider footprint. */
+  riseScale?:number;
   segment?:WallSegment&{height:number;thickness:number};
   /** Original survey rectangle within the retained (possibly alpha-trimmed) art. */
   paintRegion?:readonly [number,number,number,number];
@@ -135,6 +140,23 @@ export function towerOfMightShape():HouseShape{
  * scale, so changing source/frame aspect cannot turn a tower into an ellipse. */
 export function towerDiameter(profile:HouseProfile){return Math.max(...(profile.tiers??[]).map(t=>t.right-t.left),profile.hip?profile.hip.right-profile.hip.left:0);}
 
+/** Size against a standing body, not the padded sprite frame. A small house
+ * gets a usable ground floor; its roof cannot spread across a street or NPC. */
+export function sizeHouseForPlayer(shape:HouseShape,displayHeight:number){
+  if(shape.segment||shape.profile.board||shape.profile.opening?.length||/^masonry-|^panel$/.test(shape.profile.id))return;
+  const id=shape.profile.id;
+  const doorway=/cottage/.test(id)?.34:/inn|manor|estate/.test(id)?.24:shape.profile.tiers?.28:.25;
+  shape.riseScale=Math.max(id==='tower-of-might'?1:1.25,HERO_BODY_HEIGHT*1.30/Math.max(1,displayHeight*shape.height*doorway));
+}
+
+/** Apply at submission so different lot sizes still share one prefab. Keep
+ * the authored foot fixed, including sun shadows and the additive pass. */
+export function applyHouseRise(matrix:Matrix4,shape:HouseShape){
+  const scale=shape.riseScale??1;if(scale===1)return;
+  const foot=.5-shape.top-Math.max(.96,shape.ground??.96)*shape.height,e=matrix.elements;
+  for(let row=0;row<3;row++){e[12+row]+=e[4+row]*foot*(1-scale);e[4+row]*=scale;}
+}
+
 export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,index:number,segment?:WallSegment):HouseShape|undefined {
   const profile=profiles[texture]?.[index];if(!profile)return;
   if(profile.curtain&&!segment)return;
@@ -151,6 +173,7 @@ export function houseShape(texture:ArtTextureKey,frame:Phaser.Textures.Frame,ind
 /** Structural surfaces use material swatches and modeled joinery. A complete
  * painted building is never placed across a facade or wrapped over a tower. */
 export function createHouseGeometry(shape:HouseShape,inflate=0,emission=false){
+  if(shape.profile.id==='tower-of-might')return createMagusTowerGeometry(shape,emission);
   const authored=createAuthoredArchitecture(shape,emission);if(authored)return authored;
   const {profile,left,top,width,height,depth}=shape;
   const m=new ModelMesh(shape,emission,width);

@@ -2,6 +2,7 @@ import {Box3,Frustum,Matrix4,type PerspectiveCamera} from 'three';
 import type Phaser from 'phaser';
 import {CHUNK_SIZE} from '../../data/world';
 import {VIEW_DISTANCE} from './environment';
+import {PRESENTATION_HINT,type PresentationHint} from './plane';
 
 /** Reusable frustum broad phase for local streaming and static art. The sky
  * has its own full-screen pass and never enters this residency selection. */
@@ -29,8 +30,9 @@ export class StreamVisibility {
     if(key.startsWith('chunk:')||key==='shared-ocean-chunk')
       return this.intersects(image.x-image.originX*w,image.y-image.originY*h,image.x+(1-image.originX)*w,image.y+(1-image.originY)*h,256);
     // Also cover rotated ground art/bridges with a non-central origin.
-    const radius=Math.max(w,h)+128;
-    return this.intersects(image.x-radius,image.y-radius,image.x+radius,image.y+radius,Math.max(256,h+384));
+    const rise=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.house?.riseScale??1;
+    const radius=Math.max(w,h*rise)+128;
+    return this.intersects(image.x-radius,image.y-radius,image.x+radius,image.y+radius,Math.max(256,h*rise+384));
   }
   private intersects(left:number,top:number,right:number,bottom:number,height:number){
     this.box.min.set(left,-128,top);this.box.max.set(right,height,bottom);

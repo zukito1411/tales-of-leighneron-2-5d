@@ -299,13 +299,13 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
       gable(.37,.71,-D*.54,.06*W,eave+.045*H,Y(elf?.10:.07));
       window(X(.54),eave+.065*H,.070*W,W*(elf?.16:.12),H*(elf?.22:.14));
       for(const x of [.25,.77]){window(X(x),ground+.10*H,.018*W,W*.11,H*.17);window(X(x),middle+.04*H,.018*W,W*.11,H*.15);}
-      door(.52,.065*W,.16,H*.24);
+      door(.52,.065*W,.22,H*.24);
       if(elf||id==='manor')balcony(.40,.70,middle+.015*H,.115*W);
       else banner(.22,middle-.06*H,.07*W,.13,H*.23,10);
       sideWindows(l,r,eave);for(const side of [-1,1])window(X(side<0?l:r)+side*.008*W,middle+.03*H,-D*.60,W*.10,H*.15,0,-side);
       if(/estate/.test(id))for(const x of [.18,.81])tower(x,-D*.67,W*.082,Y(.52),Y(.30));
     }else if(cottage){
-      door(elf?.50:.58,.015*W,elf?.19:.17,H*.25);
+      door(elf?.50:.58,.015*W,elf?.24:.23,H*.34);
       for(const x of [.29,.77])window(X(x),ground+.12*H,.015*W,W*.11,H*.17);
       // Projecting dormer on the thatch; elven cottage gets its tall central
       // lancet gable and leaf-carved verge from the reference instead.
@@ -316,7 +316,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
       }
       planter(.27,ground+.05*H,.075*W,.17);barrel(.88,.02*W);sideWindows(l,r,eave);
     }else{
-      const mid=.50;door(mid,.014*W,guild?.19:.15,H*(guild?.30:.25));
+      const mid=.50;door(mid,.014*W,.22,H*(guild?.30:.25));
       for(const x of [.28,.74])window(X(x),ground+.13*H,.014*W,W*.11,H*.17);
       if(elf||guild)gable(.29,.71,-D*.64,.03*W,eave,Y(elf?.20:.21));
       else{gable(.43,.58,-D*.43,.025*W,eave+.025*H,eave+.15*H,false);window(X(.505),eave+.04*H,.035*W,W*.06,H*.07);}
