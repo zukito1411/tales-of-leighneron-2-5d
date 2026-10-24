@@ -1,0 +1,28 @@
+name: Review house scale, boats and Magus tower
+on:
+  push:
+    branches: ['capture/scale-boats-tower']
+permissions:
+  contents: read
+jobs:
+  screenshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    env:
+      GAME_COMMIT: 322084680a14a672e0c3c7e1dbc9e82cf03b3a7f
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - name: Capture buildings, boat and reachable tower entrance
+        run: node scripts/capture-scale-boats-tower.mjs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Leighneron-scale-boats-tower
+          path: game-captures/
+          retention-days: 3
+          if-no-files-found: warn
