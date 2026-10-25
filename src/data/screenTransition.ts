@@ -1,4 +1,4 @@
-export type ScreenTransitionKind='sail'|'sleep';
+export type ScreenTransitionKind='sail'|'sleep'|'travel';
 export type ScreenTransitionPhase='fade-out'|'covered'|'night'|'morning'|'fade-in';
 /** Session-only presentation state; never serialized into a game save. */
 export interface ScreenTransitionState {

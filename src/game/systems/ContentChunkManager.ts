@@ -93,6 +93,8 @@ export class ContentChunkManager<Actor> {
   private sceneryCandidates=new Set<string>();
   private nextAdmissionCheckAt=0;
   private admissionBootstrapped=false;
+  private admissionDeferred=false;
+  get settled(){return !this.admissionDeferred;}
   private cleanupPending=false;
   private nextSpawnSequence: number;
   private readonly summonOwners = new Map<string,string>();
@@ -249,6 +251,7 @@ export class ContentChunkManager<Actor> {
     }
     // A deferred activation should resume next tick, not wait for another
     // camera boundary change or the normal stationary 150 ms poll.
+    this.admissionDeferred=deferred;
     if(deferred)this.nextAdmissionCheckAt=0;
     if(budgeted)work?.charge('actors',admissionStart);
     }

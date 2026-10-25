@@ -25,6 +25,9 @@ export class StreamVisibility {
     // Include tall authored silhouettes whose feet can be below/outside view.
     return this.intersects(left-margin-128,top-margin-128,left+CHUNK_SIZE+margin+128,top+CHUNK_SIZE+margin+128,1800);
   }
+  ground(left:number,top:number,right:number,bottom:number){
+    return this.intersects(left,top,right,bottom,256);
+  }
   image(image:Phaser.GameObjects.Image){
     const w=Math.abs(image.displayWidth),h=Math.abs(image.displayHeight),key=image.texture.key;
     if(key.startsWith('chunk:')||key==='shared-ocean-chunk')

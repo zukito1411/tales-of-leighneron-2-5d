@@ -1,3 +1,4 @@
+import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {groundWorldView,onCombatEffect} from '../presentation25d/plane';
 import Phaser from 'phaser';
@@ -129,6 +130,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private m14Art!:M14ArtResidency;
   private passage!:ShipPassageSystem;
   readonly screenTransition=new ScreenTransitionSystem();
+  private arrivalView:{point:Vec2;safe:Vec2;validate:boolean;elapsed:number;readyFrames:number;
+    recovering:boolean;phase:'loading'|'revealing'}|null=null;
   private restSession:{entryId:string;inn:boolean;committed:boolean;message:string}|null=null;
   private enemySounds!:EnemySoundSystem;
   private worldSprites!:WorldSpriteSystem;
@@ -190,7 +193,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(this.activeInteriorId!==TOWER_ENTRY_ID)return;
     this.interiors.exit();this.player.resetInput();this.targeting.clear();
     const destination=TOWN_SHRINE_BY_ID.oakmere.arrival;
-    this.chunkManager.update(destination.x,destination.y,true);this.contentManager.update(destination.x,destination.y);
+    this.chunkManager.update(destination.x,destination.y,true);
+    this.contentManager.update(destination.x,destination.y,projectedGroundView(this.cameras.main,destination.x,destination.y));
     const landing=[destination,...respawnArrivalCandidates(TOWN_BY_ID.oakmere)].find(p=>this.worldGenerator.isWalkable(p.x,p.y)&&!this.isBlockedByBuilding(p.x,p.y)
       &&!this.npcs.some(n=>n.active&&Math.hypot(n.x-p.x,n.y-p.y)<36));
     if(landing){
@@ -198,10 +202,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.cameras.main.centerOn(landing.x,landing.y);this.playEffect('teleport',landing.x,landing.y);
       this.notify('Returned to Oakmere. Your last boss checkpoint is safe.');
     }else{
-      this.chunkManager.update(this.player.x,this.player.y,true);this.contentManager.update(this.player.x,this.player.y);
+      this.chunkManager.update(this.player.x,this.player.y,true);
+      this.contentManager.update(this.player.x,this.player.y,projectedGroundView(this.cameras.main,this.player.x,this.player.y));
       this.notify('Oakmere’s arrival is obstructed. You have been returned safely outside the tower.');
     }
-    this.cameras.main.flash(500,0,0,0);this.refreshWorldLighting();this.syncState();this.updateNavigation();saveGame();
+    this.coverWorldArrival(this.player,this.player,true);this.refreshWorldLighting();this.syncState();this.updateNavigation();saveGame();
   }
   dungeonPoint(point:Vec2){return this.interiors.localPoint(point);}
   dungeonEntranceSuitable(point:Vec2,region:RegionId){return this.worldGenerator.getRegionAt(point.x,point.y)===region&&!this.worldGenerator.isRoad(point.x,point.y,110);}
@@ -932,6 +937,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const feedbackState=useGameStore.getState();
     this.screenTransition.update(delta,!this.focused||Boolean(feedbackState.panel));
     if(this.restSession){this.updateRestTransition(time);return;}
+    if(this.arrivalView){this.updateArrivalView(delta);return;}
     if(this.screenTransition.active&&!this.passage.active){
       this.player.discardActions();this.physics.world.pause();return;
     }
@@ -986,6 +992,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       story.hydrate({travelRequest:null,passageRequest:null});this.notify('Leave the encounter area before travelling.');
     }
     this.handleShrineTravel();
+    if(this.arrivalView)return;
     const uiBlocked = !this.focused || Boolean(useGameStore.getState().panel || useGameStore.getState().dialogue);
     if (uiBlocked && !this.wasBlocked) this.player.resetInput();
     this.wasBlocked = uiBlocked;
@@ -1664,7 +1671,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const anchor=candidates[0];
     this.cameras.main.centerOn(anchor.x,anchor.y);
     this.chunkManager.update(anchor.x,anchor.y,true);
-    this.contentManager.update(anchor.x,anchor.y);
+    this.contentManager.update(anchor.x,anchor.y,projectedGroundView(this.cameras.main,anchor.x,anchor.y));
     const safe=(point:Vec2)=>this.worldGenerator.getRegionAt(point.x,point.y)===town.regionId
       &&this.worldGenerator.isWalkable(point.x,point.y)
       &&!this.isBlockedByBuilding(point.x,point.y)
@@ -1679,10 +1686,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.lastSafe={...landing};
     this.cameras.main.centerOn(landing.x,landing.y).startFollow(this.player,true,1,1);
     this.chunkManager.update(landing.x,landing.y,true);
-    this.contentManager.update(landing.x,landing.y);
+    this.contentManager.update(landing.x,landing.y,projectedGroundView(this.cameras.main,landing.x,landing.y));
     this.targeting.clear();
     this.refreshWorldLighting();
-    this.physics.world.resume();
+    this.coverWorldArrival(landing,landing,true);
     this.syncState();
     this.updateNavigation();
     store.showToast(`Leigneron awakens in ${town.name} after falling in battle.`);
@@ -1697,8 +1704,61 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     useGameStore.getState().showToast(message);
   }
   preparePassageView(point:Vec2){
-    this.cameras.main.stopFollow().centerOn(point.x,point.y);
-    return this.streamCinematicView(true,undefined,false);
+    const camera=this.cameras.main;camera.stopFollow().centerOn(point.x,point.y);camera.preRender();
+    const view=projectedGroundView(camera,point.x,point.y);
+    const groundReady=this.chunkManager.updateView(view,true,point);
+    this.contentManager.update(point.x,point.y,view);
+    return groundReady&&this.contentManager.settled&&presentationViewReady(this,point);
+  }
+  retryArrivalPreparation(){this.chunkManager.recoverPreparation();}
+  /** Shared covered readiness gate for shrine jumps, respawns and room exits.
+   * Boat crossings use the same preparePassageView gate before revealing. */
+  coverWorldArrival(point:Vec2,safe:Vec2=point,validate=false){
+    if(this.shuttingDown||this.inInterior||this.cinematicDirector?.active||this.passage?.active)return false;
+    if(!this.arrivalView&&!this.screenTransition.begin('travel','Preparing the area…',true))return false;
+    this.arrivalView={point:{x:point.x,y:point.y},safe:{x:safe.x,y:safe.y},validate,elapsed:0,readyFrames:0,
+      recovering:false,phase:'loading'};
+    this.player.resetInput();this.targeting.clear();this.spearProjectiles.clear();this.physics.world.pause();
+    return true;
+  }
+  private updateArrivalView(delta:number){
+    const arrival=this.arrivalView;if(!arrival)return;
+    this.player.discardActions();this.physics.world.pause();
+    if(!this.focused||useGameStore.getState().panel)return;
+    if(arrival.phase==='revealing'){
+      if(!this.screenTransition.active){
+        this.arrivalView=null;this.player.resetInput();
+        this.cameras.main.startFollow(this.player,true,1,1);this.physics.world.resume();
+      }
+      return;
+    }
+    if(Number.isFinite(delta)&&delta>0)arrival.elapsed+=Math.min(delta,1000);
+    try{
+      arrival.readyFrames=this.preparePassageView(arrival.point)?arrival.readyFrames+1:0;
+      if(arrival.readyFrames>=3){
+        if(arrival.validate){
+          const landing=this.passageLanding(arrival.point);
+          if(!landing)throw new Error('No safe ground at the destination');
+          arrival.validate=false;arrival.point=landing;arrival.safe=landing;arrival.readyFrames=0;
+          this.landFromPassage(landing,true);return;
+        }
+        arrival.safe={...arrival.point};arrival.phase='revealing';
+        this.refreshWorldLighting();this.syncState();saveGame();this.screenTransition.reveal();
+      }else if(arrival.elapsed>=30000)throw new Error('Area preparation timed out');
+    }catch(error){
+      console.warn('[arrival] Area preparation interrupted:',error);
+      if(!arrival.recovering){
+        arrival.recovering=true;arrival.point={...arrival.safe};arrival.validate=false;arrival.elapsed=0;arrival.readyFrames=0;
+        try{this.retryArrivalPreparation();this.landFromPassage(arrival.safe,true);}
+        catch(recovery){console.warn('[arrival] Position recovery:',recovery);}
+        this.notify('Area loading was interrupted. Returning to your safe position.');
+      }else{
+        // Even a renderer failure must not leave permanent input/physics locks.
+        this.arrivalView=null;this.screenTransition.cancel();this.player.setVisible(true).resetInput();
+        this.cameras.main.startFollow(this.player,true,1,1);this.physics.world.resume();
+        this.notify('The area could not finish loading. Your saved position is safe.');
+      }
+    }
   }
   passageLanding(point:Vec2):Vec2|null{
     if(!Number.isFinite(point.x)||!Number.isFinite(point.y))return null;
@@ -1711,10 +1771,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       &&!this.npcs.some(n=>n.active&&Math.hypot(n.x-p.x,n.y-p.y)<30))??null;
   }
   landFromPassage(point:Vec2,hold=false){
-    this.chunkManager.update(point.x,point.y);this.contentManager.update(point.x,point.y);
+    // Preserve staged viewport residency: an unqualified content update here
+    // eagerly creates the full 3×3 neighborhood at the exact landing frame.
+    const view=projectedGroundView(this.cameras.main,point.x,point.y);
     (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);
     this.player.setVisible(true).setAlpha(1).setDepth(point.y);this.player.resetInput();this.lastSafe={...point};
     this.cameras.main.centerOn(point.x,point.y).startFollow(this.player,true,1,1);
+    this.contentManager.update(point.x,point.y,view);
     if(hold)this.physics.world.pause();else this.physics.world.resume();
     this.targeting.clear();this.refreshWorldLighting();this.syncState();this.updateNavigation();
     if(!hold)saveGame();
@@ -1792,7 +1855,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if (!this.player?.active) return;
     this.player.syncInventoryVitals();
     this.reconcileStoryAffinity();
-    const position=authoritativeSavePosition(this.player,this.interiors,this.cinematicDirector?.active??false,this.passage);
+    const position=this.arrivalView?.safe??authoritativeSavePosition(this.player,this.interiors,this.cinematicDirector?.active??false,this.passage);
     const town = this.worldGenerator.getTownAt(position.x, position.y);
     const store = useGameStore.getState();
     store.setWorldStatus(position.x, position.y, this.worldGenerator.getRegionAt(position.x, position.y), town?.id ?? null);
@@ -2157,18 +2220,15 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const departure = { x:this.player.x,y:this.player.y };
     this.player.resetInput();
     this.wildlife.reset();
-    this.chunkManager.update(destination.arrival.x,destination.arrival.y);
-    this.contentManager.update(destination.arrival.x,destination.arrival.y);
     const landing = [destination.arrival,
       ...[0,48,-48,80,-80].flatMap(dx => [24,48,80].map(dy => ({ x:destination.arrival.x + dx,y:destination.arrival.y + dy })))
     ].find(point => this.worldGenerator.isWalkable(point.x,point.y) && !this.isBlockedByBuilding(point.x,point.y)
       && !this.npcs.some(npc => Phaser.Math.Distance.Between(point.x,point.y,npc.x,npc.y) < 36));
     if (!landing) {
-      this.chunkManager.update(departure.x,departure.y);
-      this.contentManager.update(departure.x,departure.y);
       this.notify('This shrine arrival is obstructed. Try again shortly.');
       return;
     }
+    if(!this.coverWorldArrival(landing,departure,true))return;
     this.spearProjectiles.clear();
     this.playEffect('teleport',departure.x,departure.y);
     (this.player.body as Phaser.Physics.Arcade.Body).reset(landing.x,landing.y);
@@ -2177,9 +2237,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.cameras.main.centerOn(landing.x,landing.y);
     this.playEffect('teleport',landing.x,landing.y);
     this.targeting.clear();this.refreshWorldLighting();
-    this.syncState();
-    this.updateNavigation();
-    saveGame();
+    this.syncState();this.updateNavigation();
     this.notify(`Arrived at ${TOWN_BY_ID[destination.townId].name}.`);
   }
 
@@ -2342,7 +2400,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.encounters.clear();
     release('volcanic tremor',()=>this.volcanicTremor?.destroy());
     release('ship passage',()=>this.passage?.destroy());
-    release('screen transition',()=>this.screenTransition.destroy());this.restSession=null;
+    release('screen transition',()=>this.screenTransition.destroy());this.restSession=null;this.arrivalView=null;
     release('targeting',()=>this.targeting?.clear());
     release('boss display',()=>useGameStore.getState().setBossEncounter(null));
     mobileInput.reset();

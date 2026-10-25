@@ -11,10 +11,10 @@ export class ScreenTransitionSystem {
   get active(){return this.state!==null;}
   get covered(){return this.state?.phase==='covered';}
   get morning(){return this.state?.phase==='morning';}
-  begin(kind:ScreenTransitionKind,label:string){
+  begin(kind:ScreenTransitionKind,label:string,covered=false){
     if(this.active)return false;
     this.elapsed=0;
-    this.state={id:++nextTransitionId,kind,phase:'fade-out',label,
+    this.state={id:++nextTransitionId,kind,phase:covered?'covered':'fade-out',label,
       duration:this.reduced.matches?180:550,nightDuration:this.reduced.matches?700:2200,paused:false};
     this.publish();return true;
   }

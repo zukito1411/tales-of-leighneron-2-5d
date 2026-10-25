@@ -137,9 +137,10 @@ export class ChunkManager {
 
   /** Hidden cuts bake one texture per frame in visibility order; normal travel
    * keeps the existing staggered budget for offscreen margin chunks. */
-  updateView(view:StreamView,staged=false):boolean {
+  updateView(view:StreamView,staged=false,focus?:{x:number;y:number}):boolean {
     // Covers complete mature trees beyond the edge, not just their ground anchors.
     const wanted=viewportChunks(view,384),visible=viewportChunks(view);
+    if(focus)for(const key of nearbyPhysicsChunks(focus.x,focus.y)){visible.add(key);wanted.add(key);}
     this.visibleChunks=visible;
     this.bootstrapped=true;
     this.lastCenter='view:'+streamViewKey(wanted);
@@ -160,6 +161,12 @@ export class ChunkManager {
     // Margin chunks are speculative canopy coverage. They continue loading
     // after the shot is drawable, but must not hold the transition cover up.
     return [...visible].every(key=>this.active.has(key));
+  }
+
+  recoverPreparation(){
+    // Abandon a wedged worker/upload job, not the published terrain or caches.
+    this.terrainWorker.useIncrementalPainter('Retrying destination terrain on the incremental painter');
+    this.cancelPreparation();
   }
 
   hasView(view:StreamView):boolean {

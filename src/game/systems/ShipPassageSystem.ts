@@ -8,9 +8,9 @@ import type {Vec2} from '../types';
 
 interface Voyage {
   from:Port;to:Port;end:Vec2;elapsed:number;waiting:number;readyFrames:number;
-  phase:'departure'|'fading'|'arrival'|'revealing';vessel:Vehicle|null;landing:Vec2|null;
+  phase:'departure'|'fading'|'arrival'|'settling'|'revealing';vessel:Vehicle|null;landing:Vec2|null;
 }
-const DEPARTURE_MS=1800,DEPARTURE_DISTANCE=48,ARRIVAL_TIMEOUT_MS=20000;
+const DEPARTURE_MS=1800,DEPARTURE_DISTANCE=48,ARRIVAL_TIMEOUT_MS=30000;
 
 /** Only the harbor departure is shown. The hidden crossing does not generate
  * an ocean graph or stream every intermediate chunk. */
@@ -65,21 +65,29 @@ export class ShipPassageSystem {
           this.releaseBoat(v);v.phase='arrival';this.status(v,.6);
           this.scene.preparePassageView(v.to.landing);
         }
-      }else if(v.phase==='arrival'){
-        v.waiting+=step;
-        v.readyFrames=this.scene.preparePassageView(v.to.landing)?v.readyFrames+1:0;
+      }else if(v.phase==='arrival'||v.phase==='settling'){
+        v.waiting+=Math.min(delta,1000);
+        const destination=v.landing??v.to.landing;
+        v.readyFrames=this.scene.preparePassageView(destination)?v.readyFrames+1:0;
         if(v.readyFrames>=3){
-          const landing=this.scene.passageLanding(v.to.landing);
-          if(!landing)throw new Error('The destination dock has no safe landing');
-          v.landing=landing;this.scene.landFromPassage(landing,true);
+          if(v.phase==='arrival'){
+            const landing=this.scene.passageLanding(v.to.landing);
+            if(!landing)throw new Error('The destination dock has no safe landing');
+            v.landing=landing;this.scene.landFromPassage(landing,true);
+            // Recheck the actual feet/camera position after any dock offset,
+            // including the actors admitted once the player is in this region.
+            v.phase='settling';v.readyFrames=0;return;
+          }
           useGameStore.getState().setStoryFlag('landed:'+v.to.id);
-          // Persist the validated dock, never the boat or an ocean coordinate.
-          saveGame();v.phase='revealing';this.status(v,.95);this.scene.screenTransition.reveal();
+          saveGame();v.phase='revealing';v.waiting=0;this.status(v,.95);this.scene.screenTransition.reveal();
         }else if(v.waiting>=ARRIVAL_TIMEOUT_MS)throw new Error('Destination preparation timed out');
       }else if(!this.scene.screenTransition.active){
         this.voyage=null;useGameStore.getState().hydrate({passage:null});
         this.scene.player.resetInput();this.scene.physics.world.resume();
         this.scene.notify('Arrived at '+v.to.name+'. '+v.to.description);
+      }else{
+        v.waiting+=Math.min(delta,1000);
+        if(v.waiting>5000)throw new Error('Arrival reveal did not complete');
       }
     }catch(error){this.recover(error);}
   }
@@ -105,7 +113,12 @@ export class ShipPassageSystem {
     finally{
       this.voyage=null;this.scene.screenTransition.cancel();
       useGameStore.getState().hydrate({passage:null,passageRequest:null});
-      if(this.scene.player.active){this.scene.player.setVisible(true);this.scene.player.resetInput();this.scene.physics.world.resume();}
+      if(this.scene.player.active){
+        this.scene.player.setVisible(true);this.scene.player.resetInput();
+        try{this.scene.retryArrivalPreparation();}catch(retry){console.warn('[passage] Terrain retry:',retry);}
+        try{if(!this.scene.coverWorldArrival(v.landing??v.from.landing))this.scene.physics.world.resume();}
+        catch(cover){console.warn('[passage] Recovery cover:',cover);this.scene.screenTransition.cancel();this.scene.physics.world.resume();}
+      }
     }
     this.scene.notify('The crossing was interrupted. You are back at a dock.');
   }

@@ -755,7 +755,8 @@ export class InteriorSession {
     this.scene.player.resetInput();this.scene.restoreOutsidePosition(returnPoint);
     this.scene.cameras.main.centerOn(returnPoint.x,returnPoint.y);this.outside=null;
     this.scene.refreshWorldLighting();
-    this.scene.physics.world.resume();this.scene.syncState();
+    if(!this.scene.coverWorldArrival(returnPoint))this.scene.physics.world.resume();
+    this.scene.syncState();
   }
   private closeRoom(){
     if(!this.entry&&!this.objects.length){this.releaseArt();return;}

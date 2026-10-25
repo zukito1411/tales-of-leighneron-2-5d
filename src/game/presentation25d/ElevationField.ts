@@ -39,6 +39,9 @@ export class ElevationField {
     const a=this.vertex(gx,gy),b=this.vertex(gx+1,gy),c=this.vertex(gx,gy+1),d=this.vertex(gx+1,gy+1);
     return u+v<=1?a+(b-a)*u+(c-a)*v:d+(c-d)*(1-u)+(b-d)*(1-v);
   }
+  readyAt(point:{x:number;y:number}){
+    return this.columns>0&&Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024;
+  }
   private center(focus:{x:number;y:number}){
     return {x:Math.round(focus.x/CHUNK_SIZE)*CHUNK_SIZE,y:Math.round(focus.y/CHUNK_SIZE)*CHUNK_SIZE};
   }
@@ -79,7 +82,11 @@ export class ElevationField {
     if(Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024){
       this.pending=undefined;return;
     }
-    if(this.pending)return;
+    // Teleporting again must not finish/publish an obsolete region first.
+    if(this.pending){
+      if(this.pending.centerX===target.x&&this.pending.centerY===target.y)return;
+      this.pending.steps.return();this.pending=undefined;
+    }
     if(target.x===this.centerX&&target.y===this.centerY)return;
     const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length);
     this.pending={centerX:target.x,centerY:target.y,left:target.x-half,top:target.y-half,

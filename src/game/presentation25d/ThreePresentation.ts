@@ -96,6 +96,7 @@ export class ThreePresentation {
   private heightEnabled=false;
   private readonly heightAt=(x:number,y:number)=>this.heightEnabled?(walkSurfaceHeight(x,y)??this.elevation.height(x,y)):0;
   private view:PresentationView|undefined;
+  private presentedScene:Phaser.Scene|undefined;
   private readonly screenCamera=new OrthographicCamera(0,1,0,1,-100,100);
   private readonly effectGeometry=new PlaneGeometry(1,1);
   private readonly flash=new Mesh(this.effectGeometry,new MeshBasicMaterial({transparent:true,depthTest:false,depthWrite:false}));
@@ -189,7 +190,12 @@ export class ThreePresentation {
       ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
     void this.postFX.warm(this.renderer);
-    bindResourcePreparation(game,{request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source)});
+    bindResourcePreparation(game,{
+      request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source),
+      viewReady:(scene,point)=>this.presentedScene===scene
+        &&Math.hypot(this.orbit.focusGround.x-point.x,this.orbit.focusGround.y-point.y)<1
+        &&(!this.heightEnabled||this.elevation.readyAt(point)),
+    });
     this.originalCanvasVisibility=game.canvas.style.visibility;game.canvas.style.visibility='hidden';
     this.originalMouseEnabled=game.input.mouse?.enabled;this.originalTouchEnabled=game.input.touch?.enabled;
     if(game.input.mouse)game.input.mouse.enabled=false;if(game.input.touch)game.input.touch.enabled=false;
@@ -307,12 +313,13 @@ export class ThreePresentation {
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
     this.gpuTimer.end();
+    this.presentedScene=scene;
     camera.dirty=false;
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
     if(!this.stopped){
       // Uploads have a reserved share of the same allowance used by streaming.
       const elevationStart=performance.now(),elevationMs=work.remaining('elevation',.5);
-      if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled&&presentation.presentationControlsEnabled===true,elevationMs);
+      if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled,elevationMs);
       work.charge('elevation',elevationStart);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
@@ -730,20 +737,31 @@ export class ThreePresentation {
   }
 
   private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false,heightLift=0){
+    if(ground){
+      // A terrain quad can cross the camera's near plane. Dividing its four
+      // corners by negative clip-W can put every projected corner offscreen
+      // even though the ground fills the view. Cull its world-space volume.
+      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+      for(let i=0;i<4;i++){
+        const [x,y]=VERTICES[i];this.projected.set(x,y,0).applyMatrix4(this.model);
+        left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);
+        top=Math.min(top,this.projected.z);bottom=Math.max(bottom,this.projected.z);
+      }
+      return this.visibility.ground(left,top,right,bottom);
+    }
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
-    const count=furniture||backDepth>0?8:ground?5:4;
+    const count=furniture||backDepth>0?8:4;
     for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
       if(furniture){const b=furniture.bounds;
         this.projected.set(b?(x<0?b.left:b.right):x*1.1,b?(y<0?b.bottom:b.top):(y+.5)*furniture.rise*1.06,
           b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
       else this.projected.set(x,y+(y>0?heightLift:0),i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
       this.projected.applyMatrix4(this.model);
-      if(ground)this.projected.y+=this.heightAt(this.projected.x,this.projected.z);
       this.projected.project(this.orbit.camera);
       left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);top=Math.min(top,this.projected.y);bottom=Math.max(bottom,this.projected.y);
       depth+=this.projected.z/count;near=Math.min(near,this.projected.z);far=Math.max(far,this.projected.z);}
-    // Bounds depth is used only for upright foreground fading. Ground center
-    // sampling includes hill crests which a flat-corner test would miss.
+    // Bounds depth is used only for upright foreground fading. Terrain uses
+    // the conservative world-space test above, before perspective division.
     const b=this.projectedBounds;b.left=left;b.right=right;b.top=top;b.bottom=bottom;b.depth=depth;
     return far>=-1&&near<=1&&right>=-1.15&&left<=1.15&&bottom>=-1.15&&top<=1.15;
   }
