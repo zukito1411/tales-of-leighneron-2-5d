@@ -93,6 +93,28 @@ export class Enemy extends DepthSortedSprite {
   private hitStunUntil=0;
   private staggerImmuneUntil=0;
   private flurrySuppressed=false;
+  private readonly rootSources=new Set<object>();
+  private rootBodyState:{moves:boolean;immovable:boolean}|null=null;
+  get isRooted(){return this.rootSources.size>0;}
+  /** Independent of weapon procs: a snare must not replace frost or poison. */
+  setRooted(source:object,rooted:boolean){
+    const body=this.body as Phaser.Physics.Arcade.Body|null;
+    if(rooted){
+      if(!this.active||!this.isAlive||!this.canBeTargeted||this.bossRegenerating||!body)return;
+      if(!this.isRooted){
+        this.rootBodyState={moves:body.moves,immovable:body.immovable};
+        this.interruptAttack();body.moves=false;body.setImmovable(true);body.setVelocity(0,0);
+      }
+      this.rootSources.add(source);
+    }else{
+      this.rootSources.delete(source);
+      if(!this.isRooted&&this.rootBodyState){
+        if(body){body.moves=this.rootBodyState.moves;body.setImmovable(this.rootBodyState.immovable);body.setVelocity(0,0);}
+        this.rootBodyState=null;
+      }
+    }
+  }
+  private clearRoots(){for(const source of this.rootSources)this.setRooted(source,false);}
   private lastDamagedAt=0;
   private lastEngagedAt=0;
   private bossAlerted=false;
@@ -121,7 +143,7 @@ export class Enemy extends DepthSortedSprite {
     this.interruptAttack();
     const changed=this.bossCombat?.depleteFirstForm()??this.dragonCombat?.depleteFirstForm()??false;
     if(!changed)return;
-    this.weaponStatus.clear();this.flurrySuppressed=false;this.hitStunUntil=0;
+    this.weaponStatus.clear();this.clearRoots();this.flurrySuppressed=false;this.hitStunUntil=0;
     (this.body as Phaser.Physics.Arcade.Body).setVelocity(0,0);
   }
   private visualDirection:ActorDirection='right';
@@ -130,7 +152,7 @@ export class Enemy extends DepthSortedSprite {
   private wolfHuntBearing = 0;
   get canBeTargeted(){return !this.dragonCombat?.airborne;}
   get presentationLockVisual():Phaser.GameObjects.Sprite{return this.dragonCombat?.visual??(this.leapVisual?.active?this.leapVisual:this);}
-  get movementSpeed(){return this.definition.moveSpeed*this.weaponStatus.movementMultiplier;}
+  get movementSpeed(){return this.isRooted?0:this.definition.moveSpeed*this.weaponStatus.movementMultiplier;}
   get attackSpeedMultiplier(){return this.weaponStatus.attackSpeedMultiplier;}
   /** Multiply a light status wash into the species tint, preserving its art. */
   get presentationTint(){
@@ -259,6 +281,7 @@ export class Enemy extends DepthSortedSprite {
       const state=useGameStore.getState();if(!state.panel&&!state.dialogue&&!state.cinematic)scene.targeting.select(this);
     });
     this.once('destroy', () => {
+      this.clearRoots();
       this.interruptAttack();this.targetIndicator.destroy();this.targetRing.destroy();this.healthBar.destroy(); this.nameLabel.destroy(); this.clearWolfLeap(); this.attackTelegraph?.destroy();
       (this.scene as WorldScene).forgetEnemySound(this.instanceId);
       this.dragonCombat?.destroy();
@@ -267,15 +290,16 @@ export class Enemy extends DepthSortedSprite {
   }
 
   updateEnemy(time: number,delta=16) {
-    if(!this.active||!this.isAlive)return;
+    if(!this.active||!this.isAlive){this.clearRoots();return;}
     const damage=this.weaponStatus.update(delta,this.canBeTargeted&&!this.bossRegenerating);
     if(damage>0){
       this.hp=Math.max(0,this.hp-damage);this.lastDamagedAt=time;
       if(this.hp<=0)this.depleteFirstForm();
-      if(!this.isAlive){this.weaponStatus.clear();this.interruptAttack();(this.scene as WorldScene).handleEnemyDefeated(this);return;}
+      if(!this.isAlive){this.clearRoots();this.weaponStatus.clear();this.interruptAttack();(this.scene as WorldScene).handleEnemyDefeated(this);return;}
     }
     this.syncStatusAttackSpeed(time);this.applyStatusTint();
     this.updateEnemyBehavior(time,delta);
+    if(this.active&&this.isRooted)(this.body as Phaser.Physics.Arcade.Body).setVelocity(0,0);
   }
 
   private updateEnemyBehavior(time: number,delta:number) {
@@ -849,6 +873,7 @@ export class Enemy extends DepthSortedSprite {
   }
 
   playLocomotion(state:'idle'|'walk'){
+    if(this.isRooted)state='idle';
     const body=this.body as Phaser.Physics.Arcade.Body;
     if(state==='walk'){this.visualDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.visualDirection);if(body.velocity.lengthSq()>9)this.facing.copy(body.velocity).normalize();}
     else this.visualDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.visualDirection);
@@ -889,6 +914,7 @@ export class Enemy extends DepthSortedSprite {
   }
 
   private playWolfLeap(animation: ReturnType<typeof enemyAnimation>) {
+    if(this.isRooted)return;
     this.clearWolfLeap();
     const scene = this.scene as WorldScene;
     const arc = { height: 0 };
@@ -1007,7 +1033,7 @@ export class Enemy extends DepthSortedSprite {
     if(fatal)this.ambientDefeat=options.source==='ambient-ally';
     // Small NPC support hits must not interrupt telegraphs or stun-lock a foe.
     const staggered=!support&&!fatal&&this.stagger(Boolean(options.forceStagger));
-    if(fatal)this.interruptAttack();
+    if(fatal){this.clearRoots();this.interruptAttack();}
     const proc=options.weaponId?WEAPON_PROFILES[options.weaponId]?.proc:undefined;
     if(!fatal&&!this.bossRegenerating&&!support&&proc){
       // Damage over time is based on the attacker's effective weapon ATK,
@@ -1023,7 +1049,7 @@ export class Enemy extends DepthSortedSprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     // Flurry keeps its targets inside the sweep instead of knocking them out
     // of range while Leigneron is committed to the stationary animation.
-    if (staggered||fatal) {
+    if ((staggered||fatal)&&!this.isRooted) {
       // A brief shove only on an accepted heavy stagger. Immunity, flurry
       // containment, bosses and airborne dragons retain their existing rules.
       if(staggered&&!fatal&&!support&&!this.definition.boss&&!options.forceStagger&&impact!=='light')

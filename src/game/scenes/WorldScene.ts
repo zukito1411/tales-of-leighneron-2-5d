@@ -1,5 +1,5 @@
 import {frameWork} from '../presentation25d/FrameWorkBudget';
-import {groundWorldView} from '../presentation25d/plane';
+import {groundWorldView,onCombatEffect} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {housingFor} from '../../data/housing';
 import {isGameDisposing} from '../systems/gameLifetime';
@@ -456,8 +456,20 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   cancelStoryEncounter(){this.storyEncounters?.clear();this.player.resetInput();this.spearProjectiles.clear();}
   interactWithStory(){return this.dungeons?.interact()||this.storyEncounters.interact();}
   playStoryIntro(id:string){return this.cinematicDirector.start('encounter-'+id);}
-  skillLanding(target:Vec2,range:number):Vec2 {
-    const from={x:this.player.x,y:this.player.y};
+  movePlayerCombatToward(target:Vec2,maxDistance:number){
+    const player=this.player,body=player.body as Phaser.Physics.Arcade.Body;
+    const dx=target.x-player.x,dy=target.y-player.y,length=Math.hypot(dx,dy);
+    if(length<.01)return 0;
+    const vx=body.velocity.x,vy=body.velocity.y;
+    let travelled=0,remaining=Math.min(length,Math.max(0,maxDistance),384);
+    while(remaining>.01){
+      const step=Math.min(8,remaining),point={x:player.x+dx/length*step,y:player.y+dy/length*step};
+      if(!this.safeSkillPosition(point)||!this.canTraverseGround(player,point))break;
+      body.reset(point.x,point.y);travelled+=step;remaining-=step;
+    }
+    body.setVelocity(vx,vy);return travelled;
+  }
+  skillLanding(target:Vec2,range:number,from:Vec2={x:this.player.x,y:this.player.y}):Vec2 {
     const candidates=[32,48,64].flatMap(radius=>Array.from({length:16},(_,i)=>({x:target.x+Math.cos(i*Math.PI/8)*radius,y:target.y+Math.sin(i*Math.PI/8)*radius})));
     candidates.sort((a,b)=>Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
     return candidates.find(p=>Math.hypot(p.x-from.x,p.y-from.y)<=range&&this.safeSkillPosition(p)&&this.canNpcVisit(from,p))??from;
@@ -1045,51 +1057,51 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return enhancedWeapon(state.weaponId,state.weaponUpgrades,state.awakenedWeapons);
   }
 
-  performPlayerAttack(player: Player, direction: Phaser.Math.Vector2, weapon: WeaponDefinition,step:BasicAttackStep=BASIC_ATTACK_CHAIN[0]) {
+  performPlayerAttack(player: Player, direction: Phaser.Math.Vector2, weapon: WeaponDefinition,step:BasicAttackStep=BASIC_ATTACK_CHAIN[0],hitIds?:Set<string>) {
     player.recovery.interrupt();
     const practice=this.contentManager.getActor('training:highmere-target');
-    if(practice) {
+    if(practice&&!hitIds?.has('training:highmere-target')) {
       const offset=new Phaser.Math.Vector2(practice.x-player.x,practice.y-player.y);
-      if(offset.length()<=weapon.reach+8&&direction.clone().normalize().dot(offset.normalize())>=step.coneDot
+      if(offset.length()<=weapon.reach*step.reachMultiplier+8&&direction.clone().normalize().dot(offset.normalize())>=step.coneDot
         && this.hasClearPath(player.x,player.y,practice.x,practice.y,practice)) {
-        this.recordTraining('drill-sword');this.playEffect('hit',practice.x,practice.y);
+        hitIds?.add('training:highmere-target');this.recordTraining('drill-sword');this.playEffect('hit',practice.x,practice.y);
       }
     }
     const facing = direction.clone().normalize();
     const progression = progressionStats(useGameStore.getState().attributes, useGameStore.getState().learnedSkills,useGameStore.getState().armorBonuses);
     let hits=0;
-    for (const enemy of this.enemies) {
-      if (!enemy.active||enemy.hp<=0||!enemy.canBeTargeted) continue;
+    for (const enemy of this.getCombatEnemies()) {
+      if (!enemy.active||enemy.hp<=0||!enemy.canBeTargeted||hitIds?.has(enemy.instanceId)) continue;
       const toEnemy = new Phaser.Math.Vector2(enemy.x - player.x, enemy.y - player.y);
       const distance = toEnemy.length();
-      if (distance > weapon.reach + (enemy.definition.boss ? 18 : 8)) continue;
+      if (distance > weapon.reach*step.reachMultiplier + (enemy.definition.boss ? 18 : 8)) continue;
       toEnemy.normalize();
       if (facing.dot(toEnemy) < step.coneDot) continue;
       if (!this.hasClearPath(player.x,player.y,enemy.x,enemy.y)) continue;
       const applied=enemy.takeDamage(Math.max(1,Math.round(weapon.damage * progression.damageMultiplier*playerDamageGrowth(useGameStore.getState().level)*step.damageMultiplier)), facing,
         {weaponId:weapon.id,impact:step===BASIC_ATTACK_CHAIN[2]?'heavy':'light'});
-      if(applied>0)hits++;
+      if(applied>0){hitIds?.add(enemy.instanceId);hits++;}
     }
     return hits;
   }
 
-  performSkillHit(player:Player,direction:Phaser.Math.Vector2,skill:ActiveSkillDefinition,multiplier:number,weaponId=this.getEquippedWeapon().id) {
+  performSkillHit(player:Player,direction:Phaser.Math.Vector2,skill:ActiveSkillDefinition,multiplier:number,weaponId=this.getEquippedWeapon().id,center:Vec2=player) {
     player.recovery.interrupt();
     this.recordTraining(skill.id);
     const progression = progressionStats(useGameStore.getState().attributes,useGameStore.getState().learnedSkills,useGameStore.getState().armorBonuses);
     const inventory=useGameStore.getState(),weapon=enhancedWeapon(weaponId,inventory.weaponUpgrades,inventory.awakenedWeapons);
     const damage = Math.max(1,Math.round(weapon.damage * progression.damageMultiplier * progression.skillDamageMultiplier*playerDamageGrowth(useGameStore.getState().level) * multiplier));
-    for (const enemy of this.skillTargets(player,direction,skill)){
-      const outward=new Phaser.Math.Vector2(enemy.x-player.x,enemy.y-player.y);
+    for (const enemy of this.skillTargets(center,direction,skill)){
+      const outward=new Phaser.Math.Vector2(enemy.x-center.x,enemy.y-center.y);
       if(outward.lengthSq()>0)outward.normalize();else outward.copy(direction);
       enemy.takeDamage(damage,outward,{forceStagger:skill.id==='crescent-flurry',weaponId:weapon.id,procHitWeight:Math.min(1,multiplier),
         impact:skill.id==='skyfall-slam'?'slam':skill.id==='iron-tempest'?'heavy':'light'});
     }
   }
 
-  skillTargets(player:Player,direction:Phaser.Math.Vector2,skill:ActiveSkillDefinition):Enemy[]{
+  skillTargets(player:Vec2,direction:Phaser.Math.Vector2,skill:ActiveSkillDefinition):Enemy[]{
     const targets:Enemy[]=[];
-    for (const enemy of this.enemies) {
+    for (const enemy of this.getCombatEnemies()) {
       if (!enemy.active || enemy.hp <= 0 || !enemy.canBeTargeted) continue;
       const offset = new Phaser.Math.Vector2(enemy.x - player.x,enemy.y - player.y);
       if (offset.length() > skill.radius + (enemy.definition.boss ? 18 : 8)) continue;
@@ -1182,7 +1194,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   tryImpactKnockback(enemy:Enemy,direction:Vec2,distance:number){
     const now=this.time.now;
     if(now>=this.knockbackBudgetUntil){this.knockbackBudgetUntil=now+120;this.knockbackBudget=3;}
-    if(this.knockbackBudget<=0||enemy.definition.boss)return false;
+    if(this.knockbackBudget<=0||enemy.definition.boss||enemy.isRooted)return false;
     this.knockbackBudget--;
     const length=Math.hypot(direction.x,direction.y);if(!Number.isFinite(length)||length<.001)return false;
     const next={x:enemy.x+direction.x/length*distance,y:enemy.y+direction.y/length*distance};
@@ -1535,6 +1547,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       .setScale(artScale(texture) * (kind === 'slash' || kind === 'teleport' ? 1.35 : 1))
       .setDepth(this.playerRenderDepth(y) + 1).setName(`combat-effect:${kind}`);
     if (direction) effect.setRotation(Math.atan2(direction.y, direction.x) - Math.PI / 4);
+    const shape=kind==='slash'?'slash':kind==='hit'?'impact':kind==='fortification'?'ward':'aura';
+    onCombatEffect(effect,shape,direction??this.player.lastDirection,kind==='slash'?28:kind==='hit'||kind==='fortification'?34:1);
     if(kind==='hit')this.playCombatImpact(.42);
     else if(kind==='heal')this.playAudio('sfx-heal-bell',.2);
     effect.play(animation);

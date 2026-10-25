@@ -3,6 +3,7 @@ import {
   InstancedMesh,Matrix4,NormalBlending,PlaneGeometry,Scene,ShaderMaterial,Texture,Vector4,Vector2,Vector3,Color,type BufferGeometry,
 } from 'three';
 import {lightOcclusionShader} from './LightOcclusion';
+import {waveVertexDeclarations,waveVertexMotion,waveFragmentDeclarations} from './WaveEnergyShader';
 import {elevationShader,TERRAIN_GRID_SEGMENTS,type ElevationField} from './ElevationField';
 import type Phaser from 'phaser';
 export interface DistanceAtmosphere {
@@ -50,6 +51,11 @@ varying vec2 groundPosition;
 varying float sourceY;
 varying float shadowBottom;
 varying float cameraDepth;
+${waveVertexDeclarations}
+#ifdef COMBAT_SURFACES
+attribute float combatOpacity;
+varying float energyOpacity;
+#endif
 #ifdef STRUCTURE_SURFACES
 attribute vec4 surfaceRect;
 attribute vec4 cutoutPivot;
@@ -60,6 +66,9 @@ varying vec4 materialRect;
 varying vec2 materialUV;
 #endif
 void main(){
+#ifdef COMBAT_SURFACES
+  energyOpacity=combatOpacity;
+#endif
 #ifdef STRUCTURE_SURFACES
   materialRect=surfaceRect;materialUV=surfaceUV;paintedFire=step(.00001,cutoutPivot.w);
 #endif
@@ -69,7 +78,9 @@ void main(){
   atlasUV=atlasRect.xy+uv*atlasRect.zw;
   repeatUV=uv*tileRepeat.xy+tileRepeat.zw;frameRect=atlasRect;
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
-  vec4 world=instanceMatrix*vec4(position,1.0);
+  vec3 presentedPosition=position;
+${waveVertexMotion}
+  vec4 world=instanceMatrix*vec4(presentedPosition,1.0);
   if(billboard){
     float horizontal=world.x-tileRepeat.x;
     world.x=tileRepeat.x+horizontal*billboardRight.x;
@@ -126,6 +137,9 @@ uniform vec2 fogRange;
 varying float sourceY;
 varying float shadowBottom;
 varying float cameraDepth;
+#ifdef COMBAT_SURFACES
+varying float energyOpacity;
+#endif
 varying vec2 repeatUV;
 varying vec4 frameRect;
 varying vec2 atlasUV;
@@ -227,6 +241,7 @@ vec4 warningPixel(){
   return vec4(color,max(boundary*.85,inside*.07+fill*(.22+progress*.16)));
 }
 ${lightOcclusionShader}
+${waveFragmentDeclarations}
 void main(){
   float glowVisibility=1.0;
   // Only explicitly marked world glows use effectData as an occlusion record.
@@ -307,7 +322,13 @@ void main(){
     )pixel.a*=1.0-smoothstep(max(0.0,shadowBottom-0.025),shadowBottom,sourceY);
   }
   if(!telegraph)pixel.rgb=fillTint?tint.rgb:pixel.rgb*tint.rgb;
+#ifdef WAVE_ENERGY
+  pixel=waveEnergyPixel(pixel);
+#endif
   pixel.a*=tint.a*glowVisibility;
+#ifdef COMBAT_SURFACES
+  pixel.a*=energyOpacity;
+#endif
   float haze=fogRange.y>0.0?smoothstep(fogRange.x,fogRange.y,distance(groundPosition,fogFocus)):0.0;
   if(shadow||fadeOnly)pixel.a*=1.0-haze;
   else pixel.rgb=mix(pixel.rgb,fogColor,haze);
@@ -337,16 +358,17 @@ export class SpriteBatch {
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
 
-  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms,cutawayEnabled=true,occludedOverlay=false){
+  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms,cutawayEnabled=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry){
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({defines:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},cutawayEnabled:{value:cutawayEnabled},cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},cutawayEnabled:{value:cutawayEnabled},cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,
       blending:additive?AdditiveBlending:NormalBlending});
     this.segments=typeof terrain==='number'?terrain:terrain?TERRAIN_GRID_SEGMENTS:ground?(shadow?8:4):1;
     const geometry=this.createGeometry();
+    if(geometry.userData.energyWave===true)this.material.defines.WAVE_ENERGY=1;
     this.atlas=new InstancedBufferAttribute(new Float32Array(this.capacity*4),4).setUsage(DynamicDrawUsage);
     this.tint=new InstancedBufferAttribute(new Float32Array(this.capacity*4),4).setUsage(DynamicDrawUsage);
     const makeTint=()=>new InstancedBufferAttribute(new Float32Array(this.capacity*4),4).setUsage(DynamicDrawUsage);
@@ -405,7 +427,7 @@ export class SpriteBatch {
     if(countChanged||this.dirtyEnd[0]>=0)this.mesh.boundingSphere=null;
   }
   private bindAttributes(){this.attributes=[this.mesh.instanceMatrix,this.atlas,this.tint,this.tintTR,this.tintBL,this.tintBR,this.repeat];}
-  private createGeometry(){return this.geometryFactory?.()??new PlaneGeometry(1,1,this.segments,this.segments);}
+  private createGeometry(){return this.combatGeometry?.()??this.geometryFactory?.()??new PlaneGeometry(1,1,this.segments,this.segments);}
   private grow(){
     const previous=this.mesh,capacity=this.capacity*2,geometry=this.createGeometry();
     const atlas=new Float32Array(capacity*4),tint=new Float32Array(capacity*4);

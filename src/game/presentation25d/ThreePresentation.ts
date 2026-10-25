@@ -15,6 +15,7 @@ import {
   type Intersection,type Object3D,type Texture,
 } from 'three';
 import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
+import {createCombatEffectGeometry,combatEffectPoint,type CombatEffectShape} from './CombatEffectGeometry';
 import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
@@ -414,7 +415,7 @@ export class ThreePresentation {
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
-      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!furniture&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset
+      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!furniture&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset&&!hint?.combat
       &&!object.isCropped&&(plane==='ground'||plane==='upright'&&!object.input?.enabled);
     if(staticImage&&this.collectStatic(object,camera,alpha,hint))return;
     // Conservative early culling. The old code rasterized offscreen Graphics
@@ -491,6 +492,9 @@ export class ThreePresentation {
     }
     if(source&&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite))this.textures.prefetch(source,this.frame);
     object.getWorldTransformMatrix(this.transform,this.parentTransform);
+    if(hint?.combat&&object instanceof Phaser.GameObjects.Sprite&&source){
+      this.collectCombat(object,camera,alpha,hint.combat,hint.anchor,source,rect,uv);return;
+    }
     if(hint?.worldDirection&&plane==='upright'){
       const d=hint.worldDirection,c=this.yawCos,s=this.yawSin;
       const angle=Math.atan2((d.x*s+d.y*c)*this.pitchTan,d.x*c-d.y*s);
@@ -666,6 +670,39 @@ export class ThreePresentation {
       alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:followsTerrain,interior:this.interior,key,
       matrix:submitted.clone(),rect:{...rect},uv:new Float64Array(uv),colors:new Uint32Array(colors),repeat:repeat?new Float64Array(repeat):undefined,
     });
+    camera.addToRenderList(object);
+  }
+
+  private collectCombat(object:Phaser.GameObjects.Sprite,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,shape:CombatEffectShape,anchor:PresentationHint['anchor'],source:Phaser.Textures.TextureSource,rect:LocalRect,uv:Float64Array){
+    const d=shape.direction,length=Math.hypot(d.x,d.y),c=length>.001?d.x/length:1,s=length>.001?d.y/length:0;
+    const w=Math.abs(object.displayWidth),h=Math.abs(object.displayHeight);
+    // An attached grip belongs to the billboard actor. Convert its horizontal
+    // pixel offset along camera-right once; the energy heading stays in world space.
+    const dx=anchor?object.x-anchor.x:0;
+    const advance=shape.advance??0;
+    let x=(anchor?anchor.x+dx*this.yawCos:object.x)+c*advance,z=(anchor?anchor.y-dx*this.yawSin:object.y)+s*advance;
+    const lift=anchor?anchor.y-object.y+(anchor.presentationElevation??0):0;
+    let y=this.heightAt(anchor?.x??x,anchor?.y??z)+shape.height+lift;
+    if(anchor&&(shape.kind==='thrust'||shape.kind==='impact')){
+      // Side-pose mirroring already supplied the world heading. Undo that UV
+      // mirror so a left-facing rush cannot reverse its energy a second time.
+      if(object.flipX){uv[0]+=uv[2];uv[2]=-uv[2];}
+      const pivot=combatEffectPoint(shape.kind,object.flipX?1-object.originX:object.originX,1-object.originY,this.p0);
+      x-=w*(pivot.x*c-pivot.z*s);z-=w*(pivot.x*s+pivot.z*c);y-=h*pivot.y;
+    }
+    this.model.set(w*c,0,-w*s,x,0,h,0,y,w*s,0,w*c,z,0,0,0,1);
+    if(!this.inView(false,1,undefined,true))return;
+    const additive=object.blendMode===Phaser.BlendModes.ADD,low=getEffectsQuality()==='low';
+    const texture=this.textures.get(source,this.frame),key=`combat:${shape.kind}:${Number(low)}:${texture.uuid}:${Number(additive)}:${Number(object.tintFill)}`;
+    let batch=this.batches.get(key);
+    if(!batch){
+      batch=new SpriteBatch(this.world,texture,additive,false,1,[],object.tintFill,false,false,false,false,undefined,false,this.atmosphere,false,false,undefined,false,undefined,undefined,false,false,()=>createCombatEffectGeometry(shape.kind,low));
+      this.batches.set(key,batch);
+    }
+    const colors=this.colors;
+    colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
+    const energy=this.tileRepeat;energy[0]=shape.time??0;energy[1]=energy[2]=energy[3]=0;
+    batch.add(this.model,uv,colors,alpha*camera.alpha,object,rect,this.frame,energy);
     camera.addToRenderList(object);
   }
 

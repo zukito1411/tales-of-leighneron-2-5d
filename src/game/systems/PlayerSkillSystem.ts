@@ -12,7 +12,7 @@ import {COMBAT_EFFECT_TEXTURE,DISTINCT_EFFECT_TEXTURE,effectPresentation} from '
 import {weaponEffect} from '../../data/economy';
 import {applySkillWeaponPalette} from './WeaponSkillPalette';
 import {heroFrameData} from './heroFrameData';
-import {onPlane,onGround,onDirectionalSprite,viewDirection} from '../presentation25d/plane';
+import {onPlane,onGround,onDirectionalSprite,onCombatEffect,viewDirection,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {actorViewAim} from './actorViewDirection';
 import type {ActorDirection} from '../../data/directionalEnemyArt';
 
@@ -24,7 +24,9 @@ interface Cast {
   barrageTargets?:Enemy[];barrageSlash?:Phaser.GameObjects.Sprite;
   viewFacing?:ActorDirection;
   effectColor?:number;weaponId:string;
+  target?:Enemy;nextAimAt:number;
 }
+interface EmberField {point:Vec2;elapsed:number;nextPulse:number;skill:ActiveSkillDefinition;visual:Phaser.GameObjects.Sprite;effectColor?:number;weaponId:string;roots:Map<Enemy,Phaser.GameObjects.Sprite>}
 interface SlashWave {sprite:Phaser.GameObjects.Sprite;direction:Phaser.Math.Vector2;remaining:number;skill:ActiveSkillDefinition;multiplier:number;effectColor?:number;weaponId:string}
 
 export class PlayerSkillSystem {
@@ -45,7 +47,7 @@ export class PlayerSkillSystem {
         .setDepth(attachment.actor.depth+(attachment.grip ? .06 : -.1));
     }
   };
-  private emberField:{point:Vec2;elapsed:number;nextPulse:number;skill:ActiveSkillDefinition;visual:Phaser.GameObjects.Sprite;effectColor?:number;weaponId:string}|null=null;
+  private emberField:EmberField|null=null;
   private renewalRemaining=0;
   private renewalPulse=0;
   private renewalColor:number|undefined;
@@ -73,6 +75,14 @@ export class PlayerSkillSystem {
     }
     const barrageTargets=id==='barrage'?this.collectBarrageTargets(skill.targetingRange!):undefined;
     if(barrageTargets&&!barrageTargets.length){this.scene.notify('No reachable enemies in Barrage range.');return false;}
+    const target=skill.targetingRange?this.scene.targeting.skillTarget(skill.targetingRange):null;
+    const selected=this.scene.targeting.lockedTarget??this.scene.targeting.selected;
+    if(skill.targetingRange&&id!=='barrage'&&selected?.active&&selected.isAlive&&!target){
+      this.scene.notify(`${skill.name}: target is out of range or behind cover.`);return false;
+    }
+    if(target&&(id==='ember-cleave'||id==='skyfall-slam')&&!this.scene.safeSkillPosition(target)){
+      this.scene.notify(`${skill.name}: no safe ground at the target.`);return false;
+    }
     if (!this.player.spendStamina(skill.staminaCost)) {
       this.scene.notify(`${skill.name} needs ${Math.ceil(this.player.staminaCost(skill.staminaCost))} stamina.`);
       return false;
@@ -83,10 +93,6 @@ export class PlayerSkillSystem {
       if(!skill.poseTimes)this.scene.playSkillSound(skill.animationId??id, 'cast');
       else this.scene.playAudio(id==='iron-tempest'?'sfx-dash':id==='renewing-light'?'sfx-heal-bell':'sfx-impact-heavy-1',.25);
     }
-    const selected=this.scene.targeting.selected;
-    const target=skill.targetingRange?
-      (id==='iron-tempest'&&selected&&this.scene.targeting.eligible(selected,Infinity)
-        ?selected:this.scene.targeting.nearest(skill.targetingRange)):null;
     const direction = target?new Phaser.Math.Vector2(target.x-this.player.x,target.y-this.player.y).normalize():this.player.lastDirection.clone().normalize();
     if(direction.lengthSq()===0)direction.copy(this.player.lastDirection);
     if(target){this.scene.targeting.selected=target;this.player.lastDirection.copy(direction);}
@@ -107,12 +113,12 @@ export class PlayerSkillSystem {
     const start={x:this.player.x,y:this.player.y};
     const landing=id==='skyfall-slam'?this.scene.skillLanding(target??{x:start.x+direction.x*90,y:start.y+direction.y*90},skill.targetingRange??90):undefined;
     const shadow=id==='skyfall-slam'?this.scene.add.ellipse(start.x,start.y+2,34,12,0x101512,.3).setDepth(this.scene.playerRenderDepth(start.y)-1).setName('player-slam-shadow'):undefined;
-    const proposed=target?{x:target.x,y:target.y}:{x:start.x+direction.x*140,y:start.y+direction.y*140};
-    const mark=id==='ember-cleave'&&this.scene.safeSkillPosition(proposed)&&this.scene.hasClearPath(start.x,start.y,proposed.x,proposed.y)?proposed:start;
+    const proposed=target?{x:target.x,y:target.y}:landing??{x:start.x+direction.x*140,y:start.y+direction.y*140};
+    const mark=this.scene.safeSkillPosition(proposed)&&this.scene.hasClearPath(start.x,start.y,proposed.x,proposed.y)?proposed:{...(landing??start)};
     const rushDistance=id==='iron-tempest'&&target
       ?Math.max(0,Math.hypot(target.x-start.x,target.y-start.y)-(target.definition.boss?52:38))
       :160;
-    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets };
+    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets,target:target??undefined,nextAimAt:0 };
     if(barrageTargets)this.cast.barrageSlash=this.scene.add.sprite(start.x,start.y,'effect_slash',0)
       .setVisible(false).setDisplaySize(100,100).setBlendMode(Phaser.BlendModes.ADD);
     this.updateFlurryTargets();
@@ -138,6 +144,9 @@ export class PlayerSkillSystem {
     if (!cast) return;
     this.updateFlurryTargets();
     cast.elapsed += deltaMs;
+    if(cast.skill.id==='skyfall-slam'&&cast.nextHit===0&&cast.elapsed>=cast.nextAimAt){
+      this.refreshGroundAim(cast);cast.nextAimAt=cast.elapsed+100;
+    }
     if(cast.visual){
       cast.viewFacing=actorViewAim(this.scene,cast.direction.x,cast.direction.y,cast.viewFacing??'right');
       const thrust=cast.skill.id==='iron-tempest'||cast.skill.id==='barrage';
@@ -173,9 +182,10 @@ export class PlayerSkillSystem {
     if(cast.landing) {
       const fraction=Phaser.Math.Clamp((cast.elapsed-140)/430,0,1),eased=Phaser.Math.Easing.Sine.InOut(fraction);
       const point={x:Phaser.Math.Linear(cast.start.x,cast.landing.x,eased),y:Phaser.Math.Linear(cast.start.y,cast.landing.y,eased)};
-      if(this.scene.safeSkillPosition(point)&&this.scene.canTraverseGround(this.player,point))
-        (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);
-      else {cast.start={x:this.player.x,y:this.player.y};cast.landing={...cast.start};}
+      const distance=Math.hypot(point.x-this.player.x,point.y-this.player.y);
+      if(this.scene.movePlayerCombatToward(point,distance)+.01<distance){
+        cast.landing={x:this.player.x,y:this.player.y};cast.mark={...cast.landing};cast.target=undefined;
+      }
       height=Math.sin(fraction*Math.PI)*64;
       cast.shadow?.setPosition(this.player.x,this.player.y+2).setScale(1-height/140).setAlpha(.3-height/400);
     }
@@ -194,7 +204,7 @@ export class PlayerSkillSystem {
         this.renewalColor=cast.effectColor;
         this.playPoseEffect(2,this.player,100,76);
       }else if(cast.skill.id==='ember-cleave'){
-        this.emberField?.visual.destroy();
+        this.clearEmberField();this.refreshGroundAim(cast);
         const point=cast.mark!;
         // Local palm contact precedes the marked ground eruption. The target
         // field remains stationary rather than following the casting actor.
@@ -205,7 +215,9 @@ export class PlayerSkillSystem {
         const visual=this.scene.add.sprite(point.x,point.y,art.texture,0).setOrigin(.5,.94).setDisplaySize(172,112).setDepth(this.scene.playerRenderDepth(point.y)-.1).setName('ember-snare-field');
         if(cast.effectColor!==undefined)visual.setTint(cast.effectColor);
         visual.play({key:art.animation,repeat:-1});
-        this.emberField={point,elapsed:0,nextPulse:0,skill:cast.skill,visual,effectColor:cast.effectColor,weaponId:cast.weaponId};
+        onCombatEffect(visual,'eruption',cast.direction,112*.4);
+        this.emberField={point,elapsed:0,nextPulse:0,skill:cast.skill,visual,effectColor:cast.effectColor,weaponId:cast.weaponId,roots:new Map()};
+        this.updateEmberRoots(this.emberField);
       }else if (cast.skill.kind === 'rally') {
         this.player.hp = Math.min(this.player.maxHp,this.player.hp + Math.round(this.player.maxHp * (cast.skill.healingFraction??.2)));
         if(cast.skill.id==='crown-rally')this.rallyRemaining = 5000;
@@ -214,7 +226,7 @@ export class PlayerSkillSystem {
       } else if(cast.skill.id==='azure-cleave') {
         // Reacquire at release, then freeze flight direction: never home or
         // apply melee damage before the traveling wave actually connects.
-        const target=this.scene.targeting.nearest(cast.skill.targetingRange??620);
+        const target=cast.target&&this.scene.targeting.eligible(cast.target,cast.skill.targetingRange??620)?cast.target:null;
         if(target){cast.direction.set(target.x-this.player.x,target.y-this.player.y).normalize();this.scene.targeting.selected=target;}
         this.player.lastDirection.copy(cast.direction);
         cast.visual?.setFlipX(viewDirection(this.scene,cast.direction.x,cast.direction.y,this.visualAim).x<0);
@@ -226,11 +238,12 @@ export class PlayerSkillSystem {
         if(cast.effectColor!==undefined)sprite.setTint(cast.effectColor);
         sprite.play({key:art.animation,repeat:-1});
         const wave={sprite,direction:cast.direction.clone(),remaining:cast.skill.targetingRange??620,skill:cast.skill,multiplier:cast.skill.damageMultipliers[cast.nextHit],effectColor:cast.effectColor,weaponId:cast.weaponId};
-        onDirectionalSprite(sprite,wave.direction);this.waves.add(wave);
+        onDirectionalSprite(sprite,wave.direction);onCombatEffect(sprite,'wave',wave.direction,40);this.waves.add(wave);
         this.scene.recordTraining(cast.skill.id);
       } else {
         if(cast.skill.id==='skyfall-slam') {
-          this.playArtEffect(1,this.player.x,this.player.y,220);
+          this.refreshGroundAim(cast);
+          this.playArtEffect(1,cast.mark!.x,cast.mark!.y,220);
         }
         if (cast.skill.id === 'crescent-flurry') {
           this.scene.playSkillSound(cast.skill.id,'swing');
@@ -244,11 +257,44 @@ export class PlayerSkillSystem {
         if(cast.skill.id==='iron-tempest'){
           if(cast.visual)this.playPoseEffect(3,cast.visual,110,65,true,36);
         }
-        this.scene.performSkillHit(this.player,cast.direction,cast.skill,cast.skill.damageMultipliers[cast.nextHit],cast.weaponId);
+        this.scene.performSkillHit(this.player,cast.direction,cast.skill,cast.skill.damageMultipliers[cast.nextHit],cast.weaponId,cast.skill.id==='skyfall-slam'?cast.mark:this.player);
       }
       cast.nextHit++;
     }
     if (cast.elapsed >= cast.skill.durationMs) this.finishCast();
+  }
+
+  private refreshGroundAim(cast:Cast){
+    const target=cast.target,range=cast.skill.targetingRange??0;
+    if(!target?.active||!target.isAlive||!target.canBeTargeted
+      ||Math.hypot(target.x-cast.start.x,target.y-cast.start.y)>range
+      ||!this.scene.safeSkillPosition(target)||!this.scene.hasClearPath(this.player.x,this.player.y,target.x,target.y))return;
+    cast.mark={x:target.x,y:target.y};
+    if(cast.landing)cast.landing=this.scene.skillLanding(cast.mark,range,cast.start);
+  }
+
+  private updateEmberRoots(field:EmberField){
+    for(const [enemy,visual] of field.roots){
+      if(!enemy.active||!enemy.isAlive||enemy.bossRegenerating){enemy.setRooted(field,false);visual.destroy();field.roots.delete(enemy);continue;}
+      visual.setPosition(enemy.x,enemy.y).setDepth(this.scene.playerRenderDepth(enemy.y)+.1);
+    }
+    for(const enemy of this.scene.getCombatEnemies()){
+      if(field.roots.has(enemy)||!enemy.active||!enemy.isAlive||!enemy.canBeTargeted||enemy.bossRegenerating
+        ||Math.hypot(enemy.x-field.point.x,enemy.y-field.point.y)>field.skill.radius
+        ||!this.scene.hasClearPath(field.point.x,field.point.y,enemy.x,enemy.y))continue;
+      enemy.setRooted(field,true);
+      const art=effectPresentation(DISTINCT_EFFECT_TEXTURE,0,field.effectColor);
+      const visual=this.scene.add.sprite(enemy.x,enemy.y,art.texture,0).setOrigin(.5,.94)
+        .setDisplaySize(58,48).setDepth(this.scene.playerRenderDepth(enemy.y)+.1).setName('ember-root:'+enemy.instanceId);
+      if(field.effectColor!==undefined)visual.setTint(field.effectColor);
+      visual.play({key:art.animation,repeat:-1});onCombatEffect(visual,'eruption',this.player.lastDirection,18,enemy);
+      field.roots.set(enemy,visual);
+    }
+  }
+  private clearEmberField(){
+    const field=this.emberField;if(!field)return;
+    for(const [enemy,visual] of field.roots){enemy.setRooted(field,false);visual.destroy();}
+    field.roots.clear();field.visual.destroy();this.emberField=null;
   }
 
   // One bounded snapshot per cast; no target scans or sprite allocation per frame.
@@ -286,6 +332,10 @@ export class PlayerSkillSystem {
           .setPosition(point.x,point.y-20).setDepth(this.scene.playerRenderDepth(point.y)+2);
         cast.barrageSlash?.setPosition(enemy.x,enemy.y-20).setDepth(this.scene.playerRenderDepth(enemy.y)+4)
           .setRotation(Math.atan2(cast.direction.y,cast.direction.x)).setVisible(true).play('effect-slash');
+        if(cast.barrageSlash){
+          onCombatEffect(cast.barrageSlash,'slash',cast.direction,28);
+          if(this.scene.game.registry.get('presentation')==='three-2.5d')cast.barrageSlash.setY(enemy.y);
+        }
         this.scene.applySkillDamage(enemy,cast.skill,cast.skill.damageMultipliers[cast.nextHit],cast.direction,cast.weaponId);
         if(cast.nextHit%2===0)this.scene.playAudio('sfx-dash',.18);
         return true;
@@ -298,6 +348,8 @@ export class PlayerSkillSystem {
     if(!this.waves.size)return;
     const enemies=this.scene.getCombatEnemies();
     for(const wave of this.waves) {
+      const hint=wave.sprite.getData(PRESENTATION_HINT) as PresentationHint|undefined;
+      if(hint?.combat)hint.combat.time=(hint.combat.time??0)+delta/1000;
       let travel=Math.min(wave.remaining,620*delta/1000),terminated=false;
       while(travel>0&&!terminated){const step=Math.min(12,travel),from={x:wave.sprite.x,y:wave.sprite.y},to={x:from.x+wave.direction.x*step,y:from.y+wave.direction.y*step};
         if(!this.scene.hasClearPath(from.x,from.y,to.x,to.y)){terminated=true;break;}
@@ -323,6 +375,8 @@ export class PlayerSkillSystem {
     const color=effectColor??undefined,art=effectPresentation(distinct?DISTINCT_EFFECT_TEXTURE:COMBAT_EFFECT_TEXTURE,row,color);
     const sprite=this.scene.add.sprite(x,y-8,art.texture,row*4).setDisplaySize(size,size).setDepth(this.scene.playerRenderDepth(y)+4).setRotation(rotation).setBlendMode(Phaser.BlendModes.ADD);
     if(color!==undefined)sprite.setTint(color);
+    onCombatEffect(sprite,row===1?'burst':row===2?'aura':'impact',this.cast?.direction??{x:Math.cos(rotation),y:Math.sin(rotation)},row===0?30:1);
+    if(this.scene.game.registry.get('presentation')==='three-2.5d')sprite.setY(y);
     this.effects.add(sprite);sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE,()=>{this.effects.delete(sprite);sprite.destroy();});sprite.play(art.animation);
   }
   private playFlurrySlash(x:number,y:number,angle:number,color?:number){
@@ -331,6 +385,7 @@ export class PlayerSkillSystem {
       .setOrigin(.5).setScale(artScale('effect_slash')*1.35).setRotation(angle-Math.PI/4)
       .setDepth(this.scene.playerRenderDepth(y)+1).setName('crescent-flurry-slash');
     if(color!==undefined)sprite.setTint(color);
+    onCombatEffect(sprite,'slash',{x:Math.cos(angle),y:Math.sin(angle)},26);
     this.effects.add(sprite);
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE,()=>{this.effects.delete(sprite);sprite.destroy();});
     sprite.play(tinted?'effect-slash-weapon':'effect-slash');
@@ -348,6 +403,7 @@ export class PlayerSkillSystem {
     const sprite=this.scene.add.sprite(x,y,art.texture,row*4)
       .setOrigin(.5,.94).setDisplaySize(width,height).setDepth(this.scene.playerRenderDepth(y)-.1);
     onGround(sprite,.1);
+    onCombatEffect(sprite,row===0?'eruption':row===1?'thrust':row===2?'aura':'impact',this.cast?.direction??this.player.lastDirection,row===0?height*.4:row===2?1:24);
     if(color!==undefined)sprite.setTint(color);
     this.effects.add(sprite);
     sprite.once(Phaser.Animations.Events.ANIMATION_COMPLETE,()=>{
@@ -359,8 +415,9 @@ export class PlayerSkillSystem {
   private playPoseEffect(row:number,actor:Phaser.GameObjects.Sprite,width:number,height:number,gripping=false,tipDistance=0,effectColor:number|null|undefined=this.cast?.effectColor){
     const point=this.effectAttachment(actor,gripping);
     const up=actor.texture.key==='skill_iron_rush_up',down=actor.texture.key==='skill_iron_rush_down';
-    const offsetX=gripping&&!up&&!down?tipDistance*(actor.flipX?-1:1):0;
-    const offsetY=gripping?(up?-tipDistance:down?tipDistance:0):0;
+    const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
+    const offsetX=!spatial&&gripping&&!up&&!down?tipDistance*(actor.flipX?-1:1):0;
+    const offsetY=!spatial&&gripping?(up?-tipDistance:down?tipDistance:0):0;
     const sprite=this.playGroundEffect(row,point.x+offsetX,point.y+offsetY,width,height,effectColor??null);
     onPlane(sprite,'upright',this.player);
     if(gripping){
@@ -369,6 +426,7 @@ export class PlayerSkillSystem {
       sprite.setFlipX(!up&&!down&&actor.flipX).setOrigin(!up&&!down&&actor.flipX ? .10 : .90,.62)
         .setRotation(up?-Math.PI/2:down?Math.PI/2:0);
     }
+    onCombatEffect(sprite,gripping?(row===3?'impact':'thrust'):'aura',this.cast?.direction??this.player.lastDirection,0,this.player,gripping?tipDistance:0);
     this.attachedEffects.set(sprite,{actor,grip:gripping,offsetX,offsetY});
     this.syncAttachedEffects();
     return sprite;
@@ -378,6 +436,7 @@ export class PlayerSkillSystem {
       while(this.renewalPulse>=1000){this.renewalPulse-=1000;this.player.hp=Math.min(this.player.maxHp,this.player.hp+Math.max(1,Math.round(this.player.maxHp*.06)));this.playPoseEffect(2,this.player,90,68,false,0,this.renewalColor??null);useGameStore.getState().setVitals(this.player.hp,this.player.stamina);}
     }
     const field=this.emberField;if(!field)return;field.elapsed+=delta;
+    if(field.elapsed<2600)this.updateEmberRoots(field);
     const pulses=[600,1400,2200];
     while(field.nextPulse<pulses.length&&field.elapsed>=pulses[field.nextPulse]){
       for(const enemy of this.scene.getCombatEnemies())if(enemy.active&&enemy.canBeTargeted&&Math.hypot(enemy.x-field.point.x,enemy.y-field.point.y)<=field.skill.radius
@@ -387,7 +446,7 @@ export class PlayerSkillSystem {
       }
       this.playGroundEffect(0,field.point.x,field.point.y,172,112,field.effectColor??null);field.nextPulse++;
     }
-    if(field.elapsed>=2600){field.visual.destroy();this.emberField=null;}
+    if(field.elapsed>=2600)this.clearEmberField();
   }
   interruptRenewal(){this.renewalRemaining=0;this.renewalPulse=0;this.renewalColor=undefined;}
 
@@ -411,7 +470,7 @@ export class PlayerSkillSystem {
     if (this.player.active) this.player.setAlpha(1);
     useGameStore.getState().setActiveSkillStatus(this.snapshot());
   }
-  cancelCast() {this.finishCast();this.interruptRenewal();this.emberField?.visual.destroy();this.emberField=null;for(const wave of this.waves)wave.sprite.destroy();this.waves.clear();for(const effect of this.effects)effect.destroy();this.effects.clear();this.attachedEffects.clear();}
+  cancelCast() {this.finishCast();this.interruptRenewal();this.clearEmberField();for(const wave of this.waves)wave.sprite.destroy();this.waves.clear();for(const effect of this.effects)effect.destroy();this.effects.clear();this.attachedEffects.clear();}
   clearRally() { this.rallyRemaining = 0;useGameStore.getState().setActiveSkillStatus(this.snapshot()); }
   destroy() { this.scene.events.off(Phaser.Scenes.Events.POST_UPDATE,this.syncAttachedEffects);this.cancelCast();this.clearRally(); }
 }

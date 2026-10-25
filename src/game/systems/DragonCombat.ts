@@ -133,7 +133,7 @@ export class DragonCombat {
     const distance=Math.hypot(player.x-e.x,player.y-e.y);
     const engaged=this.engagedWithPlayer;
     if(!engaged&&this.phase!=='rest'){
-      this.leaveAir();body.reset(this.home.x,this.home.y);this.enter('rest');this.effects.clear();this.clearAftershock();this.combo=[];this.nextAttack=this.clock+2500;
+      this.leaveAir();if(!e.isRooted)body.reset(this.home.x,this.home.y);this.enter('rest');this.effects.clear();this.clearAftershock();this.combo=[];this.nextAttack=this.clock+2500;
     }
     if(!engaged){
       if(this.combo.length||this.aftershock){this.combo=[];this.step=0;this.clearAftershock();this.effects.clear();}
@@ -266,6 +266,7 @@ export class DragonCombat {
       if(this.breathCanReach(origin,flipped)>0){this.commitBreath(flipped);return;}
     }
     // Bounded planning once per attack, not a world search or per-frame scan.
+    if(e.isRooted){this.recover();return;}
     // Vertical alternatives accommodate the southern rim without changing the
     // mouth's authored axis or firing through the tower walls.
     for(const flipped of [preferred,!preferred]){
@@ -412,6 +413,7 @@ export class DragonCombat {
   }
   private clearAftershock(){if(!this.aftershock)return;this.aftershock=null;this.aftershockWarning.clear();this.aftershockWarning.graphics.setAlpha(1);}
   private startFlight(){
+    if(this.enemy.isRooted){this.recover();return;}
     let dx=this.scene.player.x-this.home.x,dy=this.scene.player.y-this.home.y;
     const radius=Math.hypot(dx/900,dy/700);if(radius>.7){dx*=.7/radius;dy*=.7/radius;}
     let proposed={x:this.home.x+dx,y:this.home.y+dy};

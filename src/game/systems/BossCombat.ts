@@ -129,6 +129,7 @@ export class BossCombat {
         e.playMonsterAttackFoley('impact');this.phase='recovery';this.age=0;
       }
     }else if(this.phase==='charge'){
+      if(e.isRooted){this.phase='recovery';this.age=0;this.skillVisual?.endCharge();return;}
       const range=this.area!.range??0;
       const travel=range*windupProgress(this.age,move.chargeMs!);
       // Short swept steps constrain both collision and damage during a charge.

@@ -8,7 +8,7 @@ import type { WorldScene } from '../scenes/WorldScene';
 import { artScale, ART_BY_KEY, actorArtLayout, actorScaleForHeight, HERO_VISIBLE_HEIGHT, type PlayerPresentationTexture } from '../../data/art';
 import { directionFrame } from '../../data/animationPacks';
 import { PLAYER_COMBO_ATTACK_ANIMATIONS } from '../../data/spriteBoards';
-import {BASIC_ATTACK_CHAIN,BASIC_ATTACK_LINK_MS,basicAttackStamina,type BasicAttackStep} from '../../data/basicAttackCombo';
+import {BASIC_ATTACK_CHAIN,BASIC_ATTACK_LINK_MS,BASIC_ATTACK_BUFFER_MS,basicAttackStamina,type BasicAttackStep} from '../../data/basicAttackCombo';
 import type {WeaponDefinition} from '../types';
 import { animationDuration } from '../../data/animationPacks';
 import { progressionStats,dodgeProfile,ASCENDED_ATTRIBUTE_CAP } from '../../data/progression';
@@ -34,7 +34,8 @@ export class Player extends DepthSortedSprite {
   private readonly screenFacing=new Phaser.Math.Vector2();
   private viewFacing:ActorDirection='down';
   get presentationDirection(){
-    const facing=viewDirection(this.scene,this.lastDirection.x,this.lastDirection.y,this.screenFacing);
+    const aim=this.pendingBasicAttack?.direction??this.lastDirection;
+    const facing=viewDirection(this.scene,aim.x,aim.y,this.screenFacing);
     this.viewFacing=actorAimDirection(facing.x,facing.y,this.viewFacing);
     facing.x=this.viewFacing==='left'?-1:this.viewFacing==='right'?1:0;
     facing.y=this.viewFacing==='up'?-1:this.viewFacing==='down'?1:0;return facing;
@@ -47,7 +48,8 @@ export class Player extends DepthSortedSprite {
   private comboStep=0;
   private comboExpiresAt=0;
   private comboWeaponId='';
-  private pendingBasicAttack:{weapon:WeaponDefinition;direction:Phaser.Math.Vector2;step:BasicAttackStep;impactAt:number}|null=null;
+  private pendingBasicAttack:{weapon:WeaponDefinition;direction:Phaser.Math.Vector2;step:BasicAttackStep;startedAt:number;impactAt:number;activeUntil:number;endsAt:number;hitIds:Set<string>;emitted:boolean;lungeDistance:number;lungeTravelled:number}|null=null;
+  private attackQueuedUntil=0;
   private nextDashAt = 0;
   private nextFootstepAt = 0;
   private dashUntil = 0;
@@ -187,6 +189,7 @@ export class Player extends DepthSortedSprite {
     const dodge=dodgeProfile(state.attributes,state.armorBonuses);
     if (dashPressed && !movementLocked && time >= this.nextDashAt && this.spendStamina(dodge.staminaCost)) {
       this.resetBasicAttackCombo();
+      this.nextAttackAt=time;
       this.clearAttackVisual();
       this.nextDashAt = time + dodge.cooldownMs;
       this.dashUntil = time + dodge.durationMs;
@@ -224,7 +227,7 @@ export class Player extends DepthSortedSprite {
     const dashMultiplier = dashing ? dodge.speedMultiplier : 1;
     if (dashing) { x = this.dashDirection.x; y = this.dashDirection.y; }
     const walkSpeed = this.moveSpeed * progression.speedMultiplier;
-    const speed = walkSpeed * (sprinting ? 1.42 : 1) * dashMultiplier;
+    const speed = walkSpeed * (sprinting ? 1.42 : 1) * dashMultiplier * (this.pendingBasicAttack&&!dashing ? .8 : 1);
     // The exhausted state uses walking speed immediately, including cadence;
     // don't carry the previous sprint velocity into the walking animation.
     if (this.sprintExhausted && !dashing && body.velocity.length() > walkSpeed) {
@@ -250,9 +253,10 @@ export class Player extends DepthSortedSprite {
       const touchPressed = mobileInput.consume(action);
       const pressed = this.consumeAction(action) || touchPressed;
       const skill=equippedArts.find(s=>s.action===action);if(!skill)continue;
-      if (pressed && scene.combatAllowed && !this.skills.isCasting && time >= this.nextAttackAt && time >= this.dashUntil) {
-        this.clearAttackVisual();
+      const canCancelBasic=this.pendingBasicAttack&&time>=this.pendingBasicAttack.activeUntil;
+      if (pressed && scene.combatAllowed && !this.skills.isCasting && (time >= this.nextAttackAt||canCancelBasic) && time >= this.dashUntil) {
         if (this.skills.tryCast(skill.id)) {
+          this.clearAttackVisual(false);
           this.resetBasicAttackCombo();
           this.nextAttackAt = time + skill.durationMs;
         }
@@ -260,12 +264,26 @@ export class Player extends DepthSortedSprite {
     }
 
     const mobileAttack = mobileInput.consume('attack');
-    const attackPressed = this.consumeAction('attack') || mobileAttack || this.keys.attack.isDown || mobileInput.attackHeld;
+    const attackTapped = this.consumeAction('attack') || mobileAttack;
     if(!scene.combatAllowed||this.hp<=0||state.weaponId!==this.comboWeaponId)this.resetBasicAttackCombo();
+    if(attackTapped&&!this.skills.isCasting&&time>=this.dashUntil)this.attackQueuedUntil=time+BASIC_ATTACK_BUFFER_MS;
+    const attackPressed=this.keys.attack.isDown||mobileInput.attackHeld||this.attackQueuedUntil>time;
     const pending=this.pendingBasicAttack;
-    if(pending&&time>=pending.impactAt){
-      this.pendingBasicAttack=null;
-      this.strikeBasicAttack(pending.weapon,pending.direction,pending.step);
+    if(pending){
+      if(time<=pending.activeUntil){
+        const fraction=Phaser.Math.Clamp((time-pending.startedAt)/Math.max(1,pending.impactAt-pending.startedAt),0,1);
+        const travel=Math.max(0,pending.lungeDistance*fraction-pending.lungeTravelled);
+        if(travel>.01){
+          const moved=scene.movePlayerCombatToward({x:this.x+pending.direction.x*travel,y:this.y+pending.direction.y*travel},travel);
+          pending.lungeTravelled+=moved;
+          if(moved+.01<travel)pending.lungeDistance=pending.lungeTravelled;
+        }
+      }
+      if(time>=pending.impactAt&&(!pending.emitted||time<=pending.activeUntil)){
+        const first=!pending.emitted;pending.emitted=true;
+        this.strikeBasicAttack(pending.weapon,pending.direction,pending.step,pending.hitIds,first);
+      }
+      if(time>=pending.endsAt)this.pendingBasicAttack=null;
     }
     if (attackPressed && this.hp>0 && scene.combatAllowed && !this.skills.isCasting && !this.pendingBasicAttack && time >= this.nextAttackAt && time >= this.dashUntil) {
       const weapon = scene.getEquippedWeapon();
@@ -273,15 +291,20 @@ export class Player extends DepthSortedSprite {
       const stepIndex=this.comboStep,step=BASIC_ATTACK_CHAIN[stepIndex];
       const cooldown = weapon.cooldownMs * progression.cooldownMultiplier * step.recoveryMultiplier;
       if (this.spendStamina(basicAttackStamina(weapon.staminaCost,step))) {
-        const direction=this.lastDirection.clone();
+        const direction=this.lastDirection.clone().normalize();
+        const target=scene.targeting.meleeTarget(weapon.reach+32,direction);
+        if(target)direction.set(target.x-this.x,target.y-this.y).normalize();
+        if(direction.lengthSq()===0)direction.set(0,1);
+        this.lastDirection.copy(direction);this.attackQueuedUntil=0;
         this.nextAttackAt = time + cooldown;
         this.comboStep=(stepIndex+1)%BASIC_ATTACK_CHAIN.length;
         this.comboExpiresAt=this.nextAttackAt+BASIC_ATTACK_LINK_MS;
         this.comboWeaponId=weapon.id;
         this.recovery.interrupt();
+        const impactAt=time+cooldown*step.impactFraction;
+        const lungeDistance=target?Math.min(step.lungeDistance,Math.max(0,Math.hypot(target.x-this.x,target.y-this.y)-(target.definition.bodyRadius??12)-16)):step.lungeDistance;
+        this.pendingBasicAttack={weapon,direction,step,startedAt:time,impactAt,activeUntil:Math.min(time+cooldown-20,impactAt+step.activeMs),endsAt:time+cooldown,hitIds:new Set(),emitted:false,lungeDistance,lungeTravelled:0};
         if (weapon.kind === 'sword' || weapon.kind === 'greatsword') this.playSwordVisual(cooldown,stepIndex);
-        if(step.impactFraction===0)this.strikeBasicAttack(weapon,direction,step);
-        else this.pendingBasicAttack={weapon,direction,step,impactAt:time+cooldown*step.impactFraction};
       }
     }
 
@@ -312,14 +335,14 @@ export class Player extends DepthSortedSprite {
   }
 
   private resetBasicAttackCombo(){
-    this.comboStep=0;this.comboExpiresAt=0;this.comboWeaponId='';this.pendingBasicAttack=null;
+    this.comboStep=0;this.comboExpiresAt=0;this.comboWeaponId='';this.pendingBasicAttack=null;this.attackQueuedUntil=0;
   }
 
-  private strikeBasicAttack(weapon:WeaponDefinition,direction:Phaser.Math.Vector2,step:BasicAttackStep){
+  private strikeBasicAttack(weapon:WeaponDefinition,direction:Phaser.Math.Vector2,step:BasicAttackStep,hitIds?:Set<string>,emit=true){
     const scene=this.scene as WorldScene;
-    scene.playSwordSwing(step);
-    scene.performPlayerAttack(this,direction,weapon,step);
-    if(weapon.kind==='sword'||weapon.kind==='greatsword'){
+    if(emit)scene.playSwordSwing(step);
+    scene.performPlayerAttack(this,direction,weapon,step,hitIds);
+    if(emit&&(weapon.kind==='sword'||weapon.kind==='greatsword')){
       const slash=scene.playEffect('slash',this.x+direction.x*16,this.y+direction.y*16,direction);
       if(step===BASIC_ATTACK_CHAIN[1])slash.setFlipY(true);
       if(step===BASIC_ATTACK_CHAIN[2]){
@@ -392,6 +415,7 @@ export class Player extends DepthSortedSprite {
   }
 
   discardActions() {
+    this.attackQueuedUntil=0;
     this.pressed.clear();
     for (const action of ['attack', 'dash','jump', 'interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion','targetLock'] as const) mobileInput.consume(action);
   }
@@ -401,10 +425,10 @@ export class Player extends DepthSortedSprite {
     return value;
   }
 
-  private clearAttackVisual() {
+  private clearAttackVisual(restoreBody=true) {
     const effect = this.attackVisual; this.attackVisual = null;
     if (effect?.active) effect.destroy();
-    if (this.active) this.setAlpha(1);
+    if (this.active&&restoreBody) this.setAlpha(1);
   }
 
   private setPresentationTexture(texture: PlayerPresentationTexture, scale: number) {

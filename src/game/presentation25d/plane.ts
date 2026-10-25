@@ -5,6 +5,7 @@ import type {InteriorWallPanel} from './InteriorWallGeometry';
 import {furnitureShape,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import type {StreamVisibility} from './StreamVisibility';
 import type {StreamView} from '../systems/chunkNeighborhood';
+import type {CombatEffectShape,CombatEffectKind} from './CombatEffectGeometry';
 
 export interface PresentationView {
   camera:PerspectiveCamera;native:Phaser.Cameras.Scene2D.Camera;yaw:number;pitch:number;
@@ -47,6 +48,8 @@ export function projectWorldPoint(scene:Phaser.Scene,x:number,height:number,y:nu
 export type PresentationPlane = 'ground' | 'upright' | 'screen';
 export interface PresentationHint {
   plane: PresentationPlane;
+  /** Painted combat animation on a world-oriented curved energy surface. */
+  combat?:CombatEffectShape;
   /** Fixed textured structure volume; vegetation/actors retain billboards. */
   house?:HouseShape;
   /** Fixed room furnishing; its model uses a world-facing, floor-based basis. */
@@ -76,6 +79,11 @@ export interface PresentationHint {
 }
 export const PRESENTATION_HINT = 'presentation25d';
 export const PRESENTATION_SURFACE = 'presentation25dSurface';
+export function onCombatEffect<T extends Phaser.GameObjects.Sprite>(object:T,kind:CombatEffectKind,direction:Readonly<{x:number;y:number}>={x:1,y:0},height=0,anchor?:PresentationHint['anchor'],advance=0):T {
+  if(object.scene.game.registry.get('presentation')==='three-2.5d')
+    object.setData(PRESENTATION_HINT,{plane:'upright',anchor,combat:{kind,direction:{x:direction.x,y:direction.y},height,advance}} satisfies PresentationHint);
+  return object;
+}
 export interface PresentationSurface {
   sourceTop:number;sourceHeight:number;
   point(x:number,y:number,out:{x:number;y:number;z:number}):void;

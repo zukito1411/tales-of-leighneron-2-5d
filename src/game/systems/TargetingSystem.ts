@@ -25,6 +25,18 @@ export class TargetingSystem {
       && dx*dx+dy*dy<=range*range
       && this.scene.canSeeEnemy(enemy)&&this.scene.hasClearPath(player.x,player.y,enemy.x,enemy.y);
   }
+  /** Deliberate/visible selection wins over proximity; cover and range still apply. */
+  skillTarget(range:number){
+    const selected=this.lockedTarget??this.selected;
+    return selected&&this.eligible(selected,range)?selected:this.nearest(range);
+  }
+  meleeTarget(range:number,direction:{x:number;y:number}){
+    const selected=this.skillTarget(range);
+    if(!selected)return null;
+    const dx=selected.x-this.scene.player.x,dy=selected.y-this.scene.player.y;
+    // A lock permits deliberate turns. Assistance never snaps a free swing backward.
+    return this.lockedTarget||dx*direction.x+dy*direction.y>=Math.hypot(dx,dy)*.35?selected:null;
+  }
   nearest(range:number) {
     // Locking never increases a weapon/art's range or bypasses cover.
     if(this.lockedTarget)return this.eligible(this.lockedTarget,range)?this.lockedTarget:null;
