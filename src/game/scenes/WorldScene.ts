@@ -443,6 +443,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   releaseStoryEnemy(enemy:Enemy){this.forgetOrcSpears(enemy.instanceId);this.destroyContentActor(enemy);}
   storyActor(enemy:Enemy){return enemy.instanceId.startsWith('story-event:')||enemy.instanceId.startsWith('dungeon-event:');}
   canEnemyTargetPlayer(enemy:Enemy){
+    if(this.passage?.active||this.screenTransition.active||this.restSession)return false;
     return this.storyActor(enemy)?Boolean(this.dungeons?.owns(enemy)?this.dungeons.allows(this.player):this.storyEncounters?.owns(enemy)&&this.storyEncounters.allows(this.player))
       :!this.inInterior&&this.isEnemyTerritory(this.player.x,this.player.y);
   }
@@ -1563,7 +1564,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
 
   damagePlayer(amount: number) {
-    if(this.cinematicDirector?.active)return;
+    if(this.cinematicDirector?.active||this.passage?.active||this.screenTransition.active||this.restSession)return;
     const state=useGameStore.getState();if(!this.focused||state.panel||state.dialogue||this.inInterior&&!this.storyCombatActive)return;
     this.storyEncounters?.interruptWork();
     this.player.takeDamage(amount);

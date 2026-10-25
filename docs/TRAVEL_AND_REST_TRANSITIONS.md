@@ -45,6 +45,10 @@ Keyboard panels, mobile controls and gesture handoff are blocked during travel
 and rest. Existing character cutaways, manual camera zoom and streaming budgets
 are unchanged.
 
+Enemy targeting and incoming damage are blocked during passage and transition
+phases. A pending windup cannot kill the hidden passenger and start a respawn
+over the arrival sequence; a defeated player cannot start a new crossing.
+
 Boat creation now retires partially created attachments on failure. Retirement
 checks for already destroyed objects and cleans attachments independently, so
 a repeated release cannot leave the rest of a vessel unhandled.

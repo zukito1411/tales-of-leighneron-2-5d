@@ -24,7 +24,7 @@ export class ShipPassageSystem {
     const from=PORT_BY_ID[fromId],to=PORT_BY_ID[toId],store=useGameStore.getState();
     if(this.disposed||this.active||this.scene.screenTransition.active||!from||!to||from===to
       ||this.scene.inInterior||this.scene.storyCombatActive||store.cinematic||store.pendingCinematic
-      ||!this.scene.player.active||!this.scene.player.visible
+      ||!this.scene.player.active||!this.scene.player.visible||this.scene.player.hp<=0
       ||Math.hypot(this.scene.player.x-from.landing.x,this.scene.player.y-from.landing.y)>140)return false;
     if(![from.boat.x,from.boat.y,to.landing.x,to.landing.y].every(Number.isFinite))return false;
     let vessel:Vehicle|null=null;
