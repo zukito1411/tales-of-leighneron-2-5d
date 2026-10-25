@@ -5,14 +5,24 @@ const BUILDINGS=new Set(['old-cottage','cottage','old-inn','inn','hall','manor',
   'gatehouse','elven-cottage','elven-manor','elven-gate','elven-chapel','elven-smithy','elven-stable','elven-guildhall','elven-estate','elven-palace']);
 type P2=readonly [number,number];
 
-/** Fixtures in the very same frame basis as the enclosed smithy. Registration
- * happens before mesh submission, so halos cannot rely on the old 2D drawing. */
+/** Closed service buildings share dimensions with their lights and signage.
+ * floorLift raises the roof for player clearance, so fittings must follow the
+ * usable wall height rather than the small original painting's height. */
+function serviceHouseLayout(shape:HouseShape){
+  const H=shape.height,base=Math.max(.96,shape.ground??.96);
+  const ground=.5-shape.top-base*H,doorHeight=Math.max(shape.doorHeight??0,H*.30);
+  const eave=Math.max(.5-shape.top-.51*H+(shape.floorLift??0),ground+doorHeight*1.22);
+  const wallHeight=eave-ground,windowHeight=Math.min(wallHeight*.36,doorHeight*.65);
+  return {ground,eave,doorHeight,windowHeight,windowBottom:ground+wallHeight*.28,
+    signBottom:ground+wallHeight*.72,signHeight:wallHeight*.19};
+}
+
+/** Fixtures in the same frame basis as the enclosed service house. */
 export function architectureLightFixtures(shape:HouseShape){
-  if(!/smithy/.test(shape.profile.id))return undefined;
-  const {width:W,height:H}=shape,base=Math.max(.96,shape.ground??.96);
-  const ground=.5-shape.top-base*H;
+  if(!/smithy|stable/.test(shape.profile.id))return undefined;
+  const {width:W}=shape,{windowBottom,windowHeight}=serviceHouseLayout(shape);
   return [.26,.74].map(x=>({
-    x:shape.left+x*W-.5,y:ground+.205*H,z:.0252*W,fire:false,
+    x:shape.left+x*W-.5,y:windowBottom+windowHeight/2,z:.0252*W,fire:false,
   }));
 }
 
@@ -272,45 +282,37 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     sideWindows(.24,.76,eave,0,-D*.83);
     const peak=Y(elf?.13:.17);if(elf)leaf(X(.5),peak,.025*W,W*.12);
     else{beam(pt(.5,.17,.025*W),[X(.5),peak+.09*H,.025*W],.008,gold);beam([X(.44),peak+.055*H,.025*W],[X(.56),peak+.055*H,.025*W],.008,gold);}
-  }else if(/smithy/.test(id)){
-    // A conventional enclosed shop uses the same house construction, lot,
-    // foot and entry registration as the other settlement buildings.
-    const eave=Y(.51);
+  }else if(/smithy|stable/.test(id)){
+    const smithy=/smithy/.test(id);
+    const {eave,doorHeight,windowBottom,windowHeight,signBottom:signY,signHeight}=serviceHouseLayout(shape);
+    // Stables previously carried the source anvil-sign tile and an open bay.
+    // Both service-house variants now have an uninterrupted, closed facade.
     body(.12,.88,-D,0,eave);
-    roof(.07,.93,-D-.025*W,.045*W,eave,Y(elf?.21:.20),'x');
-    door(.50,.015*W,.23,H*.30);
-    for(const x of [.26,.74])window(X(x),ground+.12*H,.018*W,W*.12,H*.17);
+    roof(.07,.93,-D-.025*W,.045*W,eave,eave+H*(elf?.30:.31),'x');
+    door(.50,.015*W,smithy?.23:.29,doorHeight);
+    for(const x of [.26,.74])window(X(x),windowBottom,.018*W,W*.12,windowHeight);
     sideWindows(.12,.88,eave);
-    chimney(.78,-D*.68,Y(.12),eave-.05*H);
+    // A lintel keeps the front legible as a complete wall,
+    // including when the existing character sight-line cutaway is active.
+    beam([X(.12),eave-.02*H,.016*W],[X(.88),eave-.02*H,.016*W],.008,trim);
+    if(smithy)chimney(.78,-D*.68,eave+H*.39,eave-.05*H);
     if(elf)for(const x of [.12,.88])leaf(X(x),eave-.11*H,.025*W,H*.11);
-    // Small, two-sided anvil sign hung above the left window. The enclosed
-    // forge stays indoors: no outdoor fire, working bay or floating fire halo.
-    const signY=ground+.32*H,signTop=signY+.10*H,signZ=.075*W;
-    beam([X(.16),eave-.02*H,.012*W],[X(.36),eave-.02*H,.012*W],.006,iron);
+    const signTop=signY+signHeight,signZ=.075*W,bracketY=eave-.018*H;
+    beam([X(.16),bracketY,.012*W],[X(.36),bracketY,.012*W],.006,iron);
     for(const x of [.20,.32]){
-      beam([X(x),eave-.02*H,.012*W],[X(x),eave-.02*H,signZ],.004,iron);
-      beam([X(x),signTop,signZ],[X(x),eave-.02*H,signZ],.0025,iron);
+      beam([X(x),bracketY,.012*W],[X(x),bracketY,signZ],.004,iron);
+      beam([X(x),signTop,signZ],[X(x),bracketY,signZ],.0025,iron);
     }
     box(.17,.35,signY,signTop,signZ-.012*W,signZ+.012*W,timber);
     const anvil:P2[]=[[-.12,.79],[-.052,.73],[-.040,.48],[-.065,.39],[-.065,.32],[.060,.32],[.060,.40],[.037,.49],[.045,.75],[.078,.78],[.078,1],[-.065,1]];
     const emblem:ModelMaterial={color:pigment(elf?0xd8c88c:0xd6c394)};
+    const signPath:P2[]=smithy
+      ?anvil.map(([x,y])=>[X(.26)+x*W*.60,signY+(y-.23)*signHeight*1.15])
+      :[...Array.from({length:17},(_,i):P2=>{const a=i/16*Math.PI;return [X(.26)+Math.cos(a)*W*.054,signY+signHeight*(.83-Math.sin(a)*.68)];}),
+        ...Array.from({length:17},(_,i):P2=>{const a=(1-i/16)*Math.PI;return [X(.26)+Math.cos(a)*W*.033,signY+signHeight*(.83-Math.sin(a)*.45)];})];
     for(const side of [-1,1]){
-      const z=signZ+side*.0125*W;
-      m.extrude(anvil.map(([x,y])=>[X(.26)+x*W*.60,signY+(y-.23)*H*.115] as const),z+.0004*W,z-.0004*W,emblem);
+      const z=signZ+side*.0125*W;m.extrude(signPath,z+.0004*W,z-.0004*W,emblem);
     }
-  }else if(/stable/.test(id)){
-    const eave=Y(.51);
-    box(.12,.16,ground,eave,-D,0);box(.84,.88,ground,eave,-D,0);box(.16,.84,ground,eave,-D,-D+.025*W);
-    box(.11,.89,ground,ground+.045*H,-D-.005*W,.015*W,stone);
-    roof(.07,.93,-D-.015*W,.065*W,eave,Y(elf?.21:.20),'x');
-    for(const x of [.14,.49,.86])beam([X(x),ground,0],[X(x),eave,0],.016,trim);
-    beam(pt(.16,.52,.020*W),pt(.31,.66,.020*W),.009,trim);beam(pt(.84,.52,.020*W),pt(.69,.66,.020*W),.009,trim);
-    for(const [l,r] of [[.17,.46],[.53,.82]]){
-      box(l,r,ground,ground+.15*H,0,.025*W,timber);beam([X(l),ground,.03*W],[X(r),ground+.15*H,.03*W],.009,trim);
-    }
-    gable(.39,.61,-D*.75,.035*W,eave,Y(.29));window(X(.50),eave+.025*H,.04*W,W*.085,H*.10);
-    banner(.24,ground+.19*H,.06*W,.11,H*.20,15);
-    barrel(.11,.055*W);barrel(.93,-.08*W);sideWindows(.12,.88,eave);
   }else{
     const cottage=/cottage/.test(id),twoStorey=/inn|manor|estate/.test(id),guild=/guildhall/.test(id);
     const eave=Y(cottage?.58:twoStorey?.48:.48),l=cottage?.13:.12,r=cottage?.85:.88;
