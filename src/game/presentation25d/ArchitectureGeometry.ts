@@ -1,21 +1,19 @@
-import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type Patch,type V3} from './ModelMesh';
+import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
 import type {HouseShape} from './HouseGeometry';
 
 const BUILDINGS=new Set(['old-cottage','cottage','old-inn','inn','hall','manor','smithy','capital-smithy','stable','storehouse','castle','chapel','road-shrine','old-shrine',
   'gatehouse','elven-cottage','elven-manor','elven-gate','elven-chapel','elven-smithy','elven-stable','elven-guildhall','elven-estate','elven-palace']);
 type P2=readonly [number,number];
 
-/** Fixtures in the very same frame basis as the modeled workshop. Registration
+/** Fixtures in the very same frame basis as the enclosed smithy. Registration
  * happens before mesh submission, so halos cannot rely on the old 2D drawing. */
 export function architectureLightFixtures(shape:HouseShape){
   if(!/smithy/.test(shape.profile.id))return undefined;
-  const {width:W,height:H,depth:D}=shape,base=Math.max(.96,shape.ground??.96);
-  const ground=.5-shape.top-base*H,eave=.5-shape.top-.51*H+(shape.floorLift??0);
-  const X=(x:number)=>shape.left+x*W-.5;
-  return [
-    {x:X(.805),y:ground+H*.204,z:.012*W,fire:true},
-    {x:X(.12)-.015*W,y:ground+(eave-ground)*.31+Math.min(H*.18,(eave-ground)*.34)/2,z:-D*.84*.48,fire:false},
-  ];
+  const {width:W,height:H}=shape,base=Math.max(.96,shape.ground??.96);
+  const ground=.5-shape.top-base*H;
+  return [.26,.74].map(x=>({
+    x:shape.left+x*W-.5,y:ground+.205*H,z:.0252*W,fire:false,
+  }));
 }
 
 /** Authored assemblies following buildings.png, capital_buildings.png and
@@ -29,7 +27,6 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const lift=shape.floorLift??0;
   const X=(x:number)=>shape.left+x*W-.5,Y=(y:number)=>.5-shape.top-y*H+lift;
   const ground=Y(base)-lift,pt=(x:number,y:number,z:number):V3=>[X(x),Y(y),z];
-  const crop=(p:Patch):Patch=>{const r=shape.paintRegion;return r?[r[0]+p[0]*r[2],r[1]+p[1]*r[3],r[0]+p[2]*r[2],r[1]+p[3]*r[3]]:p;};
   // The old material surveys contain door frames, windows and foliage.
   // Never repeat those over a wall. Clean cultural diffuse swatches and a
   // registered part-detail atlas are independent of packed sprite-frame UVs.
@@ -276,71 +273,31 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     const peak=Y(elf?.13:.17);if(elf)leaf(X(.5),peak,.025*W,W*.12);
     else{beam(pt(.5,.17,.025*W),[X(.5),peak+.09*H,.025*W],.008,gold);beam([X(.44),peak+.055*H,.025*W],[X(.56),peak+.055*H,.025*W],.008,gold);}
   }else if(/smithy/.test(id)){
-    const eave=Y(.51),back=-D*.84,front=.015*W;
-    const boards=atlasMaterial('architecture',1,W*.26,H*.42);
-    // A shallow working porch attached to a framed rear wall. There is no
-    // black backdrop, empty stage or centre post across the working bay.
-    box(.12,.89,ground,ground+.022*H,back-.02*W,.045*W,stone);
-    box(.13,.87,ground+.022*H,eave,back-.025*W,back,wall);
-    box(.12,.17,ground,eave,back,front,wall);
-    box(.84,.89,ground,ground+.28*H,back,front,stone);
-    box(.18,.68,ground+.20*H,ground+.77*(eave-ground),back+.002*W,back+.014*W,boards);
-    for(const x of [.15,.35,.65,.86])beam([X(x),ground,back+.018*W],[X(x),eave,back+.018*W],.010,timber);
-    for(const y of [ground+.16*(eave-ground),eave-.025*H])beam([X(.15),y,back+.025*W],[X(.86),y,back+.025*W],.010,timber);
-    for(const x of [.15,.86]){
-      box(x-.030,x+.030,ground,ground+.065*H,-.025*W,.035*W,stone);
-      beam([X(x),ground+.045*H,front],[X(x),eave,front],.018,timber);
+    // A conventional enclosed shop uses the same house construction, lot,
+    // foot and entry registration as the other settlement buildings.
+    const eave=Y(.51);
+    body(.12,.88,-D,0,eave);
+    roof(.07,.93,-D-.025*W,.045*W,eave,Y(elf?.21:.20),'x');
+    door(.50,.015*W,.23,H*.30);
+    for(const x of [.26,.74])window(X(x),ground+.12*H,.018*W,W*.12,H*.17);
+    sideWindows(.12,.88,eave);
+    chimney(.78,-D*.68,Y(.12),eave-.05*H);
+    if(elf)for(const x of [.12,.88])leaf(X(x),eave-.11*H,.025*W,H*.11);
+    // Small, two-sided anvil sign hung above the left window. The enclosed
+    // forge stays indoors: no outdoor fire, working bay or floating fire halo.
+    const signY=ground+.32*H,signTop=signY+.10*H,signZ=.075*W;
+    beam([X(.16),eave-.02*H,.012*W],[X(.36),eave-.02*H,.012*W],.006,iron);
+    for(const x of [.20,.32]){
+      beam([X(x),eave-.02*H,.012*W],[X(x),eave-.02*H,signZ],.004,iron);
+      beam([X(x),signTop,signZ],[X(x),eave-.02*H,signZ],.0025,iron);
     }
-    beam([X(.13),eave,front],[X(.89),eave,front],.025,timber);
-    for(const [x,dir] of [[.15,1],[.86,-1]])beam([X(x),eave-.13*H,front],[X(x+dir*.15),eave,front],.011,timber);
-    roof(.07,.94,back-.045*W,.065*W,eave,Y(elf?.21:.20),'x');
-    // Stone forge and flue form one connected mass; the dark recess exists
-    // only within the firebox. Original painted fire stays on its true hearth.
-    const fy=ground+.11*H,head=ground+.32*H;
-    box(.70,.91,ground,fy,-.14*W,.065*W,stone);
-    box(.715,.895,fy,head,-.15*W,-.08*W,stone);
-    for(const x of [.70,.88])box(x,x+.030,fy,head,-.15*W,.04*W,stone);
-    const outer=.080*W,inner=.057*W,cx=X(.805),spring=ground+.235*H;
-    const archPath:P2[]=[];
-    for(let i=0;i<=12;i++){const t=i/12*Math.PI;archPath.push([cx+Math.cos(t)*outer,spring+Math.sin(t)*.095*H]);}
-    for(let i=12;i>=0;i--){const t=i/12*Math.PI;archPath.push([cx+Math.cos(t)*inner,spring+Math.sin(t)*.070*H]);}
-    m.extrude(archPath,.045*W,-.15*W,stone);
-    box(.725,.885,fy,spring,-.077*W,-.074*W,shadow);
-    box(.695,.915,head,head+.032*H,-.16*W,.055*W,stone);
-    chimney(.805,-.075*W,Y(.13),head);
-    for(let i=0;i<3;i++)m.beam([X(.75+i*.05),fy+.012*H,-.055*W],[X(.77+i*.05),fy+.012*H,.020*W],.008*W,iron,8);
-    const fire:Patch=elf?[.57,.41,.69,.56]:id==='capital-smithy'?[.68,.62,.79,.77]:[.68,.60,.81,.78];
-    m.fire(cx,fy+.014*H,.012*W,W*.105,H*.16,crop(fire));
-    // A low rear workbench, visible legs, a braced tool rail and complete tools.
-    const benchTop=ground+Math.min(H*.19,(eave-ground)*.34),bz=back+.13*W;
-    box(.28,.62,benchTop-.020*H,benchTop,back+.05*W,back+.25*W,boards);
-    for(const x of [.30,.60])for(const z of [back+.07*W,back+.23*W])beam([X(x),ground,z],[X(x),benchTop,z],.012,timber);
-    beam([X(.30),ground+.06*H,bz],[X(.60),ground+.06*H,bz],.010,timber);
-    const rail=ground+(eave-ground)*.64;
-    beam([X(.24),rail,back+.035*W],[X(.65),rail,back+.035*W],.010,timber);
-    for(const [i,x] of [.29,.39,.50,.60].entries()){
-      const z=back+.048*W,low=rail-H*(i%2?.16:.14);
-      m.beam([X(x),low,z],[X(x),rail+.015*H,z],.004*W,i%2?iron:boards,8);
-      if(i%2){for(const d of [-1,1])m.beam([X(x),rail+.01*H,z],[X(x+d*.018),rail+.055*H,z],.003*W,iron,6);}
-      else m.box(X(x)-W*.022,X(x)+W*.022,low-H*.015,low+H*.018,z-W*.012,z+W*.012,iron);
-    }
-    // Source-shaped horned anvil on a solid timber stump, sized to a person.
-    const ax=X(.455),az=-.12*W,ah=Math.min(H*.19,(eave-ground)*.32);
-    m.cylinder(ax,az,ground,ground+ah*.64,W*.051,W*.047,boards,12);
-    for(const y of [.13,.53])m.ring(ax,az,ground+ah*y,ground+ah*(y+.07),W*.052,W*.047,iron,12);
+    box(.17,.35,signY,signTop,signZ-.012*W,signZ+.012*W,timber);
     const anvil:P2[]=[[-.12,.79],[-.052,.73],[-.040,.48],[-.065,.39],[-.065,.32],[.060,.32],[.060,.40],[.037,.49],[.045,.75],[.078,.78],[.078,1],[-.065,1]];
-    m.extrude(anvil.map(([x,y])=>[ax+x*W,ground+ah*y] as const),az+.027*W,az-.027*W,iron);
-    m.box(ax-W*.059,ax+W*.072,ground+ah*.975,ground+ah,az-.028*W,az+.028*W,{color:pigment(0x717a7c)});
-    // A small mounted trade plaque, supported by a bracket and two chains.
-    const signY=ground+(eave-ground)*.55,signZ=.045*W;
-    beam([X(.15),eave-.035*H,front],[X(.29),eave-.035*H,front],.006,iron);
-    for(const x of [.19,.27])beam([X(x),signY+.18*H,signZ],[X(x),eave-.035*H,signZ],.0025,iron);
-    box(.16,.30,signY,signY+.18*H,signZ-.015*W,signZ,boards);
-    m.extrude(anvil.map(([x,y])=>[X(.23)+x*W*.48,signY+.02*H+y*.12*H] as const),signZ+.002*W,signZ+.001*W,{color:pigment(0xd6c394)});
-    barrel(.12,-.035*W);barrel(.93,-.24*W);
-    // Glazing belongs only to the closed left wall, never above the open
-    // forge-side knee wall. The rear bay remains dedicated to the tool rack.
-    window(X(.12)-.008*W,ground+(eave-ground)*.31,back*.48,W*.10,Math.min(H*.18,(eave-ground)*.34),0,1);
+    const emblem:ModelMaterial={color:pigment(elf?0xd8c88c:0xd6c394)};
+    for(const side of [-1,1]){
+      const z=signZ+side*.0125*W;
+      m.extrude(anvil.map(([x,y])=>[X(.26)+x*W*.60,signY+(y-.23)*H*.115] as const),z+.0004*W,z-.0004*W,emblem);
+    }
   }else if(/stable/.test(id)){
     const eave=Y(.51);
     box(.12,.16,ground,eave,-D,0);box(.84,.88,ground,eave,-D,0);box(.16,.84,ground,eave,-D,-D+.025*W);
