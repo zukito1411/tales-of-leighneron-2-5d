@@ -372,9 +372,10 @@ export class InteriorSession {
       for(const span of spans){const last=merged.at(-1);if(last&&span[0]<=last[1])last[1]=Math.max(last[1],span[1]);else merged.push([span[0],span[1]]);}
       const sections:Array<[number,number]>=[];
       for(const [start,end] of merged){
-        // The existing 190-unit exit arch supplies its own jambs. Its opening
-        // must not acquire a solid wall or collider across the threshold.
-        const left=plan.entrance.x-95,right=plan.entrance.x+95;
+        // The shared entry dimensions supply the arch and its jambs. Keep
+        // exactly that clear opening free at the southern floor boundary.
+        const half=(plan.entranceWidth??114)/2;
+        const left=plan.entrance.x-half,right=plan.entrance.x+half;
         if(spatial&&side==='south'&&axis>plan.entrance.y&&start<right&&end>left){
           if(start<left)sections.push([start,left]);if(end>right)sections.push([right,end]);
         }else sections.push([start,end]);
@@ -383,13 +384,16 @@ export class InteriorSession {
         const north=side==='north',horizontal=north||side==='south',length=end-start;if(length<.5)continue;
         const nominalWidth=140/this.artHeight('northWall',1);
         const count=Math.max(1,Math.ceil(length/(spatial?nominalWidth:north?180:120))),step=length/count;
-        const thickness=spatial?22:north?40:22;
-        this.wallSolids.push(horizontal?{x:start,y:north?axis:axis-thickness,width:length,height:thickness}
-          :{x:side==='west'?axis:axis-thickness,y:start,width:thickness,height:length});
+        const thickness=spatial?(isPlayerHome(this.entry?.id)?12:22):north?40:22;
+        // Floor bounds belong to the furnishing editor and navigation. Place
+        // the wall outside that union, rather than stealing a strip inside it.
+        const skin=spatial?.8:0;
+        this.wallSolids.push(horizontal?{x:start,y:spatial?(north?axis-thickness-skin:axis+skin):north?axis:axis-thickness,width:length,height:thickness}
+          :{x:spatial?(side==='west'?axis-thickness-skin:axis+skin):side==='west'?axis:axis-thickness,y:start,width:thickness,height:length});
         for(let i=0;i<count;i++){
           if(spatial){
-            const x=horizontal?start+(i+.5)*step:axis+(side==='west'?thickness/2:-thickness/2);
-            const y=horizontal?axis+(north?thickness/2:-thickness/2):start+(i+.5)*step;
+            const x=horizontal?start+(i+.5)*step:axis+(side==='west'?-1:1)*(thickness/2+skin);
+            const y=horizontal?axis+(north?-1:1)*(thickness/2+skin):start+(i+.5)*step;
             const image=this.drawArt('northWall',x,y,nominalWidth,DEPTH+y);
             const frame=image.frame,metadata=frame.customData as {visibleWidth:number;visibleHeight:number;furnitureBottom?:number};
             const w=metadata.visibleWidth,h=metadata.visibleHeight,bottom=metadata.furnitureBottom??frame.cutHeight;
@@ -471,10 +475,19 @@ export class InteriorSession {
     // The open arch is a doorway, never the wardrobe/counter source. Its
     // transparent opening and the vestibule footprint share the same centre.
     const south=entry.id===TOWER_ENTRY_ID?TOWER_SOUTH_DOOR:{x:plan.entrance.x,y:plan.entrance.y+55};
-    this.drawArt(entry.id===TOWER_ENTRY_ID?'tower-door-closed':'doorway',south.x,south.y,entry.id===TOWER_ENTRY_ID?110:190,DEPTH+south.y);
+    const entryWidth=plan.entranceWidth??114,entrySpan=entryWidth/.60;
+    const entryImage=this.drawArt(entry.id===TOWER_ENTRY_ID?'tower-door-closed':'doorway',south.x,south.y,entry.id===TOWER_ENTRY_ID?110:entrySpan,DEPTH+south.y);
+    if(plan.entranceHeight){
+      const shape=(entryImage.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+      if(shape){shape.rise=plan.entranceHeight/(Math.abs(entryImage.displayWidth)*shape.width);shape.key+=':entrance:'+plan.entranceHeight;
+        if(shape.bounds)shape.bounds.top=shape.rise*1.05;}
+    }
     if(entry.id===TOWER_ENTRY_ID)this.wallSolids.push({x:TOWER_NORTH_DOOR.x-55,y:130,width:110,height:TOWER_NORTH_DOOR.y-170});
     if(entry.id===TOWER_ENTRY_ID)this.wallSolids.push({x:south.x-65,y:south.y-120,width:130,height:150});
-    else for(const dx of [-95,43])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:52,height:105});
+    else{
+      const jamb=entrySpan*.48-entryWidth/2;
+      for(const dx of [-entrySpan*.48,entryWidth/2])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:jamb,height:105});
+    }
     for(const r of plan.rooms){
       this.own(scene.add.text(this.origin.x+r.x+r.width/2,this.origin.y+r.y+100,r.label,
         {fontFamily:'Georgia, serif',fontSize:'11px',color:'#bba67d',stroke:'#19140f',strokeThickness:2})
@@ -675,7 +688,7 @@ export class InteriorSession {
     const nearBed=!near&&!this.scene.storyCombatActive&&this.nearInnBed;
     const nearHomeBed=!near&&!this.scene.storyCombatActive&&this.nearHomeBed;
     const exit=this.entry.id===TOWER_ENTRY_ID?TOWER_SOUTH_DOOR:this.plan.entrance,
-      nearExit=Math.hypot(x-this.origin.x-exit.x,y-this.origin.y-exit.y)<(this.entry.id===TOWER_ENTRY_ID?130:80);
+      nearExit=this.entry.id===TOWER_ENTRY_ID?Math.hypot(x-this.origin.x-exit.x,y-this.origin.y-exit.y)<130:this.nearEntrance(x,y);
     this.navigationMs+=Math.min(delta,80);
     if(this.navigationMs>=150){
     this.navigationMs=0;
@@ -712,6 +725,11 @@ export class InteriorSession {
     this.syncMs+=Math.min(delta,80);
     if(this.syncMs>=500){this.syncMs=0;this.scene.syncState();}
   }
+  private nearEntrance(x:number,y:number){
+    if(!this.plan)return false;
+    const dx=x-this.origin.x-this.plan.entrance.x,dy=y-this.origin.y-this.plan.entrance.y;
+    return this.plan.entranceWidth?Math.abs(dx)<=this.plan.entranceWidth/2-12&&Math.abs(dy)<80:Math.hypot(dx,dy)<80;
+  }
   interact(){
     if(this.homeBedInReach()){
       this.scene.restAtHome();return;
@@ -719,13 +737,13 @@ export class InteriorSession {
     if(this.scene.storyInteraction&&this.scene.interactWithStory())return;
     if(this.entry?.id===TOWER_ENTRY_ID){this.scene.notify('The entry door seals behind you. Clear the floor to open the north door and central return portal.');return;}
     if(this.scene.storyCombatActive){
-      if(this.plan&&Math.hypot(this.scene.player.x-this.origin.x-this.plan.entrance.x,this.scene.player.y-this.origin.y-this.plan.entrance.y)<80){this.exit();return;}
+      if(this.nearEntrance(this.scene.player.x,this.scene.player.y)){this.exit();return;}
       if(this.scene.interactWithStory())return;
     }
     const player=this.scene.player,near=this.residents.find(n=>this.reachableResident(n));
     if(near){this.talk(near);return;}
     if(!this.scene.storyCombatActive&&!this.cinematicContext&&this.innBeds.some(point=>this.bedReachable(point))){this.scene.restAtInn();return;}
-    if(this.plan&&Math.hypot(player.x-this.origin.x-this.plan.entrance.x,player.y-this.origin.y-this.plan.entrance.y)<80)this.exit();
+    if(this.nearEntrance(player.x,player.y))this.exit();
     else if(!this.scene.talkToCompanion())this.scene.notify('Speak to a resident or return to the south doorway.');
   }
   private talk(npc:Npc){if(!this.scene.storyCombatActive)useGameStore.getState().startDialogue(npc.definition.id);}

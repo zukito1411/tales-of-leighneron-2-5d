@@ -9,6 +9,7 @@ import {getGraphicEffects} from './graphicsEffects';
 import {ensureNightLightArt,nightLightFrame} from './NightLightArt';
 import {INN_MORNING_MINUTE,innRestAvailable} from '../../data/innRest';
 import {groundWorldView,projectGroundPoint,projectedViewOrigin,presentationAttachment,onOverlay,onPlane,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {architectureLightFixtures} from '../presentation25d/ArchitectureGeometry';
 import {LIFE_TREE_LIGHTS} from '../presentation25d/LifeTreeDesign';
 import {VIEW_DISTANCE,FOG_START} from '../presentation25d/environment';
 import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
@@ -84,9 +85,10 @@ export class DayNightSystem {
   }
   register(actor:Phaser.GameObjects.Sprite,key:ArtTextureKey,frame:number,scale:number) {
     const spatial=this.scene.game.registry.get('presentation')==='three-2.5d';
-    const shape=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    const ownerHint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined,shape=ownerHint?.furniture;
+    const fixtures=spatial&&ownerHint?.house?architectureLightFixtures(ownerHint.house):undefined;
     const tree=spatial&&shape?.art==='life-tree';
-    const points=tree?LIFE_TREE_LIGHTS.map(()=>({x:0,y:0,radius:100,fire:false,mask:0})):environmentLightPoints(key,frame);
+    const points=fixtures?fixtures.map(f=>({x:0,y:0,radius:f.fire?100:72,fire:f.fire,mask:0})):tree?LIFE_TREE_LIGHTS.map(()=>({x:0,y:0,radius:100,fire:false,mask:0})):environmentLightPoints(key,frame);
     const owned:LocalLight[]=[];
     for(const [index,p] of points.entries()) {
       const glow=this.scene.add.image(actor.x,actor.y,'warm-light').setDepth(1_000_001).setBlendMode(Phaser.BlendModes.ADD)
@@ -97,6 +99,12 @@ export class DayNightSystem {
         cutout:this.scene.game.registry.get('presentation')==='three-2.5d'?this.scene.make.image({key:'warm-light',add:false})
           :this.scene.make.image({key:ensureNightLightArt(this.scene),frame:nightLightFrame(false,0,0),add:false})};
       onOverlay(glow,actor,true);
+      if(fixtures){
+        const p=fixtures[index];
+        node.fixture={owner:actor,right:(p.x+.5-actor.originX)*Math.abs(actor.displayWidth),
+          height:(p.y+actor.originY-.5)*Math.abs(actor.displayHeight),depth:p.z*Math.abs(actor.displayWidth)};
+        (glow.getData(PRESENTATION_HINT) as PresentationHint).fixture=node.fixture;
+      }
       if(spatial&&shape){
         const p=furniturePlacement(actor,shape,{x:0,y:0,width:0,heading:0,lift:0}),w=p.width,H=shape.rise;
         const art=shape.art,bulb=art==='lantern'||art==='lampPost',brazier=art==='brazier';

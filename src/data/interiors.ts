@@ -82,6 +82,8 @@ export interface RoomObject {art:InteriorArtKey;x:number;y:number;width:number;s
 export interface RoomPlan {
   floors:RoomFloor[];rooms:InteriorRoom[];objects:RoomObject[];entrance:Vec2;residents:Vec2[];
   roundFloor?:Vec2&{radius:number};
+  /** Clear opening and lintel height, shared by mesh, collision and interaction. */
+  entranceWidth?:number;entranceHeight?:number;
   throneResident?:Vec2;guardPosts?:{west:Vec2;east:Vec2};
 }
 export function roomFloorContains(plan:RoomPlan,x:number,y:number){
@@ -110,6 +112,7 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
   };
   const passage=(x:number,y:number,width:number,height:number)=>floors.push({x,y,width,height,material:0});
   let main:InteriorRoom,entrance:Vec2,throneResident:Vec2|undefined,guardPosts:RoomPlan['guardPosts'];
+  let entranceWidth:number|undefined,entranceHeight:number|undefined;
   if(selectedProfile==='castle'){
     main=room('audience','Audience & throne hall','throne',660,0,1000,980);
     room('council','Council chamber','council',0,0,500,430);
@@ -119,9 +122,12 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
     const gallery=room('gallery','Entrance gallery','gallery',660,950,1000,400);
     room('barracks','Household guardroom','barracks',0,1150,500,460,1);
     room('dining','Household dining room','dining',1840,1150,540,460,1);
-    passage(470,140,220,730);passage(1630,140,240,730);
-    passage(470,1270,220,150);passage(1630,1270,240,150);
-    passage(1060,1320,200,210);entrance={x:1160,y:1450};
+    // Continuous side galleries connect both upper and lower chambers.
+    // Overlap their room thresholds generously; do not make a 150px slit
+    // serve a grand hall, guardroom and dining wing.
+    passage(420,140,320,1320);passage(1560,140,360,1320);
+    passage(950,1300,420,230);entrance={x:1160,y:1450};
+    entranceWidth=280;entranceHeight=190;
     throneResident={x:1160,y:350};
     guardPosts={west:{x:gallery.x+210,y:gallery.y+185},east:{x:gallery.x+790,y:gallery.y+185}};
   }else if(selectedProfile==='inn'||selectedProfile==='villa'){
@@ -198,7 +204,7 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
       if(r.kind==='market')place(r,'pantry',125,h-75,150);
     }
   }
-  return {floors,rooms,objects,entrance,throneResident,guardPosts,
+  return {floors,rooms,objects,entrance,entranceWidth,entranceHeight,throneResident,guardPosts,
     residents:[{x:main.x+180,y:main.y+350},{x:main.x+main.width-260,y:main.y+370},
       {x:main.x+main.width/2-140,y:main.y+470}]};
 }

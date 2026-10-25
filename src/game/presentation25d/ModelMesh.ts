@@ -4,7 +4,7 @@ export type V3=readonly [number,number,number];
 export type Patch=readonly [number,number,number,number];
 export interface AtlasMaterial {atlas:'architecture'|'furnishings'|'buildingDetails'|'nature';tile:number;scale:readonly [number,number];emission?:V3;cutout?:boolean}
 export const atlasMaterial=(atlas:AtlasMaterial['atlas'],tile:number,width=.5,height=width,emission?:V3):AtlasMaterial=>({atlas,tile,scale:[width,height],...(emission?{emission}:{})});
-export type ModelMaterial=AtlasMaterial|Patch|{patch:Patch;tile:readonly [number,number]}|{color:V3;emission?:V3;pattern?:2|3|4|5|6|7};
+export type ModelMaterial=AtlasMaterial|Patch|{patch:Patch;tile:readonly [number,number]}|{color:V3;emission?:V3;pattern?:2|3|4|5|6|7|8|9;waterOrigin?:readonly [number,number]};
 /** A cropped material from this object's own painted atlas, in model units. */
 export const paintedMaterial=(patch:Patch,width=.35,height=width):ModelMaterial=>({patch,tile:[width,height]});
 interface Region {left:number;top:number;width:number;height:number}
@@ -57,6 +57,10 @@ export class ModelMesh {
     else{const [l,t,right,bottom]='patch' in mat?mat.patch:mat;rect=[r.left+l*r.width,1-r.top-bottom*r.height,(right-l)*r.width,(bottom-t)*r.height];center=[rect[0]+rect[2]/2,rect[1]+rect[3]/2];}
     const x=b[0]-a[0],y=b[1]-a[1],z=b[2]-a[2],u=c[0]-a[0],v=c[1]-a[1],w=c[2]-a[2];
     const nx=y*w-z*v,ny=z*u-x*w,nz=x*v-y*u,length=Math.hypot(nx,ny,nz)||1;
+    if('color' in mat&&mat.pattern===9)uv=[a,b,c].map(p=>[p[0]*3+p[2]*5,p[1]] as const);
+    else if('color' in mat&&mat.pattern===8&&mat.waterOrigin){
+      const origin=mat.waterOrigin;uv=[a,b,c].map(p=>[p[0]-origin[0],p[2]-origin[1]] as const);
+    }
     if(!uv){
       const axis=Math.abs(nx)>Math.abs(ny)&&Math.abs(nx)>Math.abs(nz)?0:Math.abs(ny)>Math.abs(nz)?1:2;
       const [px,py]=this.tileSize(mat);

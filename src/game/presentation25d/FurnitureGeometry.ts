@@ -1,3 +1,4 @@
+import {createFountainGeometry} from './FountainGeometry';
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
 import {createLifeTreeGeometry} from './LifeTreeGeometry';
 import {createRockGeometry} from './RockGeometry';
@@ -58,7 +59,7 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
   const patchKey=kit+':'+(art==='openChest'?'chest':art);
   const raw=materials[patchKey as keyof typeof materials];
   const patch:Patch|undefined=raw?.length===4?[raw[0],raw[1],raw[2],raw[3]]:undefined;
-  const d=Math.max(.06,depth??depths[art]??.3);
+  const d=Math.max(.06,depth??(art==='signature'&&/elven/.test(kit)?.85:depths[art]??.3));
   return {art,kit,left,top,width,height,rise,depth:d,bounds:{left:-.62,right:.62,bottom:0,top:rise*1.3,back:-Math.max(d*1.1,d/2+.55),front:.16},patch:patch??[.25,.45,.32,.52],
     key:[art,kit,left,top,width,height,rise,d].join(':')};
 }
@@ -67,6 +68,7 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   if(shape.art==='life-tree')return createLifeTreeGeometry(shape,emission);
+  if(shape.art==='fountain'||shape.art==='signature'&&/elven/.test(shape.kit))return createFountainGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
@@ -311,27 +313,16 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       for(const xx of [x-r-.001,x+r+.001])m.cutout([xx,b,z-q],[xx,b,z+q],[xx,t,z-q],[xx,t,z+q],pane);for(const xx of [x-r,x+r])for(const zz of [z-r,z+r])box(xx-.009,xx+.009,b,t,zz-.009,zz+.009,metal);
       tube(x,z,b-H*.03,b+H*.03,r*1.3,r*1.3,metal);tube(x,z,t,t+H*.08,r*1.3,0,metal);m.beam([x,t+H*.06,z],[x,t+H*.15,z],.014,brass,8);
     }
-  }else if(art==='fountain'&&kit.startsWith('world:')){
-    const basin=H*.36;
-    box(-.48,.48,0,H*.08,-D,0,stone);
-    for(const z of [-D,0])box(-.44,.44,H*.08,basin,z-.025,z+.025,wood);
-    for(const x of [-.46,.46])box(x-.035,x+.035,H*.06,basin+.02,-D-.02,.02,stone);
-    box(-.41,.41,H*.30,H*.305,-D+.05,-.05,water);
-    for(const x of [-.38,.38])for(const z of [-D-.03,.03])box(x-.014,x+.014,H*.08,basin,z-.008,z+.008,metal);
-    box(-.32,-.21,0,H*.96,-D-.06,-D+.05,wood);
-    m.beam([-.27,H*.85,-D],[ -.11,H*.85,-D+.18],.04,wood,8);
-    m.cylinder(-.11,-D+.18,H*.31,H*.85,.009,.014,water,8);
-  }else if(art==='well'||art==='fountain'||art==='signature'&&/elven/.test(kit)){
-    const r=Math.min(art==='well'?.39:.46,D/2),inner=r*.74,z=-D/2;
-    if(art==='well'&&shape.canopy===false){
+  }else if(art==='well'){
+    const r=Math.min(.39,D/2),inner=r*.74,z=-D/2;
+    if(shape.canopy===false){
       m.ring(0,z,0,H*.84,r,inner,stone);m.ring(0,z,H*.82,H*.96,r*1.04,inner,stone);tube(0,z,H*.73,H*.735,inner,inner,water);return m.finish();
     }
-    m.ring(0,z,0,H*.31,r,inner,stone);m.ring(0,z,H*.29,H*.35,r*1.05,inner,art==='well'?stone:trim);tube(0,z,H*.20,H*.205,inner,inner,water);
-    if(art==='well'){for(const x of [-r*.83,r*.83])box(x-.025,x+.025,0,H*.78,z-.025,z+.025);roof(H*.76,H);m.beam([-r,H*.58,z],[r,H*.58,z],.035,wood,8);tube(0,z,H*.26,H*.55,.008,.008,dark);
+    m.ring(0,z,0,H*.31,r,inner,stone);m.ring(0,z,H*.29,H*.35,r*1.05,inner,stone);tube(0,z,H*.20,H*.205,inner,inner,water);
+    for(const x of [-r*.83,r*.83])box(x-.025,x+.025,0,H*.78,z-.025,z+.025);roof(H*.76,H);m.beam([-r,H*.58,z],[r,H*.58,z],.035,wood,8);tube(0,z,H*.26,H*.55,.008,.008,dark);
       m.cylinder(0,z,H*.26,H*.40,.065,.08,wood,12);
       m.beam([r,H*.58,z],[r+.12,H*.58,z],.018,wood,8);
-      m.beam([r+.12,H*.58,z],[r+.12,H*.48,z],.015,metal,8);}
-    else{tube(0,z,H*.20,H*.67,r*.18,r*.13,stone);m.ring(0,z,H*.64,H*.71,r*.53,r*.33,stone);tube(0,z,H*.69,H*.97,r*.10,0,water);}
+      m.beam([r+.12,H*.58,z],[r+.12,H*.48,z],.015,metal,8);
   }else if(art==='stall'||art==='tent'){
     for(const x of [-.44,.44])for(const z of [-D+.04,-.04])box(x-.022,x+.022,0,H*.78,z-.022,z+.022);
     roof(H*.72,H);

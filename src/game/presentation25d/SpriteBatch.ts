@@ -135,6 +135,7 @@ varying vec2 groundPosition;
 varying vec4 materialRect;
 varying vec2 materialUV;
 varying float paintedFire;
+uniform float visualTime;
 uniform sampler2D architectureAtlas;
 uniform sampler2D furnishingsAtlas;
 uniform sampler2D buildingDetailsAtlas;
@@ -168,6 +169,13 @@ vec3 modelPigment(){
   vec3 base=materialRect.xyz;float kind=-materialRect.w;
   if(kind<1.5)return base;
   vec2 p=materialUV;
+  // Small modeled fountains share the existing clock and draw call. Positive
+  // time moves stream highlights down the upward-oriented cylinder UVs.
+  if(kind>7.5&&kind<9.5){
+    float wave=kind>8.5?sin(p.y*32.0+visualTime*6.0):sin(length(p)*62.0-visualTime*2.4)+sin(p.x*31.0+p.y*19.0-visualTime*1.2)*.35;
+    float glint=smoothstep(.75,1.0,wave);
+    return mix(base,vec3(.65,.88,.94),glint*(kind>8.5?.28:.13));
+  }
   float detail=1.0-smoothstep(.025,.14,max(length(dFdx(p)),length(dFdy(p))));
   if(kind>6.5){
     float rough=materialNoise(floor(p*18.0))*.65+materialNoise(floor(p*70.0))*.35-.5;
