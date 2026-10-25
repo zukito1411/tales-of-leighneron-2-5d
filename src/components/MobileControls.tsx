@@ -18,13 +18,15 @@ export function MobileControls() {
   const atHome=useGameStore(s=>isPlayerHome(s.housingContext));
   const dialogue = useGameStore(s => s.dialogue);
   const cinematic=useGameStore(s=>s.cinematic);
+  const transition=useGameStore(s=>s.screenTransition);
+  const passage=useGameStore(s=>s.passage);
   const activeSkillStatus = useGameStore(s => s.activeSkillStatus);
   const level=useGameStore(s=>s.level);
   const slots=useGameStore(s=>s.skillSlots);
   const interaction = useGameStore(s => s.navigation.interaction);
   const potions=useGameStore(s=>s.consumables);
   const hp=useGameStore(s=>s.hp),maxHp=useGameStore(s=>s.maxHp),stamina=useGameStore(s=>s.stamina),maxStamina=useGameStore(s=>s.maxStamina);
-  const blocked = Boolean(panel || dialogue || cinematic || housingEditing);
+  const blocked = Boolean(panel || dialogue || cinematic || housingEditing || transition || passage);
   useEffect(() => {
     const reset = () => {
       pointerId.current = null;

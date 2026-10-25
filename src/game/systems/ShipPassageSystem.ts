@@ -1,40 +1,120 @@
 import {PORT_BY_ID,type Port} from '../../data/ports';
-import {SeaPassagePlanner,passageDuration,passagePoint} from './seaPassage';
 import {useGameStore} from '../../store/gameStore';
+import {saveGame} from '../../utils/save';
 import type {WorldScene} from '../scenes/WorldScene';
 import type {WorldGenerator} from './WorldGenerator';
 import type {WorldTrafficSystem,Vehicle} from './WorldTrafficSystem';
 import type {Vec2} from '../types';
+
+interface Voyage {
+  from:Port;to:Port;end:Vec2;elapsed:number;waiting:number;readyFrames:number;
+  phase:'departure'|'fading'|'arrival'|'revealing';vessel:Vehicle|null;landing:Vec2|null;
+}
+const DEPARTURE_MS=1800,DEPARTURE_DISTANCE=48,ARRIVAL_TIMEOUT_MS=20000;
+
+/** Only the harbor departure is shown. The hidden crossing does not generate
+ * an ocean graph or stream every intermediate chunk. */
 export class ShipPassageSystem {
- private readonly planner:SeaPassagePlanner;
- private voyage:{from:Port;to:Port;points:Vec2[];elapsed:number;duration:number;vessel:Vehicle}|null=null;
- private hudMs=0;
- constructor(private readonly scene:WorldScene,world:WorldGenerator,private readonly fleet:WorldTrafficSystem){this.planner=new SeaPassagePlanner(world);}
- get active(){return this.voyage!==null;}
- get safePosition(){return this.voyage?.from.landing;}
- begin(fromId:string,toId:string){
-  const from=PORT_BY_ID[fromId],to=PORT_BY_ID[toId];if(this.active||!from||!to||Math.hypot(this.scene.player.x-from.landing.x,this.scene.player.y-from.landing.y)>140)return false;
-  const points=this.planner.route(fromId,toId);if(points.length<2){this.scene.notify('This crew cannot find a safe passage today.');return false;}
-  const vessel=this.fleet.createVessel('passage-vessel',from.boat.x,from.boat.y,from.river?.8:1.25);
-  this.fleet.showPassenger(vessel);this.voyage={from,to,points,elapsed:0,duration:passageDuration(points),vessel};
-  const first=passagePoint(points,0);
-  this.fleet.positionVessel(vessel,first.x,first.y,first.dx,first.dy,false);
-  this.scene.cameras.main.stopFollow().centerOn(first.x,first.y-90);
-  this.scene.streamCinematicView();
-  this.scene.player.resetInput();this.scene.player.setVisible(false);this.scene.physics.world.pause();this.scene.cameras.main.stopFollow();
-  useGameStore.getState().hydrate({passage:{from:fromId,to:toId,progress:0},panel:null,harborPortId:null,passageRequest:null});return true;
- }
- update(delta:number){
-  const v=this.voyage;if(!v||delta<=0)return;v.elapsed+=Math.min(delta,100);const progress=Math.min(1,v.elapsed/v.duration),p=passagePoint(v.points,progress);
-  v.vessel.scale=v.from.river&&Math.hypot(p.x-v.from.boat.x,p.y-v.from.boat.y)<60000||v.to.river&&Math.hypot(p.x-v.to.boat.x,p.y-v.to.boat.y)<60000?.8:1.25;
-  this.fleet.positionVessel(v.vessel,p.x,p.y,p.dx,p.dy,delta>0);
-  this.scene.cameras.main.centerOn(p.x,p.y-90);this.scene.streamCinematicView();
-  this.hudMs+=delta;if(this.hudMs>200){this.hudMs=0;useGameStore.getState().hydrate({passage:{from:v.from.id,to:v.to.id,progress}});}
-  if(progress>=1){
-   this.fleet.releaseVessel(v.vessel);this.voyage=null;this.scene.landFromPassage(v.to.landing);
-   const store=useGameStore.getState();store.hydrate({passage:null});store.setStoryFlag('landed:'+v.to.id);
-   this.scene.notify('Arrived at '+v.to.name+'. '+v.to.description);
+  private voyage:Voyage|null=null;
+  private disposed=false;
+  constructor(private readonly scene:WorldScene,private readonly world:WorldGenerator,private readonly fleet:WorldTrafficSystem){}
+  get active(){return this.voyage!==null;}
+  get safePosition(){return this.voyage?.landing??this.voyage?.from.landing;}
+  begin(fromId:string,toId:string){
+    const from=PORT_BY_ID[fromId],to=PORT_BY_ID[toId],store=useGameStore.getState();
+    if(this.disposed||this.active||this.scene.screenTransition.active||!from||!to||from===to
+      ||this.scene.inInterior||this.scene.storyCombatActive||store.cinematic||store.pendingCinematic
+      ||!this.scene.player.active||!this.scene.player.visible
+      ||Math.hypot(this.scene.player.x-from.landing.x,this.scene.player.y-from.landing.y)>140)return false;
+    if(![from.boat.x,from.boat.y,to.landing.x,to.landing.y].every(Number.isFinite))return false;
+    let vessel:Vehicle|null=null;
+    try{
+      const end=this.departureEnd(from);
+      vessel=this.fleet.createVessel('passage-vessel',from.boat.x,from.boat.y,from.river?.8:1.25);
+      this.fleet.showPassenger(vessel);
+      this.voyage={from,to,end,elapsed:0,waiting:0,readyFrames:0,phase:'departure',vessel,landing:null};
+      const dx=end.x-from.boat.x,dy=end.y-from.boat.y;
+      this.fleet.positionVessel(vessel,from.boat.x,from.boat.y,dx,dy||(!dx?-1:0),false);
+      this.scene.player.resetInput();this.scene.player.setVisible(false);this.scene.physics.world.pause();
+      this.scene.cameras.main.stopFollow().centerOn(from.boat.x,from.boat.y-90);
+      this.scene.streamCinematicView(true,undefined,false);
+      store.hydrate({passage:{from:fromId,to:toId,progress:0},panel:null,harborPortId:null,passageRequest:null});
+      return true;
+    }catch(error){
+      if(this.voyage)this.recover(error);
+      else{if(vessel)this.fleet.releaseVessel(vessel);this.scene.notify('The boat could not depart. You remain at the dock.');}
+      console.warn('[passage] Departure could not start:',error);return false;
+    }
   }
- }
- destroy(){if(this.voyage)this.fleet.releaseVessel(this.voyage.vessel);this.voyage=null;useGameStore.getState().hydrate({passage:null});}
+  update(delta:number){
+    const v=this.voyage;if(!v||this.disposed||!Number.isFinite(delta)||delta<=0)return;
+    const step=Math.min(delta,100);
+    try{
+      if(v.phase==='departure'||v.phase==='fading'){
+        if(!v.vessel?.sprite.active)throw new Error('Passage boat was retired before departure finished');
+        v.elapsed=Math.min(DEPARTURE_MS,v.elapsed+step);
+        const t=v.elapsed/DEPARTURE_MS,dx=v.end.x-v.from.boat.x,dy=v.end.y-v.from.boat.y;
+        const x=v.from.boat.x+dx*t,y=v.from.boat.y+dy*t;
+        this.fleet.positionVessel(v.vessel,x,y,dx,dy||(!dx?-1:0),v.phase==='departure'&&(dx!==0||dy!==0));
+        this.scene.cameras.main.centerOn(x,y-90);this.scene.streamCinematicView(true,undefined,false);
+        if(v.phase==='departure'&&v.elapsed>=DEPARTURE_MS){
+          if(!this.scene.screenTransition.begin('sail',`Sailing to ${v.to.name}…`))throw new Error('Another transition is already active');
+          v.phase='fading';this.status(v,.3);
+        }
+        if(v.phase==='fading'&&this.scene.screenTransition.covered){
+          this.releaseBoat(v);v.phase='arrival';this.status(v,.6);
+          this.scene.preparePassageView(v.to.landing);
+        }
+      }else if(v.phase==='arrival'){
+        v.waiting+=step;
+        v.readyFrames=this.scene.preparePassageView(v.to.landing)?v.readyFrames+1:0;
+        if(v.readyFrames>=3){
+          const landing=this.scene.passageLanding(v.to.landing);
+          if(!landing)throw new Error('The destination dock has no safe landing');
+          v.landing=landing;this.scene.landFromPassage(landing,true);
+          useGameStore.getState().setStoryFlag('landed:'+v.to.id);
+          // Persist the validated dock, never the boat or an ocean coordinate.
+          saveGame();v.phase='revealing';this.status(v,.95);this.scene.screenTransition.reveal();
+        }else if(v.waiting>=ARRIVAL_TIMEOUT_MS)throw new Error('Destination preparation timed out');
+      }else if(!this.scene.screenTransition.active){
+        this.voyage=null;useGameStore.getState().hydrate({passage:null});
+        this.scene.player.resetInput();this.scene.physics.world.resume();
+        this.scene.notify('Arrived at '+v.to.name+'. '+v.to.description);
+      }
+    }catch(error){this.recover(error);}
+  }
+  private departureEnd(from:Port):Vec2{
+    const next=from.channel.find(p=>Number.isFinite(p.x)&&Number.isFinite(p.y)&&Math.hypot(p.x-from.boat.x,p.y-from.boat.y)>1);
+    if(!next)return {...from.boat};
+    const dx=next.x-from.boat.x,dy=next.y-from.boat.y,length=Math.hypot(dx,dy),distance=Math.min(DEPARTURE_DISTANCE,length);
+    let end={...from.boat};
+    for(let i=1;i<=8;i++){
+      const p={x:from.boat.x+dx/length*distance*i/8,y:from.boat.y+dy/length*distance*i/8};
+      if(this.world.getTerrainAt(p.x,p.y)!=='water')break;end=p;
+    }
+    return end;
+  }
+  private status(v:Voyage,progress:number){useGameStore.getState().hydrate({passage:{from:v.from.id,to:v.to.id,progress}});}
+  private releaseBoat(v:Voyage){const boat=v.vessel;v.vessel=null;if(boat)this.fleet.releaseVessel(boat);}
+  private recover(error:unknown){
+    const v=this.voyage;if(!v)return;
+    console.warn('[passage] Returning to a safe dock:',error);
+    try{this.releaseBoat(v);}catch(cleanup){console.warn('[passage] Boat cleanup:',cleanup);}
+    try{if(this.scene.player.active)this.scene.landFromPassage(v.landing??v.from.landing,true);}
+    catch(recovery){console.warn('[passage] Dock recovery:',recovery);}
+    finally{
+      this.voyage=null;this.scene.screenTransition.cancel();
+      useGameStore.getState().hydrate({passage:null,passageRequest:null});
+      if(this.scene.player.active){this.scene.player.setVisible(true);this.scene.player.resetInput();this.scene.physics.world.resume();}
+    }
+    this.scene.notify('The crossing was interrupted. You are back at a dock.');
+  }
+  destroy(){
+    this.disposed=true;const v=this.voyage;this.voyage=null;
+    try{if(v)this.releaseBoat(v);}finally{
+      if(v)this.scene.screenTransition.cancel();
+      useGameStore.getState().hydrate({passage:null,passageRequest:null});
+      if(v&&this.scene.player?.active){this.scene.player.setVisible(true);this.scene.player.resetInput();}
+    }
+  }
 }

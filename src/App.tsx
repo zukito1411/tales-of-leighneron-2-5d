@@ -14,6 +14,7 @@ import { LoreJournal } from './components/LoreJournal';
 import { CinematicPanel } from './components/CinematicPanel';
 import { HomeMenu } from './components/HomeMenu';
 import {HarborPanel} from './components/HarborPanel';
+import {ScreenTransition} from './components/ScreenTransition';
 import { mobileInput } from './game/input';
 import { useGameStore } from './store/gameStore';
 import {installUiInputGuard,noteUiTransition} from './utils/uiInputGuard';
@@ -88,10 +89,11 @@ export default function App() {
 
   useEffect(()=>{
     const dispose=installUiInputGuard(()=>{
-      const s=useGameStore.getState();return Boolean(s.panel||s.dialogue||s.cinematic);
+      const s=useGameStore.getState();return Boolean(s.panel||s.dialogue||s.cinematic||s.screenTransition||s.passage);
     });
     const unsubscribe=useGameStore.subscribe((next,previous)=>{
-      if(next.panel!==previous.panel||next.dialogue!==previous.dialogue||Boolean(next.cinematic)!==Boolean(previous.cinematic)){
+      if(next.panel!==previous.panel||next.dialogue!==previous.dialogue||Boolean(next.cinematic)!==Boolean(previous.cinematic)
+        ||Boolean(next.screenTransition)!==Boolean(previous.screenTransition)||Boolean(next.passage)!==Boolean(previous.passage)){
         noteUiTransition();mobileInput.reset();
       }
     });
@@ -176,7 +178,13 @@ export default function App() {
   };
 
   return (
-    <main className="game-shell" onPointerDown={event=>{
+    <main className="game-shell" onClickCapture={event=>{
+      const s=useGameStore.getState();
+      if(s.screenTransition||s.passage){event.preventDefault();event.stopPropagation();}
+    }} onKeyDownCapture={event=>{
+      const s=useGameStore.getState();
+      if((s.screenTransition||s.passage)&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();event.stopPropagation();}
+    }} onPointerDown={event=>{
       if(event.target instanceof Element&&event.target.closest('.overlay-backdrop,.dialogue-wrap,.cinematic-presentation'))event.stopPropagation();
     }} onPointerUp={event=>{
       if(event.target instanceof Element&&event.target.closest('.overlay-backdrop,.dialogue-wrap,.cinematic-presentation'))event.stopPropagation();
@@ -212,6 +220,7 @@ export default function App() {
         <HousingPanel />
         <TowerExitPanel />
         <TowerPracticePanel />
+        <ScreenTransition />
       </> : startupRecovering?<div className="game-loading" role="status" aria-live="polite">
         <TitleArtwork/><div className="game-loading-content"><p>Preparing your journey…</p></div>
       </div>:<HomeMenu canContinue={canContinue} message={menuMessage} onContinue={continueGame} onNewGame={startNewGame} />}

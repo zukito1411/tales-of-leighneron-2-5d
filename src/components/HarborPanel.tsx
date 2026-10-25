@@ -3,7 +3,7 @@ import {useGameStore} from '../store/gameStore';
 import '../harbor.css';
 export function HarborPanel(){
  const panel=useGameStore(s=>s.panel),id=useGameStore(s=>s.harborPortId),passage=useGameStore(s=>s.passage);
- if(passage)return <aside className="passage-status" role="status">Sailing to {PORT_BY_ID[passage.to]?.name ?? 'the destination'} <progress value={passage.progress} max={1}/><small>The captain is following the river and sea lanes. Menu pauses the voyage.</small></aside>;
+ if(passage)return <aside className="passage-status" role="status">{passage.progress<.5?'Leaving for ':'Arriving at '}{PORT_BY_ID[passage.to]?.name ?? 'the destination'} <progress value={passage.progress} max={1}/></aside>;
  if(panel!=='harbor'||!id)return null;const port=PORT_BY_ID[id];
  if(!port)return <div className="overlay-backdrop" role="dialog" aria-modal="true" aria-label="Harbor passage"><section className="panel pause-panel">
   <header><h2>Harbor unavailable</h2><button type="button" onClick={()=>useGameStore.getState().closePanel()}>Close</button></header>

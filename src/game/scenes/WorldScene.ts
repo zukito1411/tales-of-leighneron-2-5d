@@ -86,6 +86,7 @@ import {GroundShadowSystem} from '../systems/GroundShadowSystem';
 import {WorldTrafficSystem} from '../systems/WorldTrafficSystem';
 import {SpearProjectileSystem} from '../systems/SpearProjectileSystem';
 import {ShipPassageSystem} from '../systems/ShipPassageSystem';
+import {ScreenTransitionSystem} from '../systems/ScreenTransitionSystem';
 import {EnemySoundSystem,type EnemySoundCue} from '../systems/EnemySoundSystem';
 import {isPirateEnemy} from '../../data/pirateArt';
 import {WorldSpriteSystem,WORLD_SPRITE_OWNER} from '../systems/WorldSpriteSystem';
@@ -127,6 +128,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private spearProjectiles!:SpearProjectileSystem;
   private m14Art!:M14ArtResidency;
   private passage!:ShipPassageSystem;
+  readonly screenTransition=new ScreenTransitionSystem();
+  private restSession:{entryId:string;inn:boolean;committed:boolean;message:string}|null=null;
   private enemySounds!:EnemySoundSystem;
   private worldSprites!:WorldSpriteSystem;
   private wildlife!:AmbientWildlifeSystem;
@@ -173,7 +176,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   get presentationControlsEnabled(){
     const state=useGameStore.getState();
     return Boolean(this.player?.active&&this.focused&&!state.panel&&!state.dialogue&&!state.cinematic
-      &&!state.pendingCinematic&&!state.housingEditing&&!this.cinematicDirector?.active&&!this.passage?.active);
+      &&!state.pendingCinematic&&!state.housingEditing&&!this.cinematicDirector?.active&&!this.passage?.active&&!this.screenTransition.active&&!this.restSession);
   }
   get activeInteriorId(){return this.interiors?.currentEntry?.id??null;}
   get storyCombatActive(){return Boolean(this.storyEncounters?.active||this.dungeons?.fighting);}
@@ -276,29 +279,51 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const s=useGameStore.getState();
     const id=this.interiors.currentEntry?.id,home=housingFor(s.housing,id);
     if(!this.focused||!isPlayerHome(id)||!this.interiors.ready||!home.owned
-      ||!this.interiors.homeBedInReach()||this.cinematicDirector.active||this.storyCombatActive||s.panel||s.cinematic||s.dialogue||s.housingEditing)return;
-    if(!this.dayNight.sleepUntilMorning()){
+      ||!this.interiors.homeBedInReach()||this.restSession||this.screenTransition.active||this.passage.active
+      ||this.cinematicDirector.active||this.storyCombatActive||s.panel||s.cinematic||s.pendingCinematic||s.dialogue||s.housingEditing)return;
+    if(!innRestAvailable(this.dayNight.getHour()*60)){
       this.notify('You can sleep at home at night, from 18:00 until 06:00.');return;
     }
-    this.player.restoreRestVitals();this.player.resetInput();
-    this.syncState();this.cameras.main.flash(650,0,0,0);this.notify('You rest at home. Health and stamina restored; it is 06:00.');saveGame();
+    this.beginRest(id!,false,'You rest at home. Health and stamina restored; it is 06:00.');
   }
   restAtInn(){
     const store=useGameStore.getState(),entry=this.interiors.currentEntry;
-    if(!this.focused||!this.interiors.ready||entry?.profile!=='inn'||this.storyCombatActive
+    if(!this.focused||!this.interiors.ready||entry?.profile!=='inn'||!this.interiors.innBedInReach()||this.storyCombatActive
+      ||this.restSession||this.screenTransition.active||this.passage.active||store.housingEditing
       ||this.cinematicDirector.active||store.panel||store.dialogue||store.cinematic||store.pendingCinematic)return;
     if(!innRestAvailable(this.dayNight.getHour()*60)){
       this.notify('Inn beds are available at night, from 18:00 until 06:00.');return;
     }
     if(store.gold<INN_REST_COST){this.notify(`You need ${INN_REST_COST}G for a room until morning.`);return;}
-    if(!this.dayNight.sleepUntilMorning())return;
-    store.hydrate({gold:store.gold-INN_REST_COST});
-    this.player.restoreRestVitals();this.player.resetInput();
-    this.cameras.main.flash(650,0,0,0);
-    this.notify(`You slept at ${entry.name}. Health and stamina restored. It is now 06:00. Room: ${INN_REST_COST}G.`);
-    // The snapshot provider captures the authoritative clock and safe exterior
-    // position. This one-off save also persists payment without a new schema.
-    saveGame();
+    this.beginRest(entry.id,true,`You slept at ${entry.name}. Health and stamina restored. It is now 06:00. Room: ${INN_REST_COST}G.`);
+  }
+  private beginRest(entryId:string,inn:boolean,message:string){
+    if(!this.screenTransition.begin('sleep','Resting until morning…'))return;
+    this.restSession={entryId,inn,message,committed:false};
+    this.player.resetInput();this.targeting.clear();this.physics.world.pause();
+  }
+  private updateRestTransition(time:number){
+    const rest=this.restSession;if(!rest)return;
+    this.physics.world.pause();this.player.discardActions();this.enemySounds.pause(true);
+    this.interiors.update(time,0,true);this.dayNight.update(0,this.player.x,this.player.y);
+    if(this.screenTransition.covered&&!rest.committed){
+      const store=useGameStore.getState(),sameRoom=this.interiors.currentEntry?.id===rest.entryId;
+      const reachable=rest.inn?this.interiors.innBedInReach():this.interiors.homeBedInReach();
+      if(!sameRoom||!reachable||rest.inn&&store.gold<INN_REST_COST||!this.dayNight.sleepUntilMorning()){
+        this.restSession=null;this.screenTransition.reveal();
+        this.notify('You could not settle in for the night. No room payment was taken.');return;
+      }
+      rest.committed=true;
+      if(rest.inn)store.hydrate({gold:store.gold-INN_REST_COST});
+      this.player.restoreRestVitals();this.player.resetInput();
+      this.refreshWorldLighting();this.syncState();saveGame();
+      this.screenTransition.night();
+    }
+    if(this.screenTransition.morning)this.screenTransition.reveal();
+    if(!this.screenTransition.active){
+      this.restSession=null;this.player.resetInput();
+      if(rest.committed)this.notify(rest.message);
+    }
   }
   getCombatEnemies(){
     if(this.inInterior)return this.dungeons?.active?this.dungeons.enemies:[...this.enemies].filter(e=>this.storyEncounters.owns(e));
@@ -810,6 +835,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.scale.on('resize', this.updateCameraZoom, this);
     this.game.events.on(Phaser.Core.Events.BLUR, this.onBlur, this);
     this.game.events.on(Phaser.Core.Events.FOCUS, this.onFocus, this);
+    this.game.events.on(Phaser.Core.Events.HIDDEN, this.onBlur, this);
+    this.game.events.on(Phaser.Core.Events.VISIBLE, this.onFocus, this);
     setSaveSnapshotProvider(() => this.syncState());
     this.interiors=new InteriorSession(this);
     this.dungeons=new DungeonSystem(this);
@@ -902,8 +929,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       return; // No combat or movement runs during the transition frame.
     }
     const feedbackState=useGameStore.getState();
+    this.screenTransition.update(delta,!this.focused||Boolean(feedbackState.panel));
+    if(this.restSession){this.updateRestTransition(time);return;}
+    if(this.screenTransition.active&&!this.passage.active){
+      this.player.discardActions();this.physics.world.pause();return;
+    }
     this.weather.setMusicOverride(this.activeInteriorId===TOWER_ENTRY_ID?TOWER_MUSIC:null);
-    const feedbackBlocked=!this.focused||Boolean(feedbackState.panel||feedbackState.dialogue||feedbackState.cinematic||feedbackState.pendingCinematic||this.passage?.active||this.cinematicDirector?.active);
+    const feedbackBlocked=!this.focused||Boolean(feedbackState.panel||feedbackState.dialogue||feedbackState.cinematic||feedbackState.pendingCinematic||this.passage?.active||this.screenTransition.active||this.cinematicDirector?.active);
     this.levelUpFeedback?.update(delta,feedbackBlocked);
     this.roadLife?.update(delta,feedbackBlocked||this.inInterior||this.storyCombatActive);
     this.aliceCompanion?.update(time,delta,feedbackBlocked||Boolean(this.storyEncounters?.active));
@@ -1663,11 +1695,28 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   notify(message: string) {
     useGameStore.getState().showToast(message);
   }
-  landFromPassage(point:Vec2){
+  preparePassageView(point:Vec2){
+    this.cameras.main.stopFollow().centerOn(point.x,point.y);
+    return this.streamCinematicView(true,undefined,false);
+  }
+  passageLanding(point:Vec2):Vec2|null{
+    if(!Number.isFinite(point.x)||!Number.isFinite(point.y))return null;
+    const candidates=[point];
+    for(const radius of [32,64,96,144,192])for(let i=0;i<12;i++){
+      const angle=i*Math.PI/6;candidates.push({x:point.x+Math.cos(angle)*radius,y:point.y+Math.sin(angle)*radius});
+    }
+    return candidates.find(p=>p.x>=0&&p.y>=0&&p.x<WORLD_WIDTH&&p.y<WORLD_HEIGHT
+      &&this.worldGenerator.isWalkable(p.x,p.y)&&!this.isBlockedByBuilding(p.x,p.y)
+      &&!this.npcs.some(n=>n.active&&Math.hypot(n.x-p.x,n.y-p.y)<30))??null;
+  }
+  landFromPassage(point:Vec2,hold=false){
     this.chunkManager.update(point.x,point.y);this.contentManager.update(point.x,point.y);
-    (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);this.player.setVisible(true);this.player.resetInput();this.lastSafe={...point};
-    this.cameras.main.centerOn(point.x,point.y).startFollow(this.player, true, 1, 1);this.physics.world.resume();
-    this.targeting.clear();this.refreshWorldLighting();this.syncState();this.updateNavigation();saveGame();
+    (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);
+    this.player.setVisible(true).setAlpha(1).setDepth(point.y);this.player.resetInput();this.lastSafe={...point};
+    this.cameras.main.centerOn(point.x,point.y).startFollow(this.player,true,1,1);
+    if(hold)this.physics.world.pause();else this.physics.world.resume();
+    this.targeting.clear();this.refreshWorldLighting();this.syncState();this.updateNavigation();
+    if(!hold)saveGame();
   }
 
   countEnemies() {
@@ -1868,8 +1917,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     ],true);
   }
 
-  private onBlur() { this.focused = false; this.panelActions.clear(); this.player?.resetInput();this.volcanicTremor?.pause();this.wildlife?.reset(); }
-  private onFocus() { this.focused = true; this.player?.resetInput(); }
+  private onBlur() { this.focused = false;this.screenTransition.setPaused(true);this.panelActions.clear();this.player?.resetInput();this.volcanicTremor?.pause();this.wildlife?.reset(); }
+  private onFocus() { this.focused = true;this.screenTransition.setPaused(false);this.player?.resetInput(); }
 
   private createContentActor(definition: ContentDefinition, state: ContentState): ContentActor {
     const { x, y } = definition.kind==='interactable'&&definition.portId
@@ -2213,6 +2262,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const store = useGameStore.getState();
     const actions = new Set(this.panelActions);
     this.panelActions.clear();
+    if(this.screenTransition.active||this.passage.active||this.restSession){this.player.discardActions();return;}
     if(store.cinematic){if(actions.has('pause'))store.requestCinematicSkip();return;}
     if (store.dialogue) {
       this.player.discardActions();
@@ -2277,6 +2327,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.scale.off('resize', this.updateCameraZoom, this);
     this.game.events.off(Phaser.Core.Events.BLUR, this.onBlur, this);
     this.game.events.off(Phaser.Core.Events.FOCUS, this.onFocus, this);
+    this.game.events.off(Phaser.Core.Events.HIDDEN, this.onBlur, this);
+    this.game.events.off(Phaser.Core.Events.VISIBLE, this.onFocus, this);
     release('Alice companion',()=>this.aliceCompanion?.destroy());
     release('road life',()=>this.roadLife?.destroy());
     release('level-up feedback',()=>this.levelUpFeedback?.destroy());
@@ -2289,6 +2341,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.encounters.clear();
     release('volcanic tremor',()=>this.volcanicTremor?.destroy());
     release('ship passage',()=>this.passage?.destroy());
+    release('screen transition',()=>this.screenTransition.destroy());this.restSession=null;
     release('targeting',()=>this.targeting?.clear());
     release('boss display',()=>useGameStore.getState().setBossEncounter(null));
     mobileInput.reset();

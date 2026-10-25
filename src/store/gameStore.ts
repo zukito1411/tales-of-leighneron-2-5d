@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type {ScreenTransitionState} from '../data/screenTransition';
 import {HOME_PRICE,FURNITURE_BY_ART,emptyHousing,parseHousing,housingFor,withHome,allHomeItems,type PlayerHousing,type HomeItem} from '../data/housing';
 import {PLAYER_HOME_BY_ID} from '../data/playerHomes';
 import type { ContentWorldState, NavigationState, QuestObjective, QuestRuntimeState, RegionId } from '../game/types';
@@ -144,6 +145,7 @@ export interface GameState {
   harborPortId:string|null;
   passageRequest:string|null;
   passage:{from:string;to:string;progress:number}|null;
+  screenTransition:ScreenTransitionState|null;
   panel: Panel;
   dialogue: DialogueState | null;
   toast: string | null;
@@ -243,6 +245,7 @@ const baseState = () => ({
   minuteOfDay: 8 * 60,
   weatherLabel:'Clear skies',weatherAudio:true,
   harborPortId:null as string|null,passageRequest:null as string|null,passage:null as GameState['passage'],
+  screenTransition:null as ScreenTransitionState|null,
   panel: null as Panel,
   dialogue: null as DialogueState | null,
   toast: 'Welcome to Mernodna.',
@@ -523,7 +526,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     if(contractBoardCycle(day)===contractBoardCycle(state.day))return {day,minuteOfDay};
     return {day,minuteOfDay,contracts:expireClaimedContracts(state.contracts,day)};
   }),
-  openPanel: (panel) => {if(!get().cinematic)set({ panel });},
+  openPanel: (panel) => {if(!get().cinematic&&!get().screenTransition&&!get().passage)set({ panel });},
   closePanel: () => set({ panel: null,towerExitRequest:null,towerPracticeRequest:null,contractBoardTownId:null,travelOriginTownId:null,travelRequest:null,travelRequestSource:null }),
   openContractBoard:townId=>set(state=>Object.hasOwn(TOWN_BY_ID,townId)&&!state.panel&&!state.dialogue&&!state.cinematic
     ?{panel:'contracts',contractBoardTownId:townId,aliceRemark:null}:{}),

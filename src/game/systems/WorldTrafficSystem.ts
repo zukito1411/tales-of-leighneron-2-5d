@@ -74,12 +74,14 @@ export class WorldTrafficSystem {
   }
   private create(route:TrafficRoute,x:number,y:number):Vehicle{
     const sprite=this.scene.add.sprite(x,y,'traffic-'+route.kind,0).setName(route.id),vehicle:Vehicle={route,sprite,ground:{x,y,depth:y,presentationElevation:0}};
+    try{
       sprite.setScale(BOAT_SCALE).setOrigin(.5,364/384);
       this.shadows.register(sprite,false,{projection:.35,contactScale:.8});
       vehicle.helmsman=this.scene.add.sprite(x,y,'npc_adventurer_idle',0).setName('helmsman:'+route.id);
       vehicle.deckShadows=[this.scene.add.image(x,y,'vehicle-deck-shadow').setDisplaySize(30,12).setName('crew-shadow:'+route.id)];
       vehicle.rail=this.scene.add.sprite(x,y,'traffic-boat-rail',0).setScale(BOAT_SCALE).setOrigin(.5,364/384).setName('boat-rail:'+route.id);
-      vehicle.wake=[0,1].map(i=>this.scene.add.sprite(x,y,'water-foam',0).setDepth(-970).setAlpha(.28-i*.08).setName('wake:'+route.id+':'+i));
+      vehicle.wake=[];
+      for(const i of [0,1])vehicle.wake.push(this.scene.add.sprite(x,y,'water-foam',0).setDepth(-970).setAlpha(.28-i*.08).setName('wake:'+route.id+':'+i));
       this.attachBoatLayer(vehicle,sprite,0);
       if(this.scene.game.registry.get('presentation')==='three-2.5d'){
         sprite.setData(PRESENTATION_HINT,{plane:'upright',furniture:coastalBoatShape()} satisfies PresentationHint);
@@ -89,6 +91,7 @@ export class WorldTrafficSystem {
       for(const shadow of vehicle.deckShadows)this.attachBoatLayer(vehicle,shadow,.4);
       for(const wake of vehicle.wake)onGround(wake,.02);
     return vehicle;
+    }catch(error){this.release(vehicle);throw error;}
   }
   createVessel(id:string,x:number,y:number,scale=BOAT_SCALE){
     const vehicle=this.create({id,kind:'boat',points:[{x,y},{x,y:y+1}],length:1,speed:1,phase:0},x,y);
@@ -156,10 +159,12 @@ export class WorldTrafficSystem {
     (object.getData(PRESENTATION_HINT) as PresentationHint).depthOffset=depth;
   }
   private release(vehicle:Vehicle){
-    vehicle.sprite.destroy();vehicle.helmsman?.destroy();vehicle.rail?.destroy();
-    vehicle.wake?.forEach(wake=>wake.destroy());
-    vehicle.passenger?.destroy();
-    vehicle.deckShadows?.forEach(shadow=>shadow.destroy());
+    // Partial creation, streamed retirement and shutdown may share a vessel.
+    const objects=[vehicle.sprite,vehicle.helmsman,vehicle.rail,vehicle.passenger,
+      ...(vehicle.wake??[]),...(vehicle.deckShadows??[])];
+    for(const object of objects)if(object?.scene){
+      try{object.destroy();}catch(error){console.warn('[boats] Could not retire an attachment:',error);}
+    }
   }
   destroy(){for(const vehicle of this.active.values())this.release(vehicle);this.active.clear();this.sea.clear();}
 }

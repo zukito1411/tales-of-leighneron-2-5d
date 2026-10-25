@@ -644,6 +644,7 @@ export class InteriorSession {
     return [{x,y:r.y-18},{x,y:r.y+r.height+18},{x:r.x-18,y},{x:r.x+r.width+18,y}]
       .some(point=>this.bedReachable(this.localPoint(point)));
   }
+  innBedInReach(){return this.ready&&this.innBeds.some(point=>this.bedReachable(point));}
   homeBedInReach(){
     return isPlayerHome(this.entry?.id)&&housingFor(useGameStore.getState().housing,this.entry?.id).owned
       &&Boolean(this.homeItems?.some(item=>this.homeBedReachable(item)));
