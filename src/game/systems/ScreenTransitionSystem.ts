@@ -11,10 +11,10 @@ export class ScreenTransitionSystem {
   get active(){return this.state!==null;}
   get covered(){return this.state?.phase==='covered';}
   get morning(){return this.state?.phase==='morning';}
-  begin(kind:ScreenTransitionKind,label:string,covered=false){
+  begin(kind:ScreenTransitionKind,label:string,covered=false,caption?:string){
     if(this.active)return false;
     this.elapsed=0;
-    this.state={id:++nextTransitionId,kind,phase:covered?'covered':'fade-out',label,
+    this.state={id:++nextTransitionId,kind,phase:covered?'covered':'fade-out',label,caption,
       duration:this.reduced.matches?180:550,nightDuration:this.reduced.matches?700:2200,paused:false};
     this.publish();return true;
   }
@@ -30,6 +30,10 @@ export class ScreenTransitionSystem {
   }
   setPaused(paused:boolean){
     if(this.state&&this.state.paused!==paused){this.state.paused=paused;this.publish();}
+  }
+  setLabel(label:string,caption?:string){
+    if(!this.state||this.state.label===label&&this.state.caption===caption)return;
+    this.state={...this.state,label,caption};this.publish();
   }
   night(){if(this.covered)this.phase('night',this.state!.nightDuration);}
   reveal(){if(this.state&&this.state.phase!=='fade-in')this.phase('fade-in',this.reduced.matches?200:650);}

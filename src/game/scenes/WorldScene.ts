@@ -36,6 +36,7 @@ import { NPCS, NPC_BY_ID } from '../../data/npcs';
 import {npcWorldPosition,npcEscortArrival} from '../../data/npcPositions';
 import {npcMayPatrol,npcPersonalSpace,npcStandingOffRoad} from '../systems/npcPlacement';
 import { TOWN_BY_ID } from '../../data/towns';
+import {REGION_BY_ID} from '../../data/regions';
 import {nearestRespawnTown,respawnArrivalCandidates} from '../systems/respawnLocation';
 import { ROAD_ROUTES } from '../../data/roadRoutes';
 import { TOWN_SHRINE_BY_ID } from '../../data/townShrines';
@@ -1713,9 +1714,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   retryArrivalPreparation(){this.chunkManager.recoverPreparation();}
   /** Shared covered readiness gate for shrine jumps, respawns and room exits.
    * Boat crossings use the same preparePassageView gate before revealing. */
-  coverWorldArrival(point:Vec2,safe:Vec2=point,validate=false){
+  coverWorldArrival(point:Vec2,safe:Vec2=point,validate=false,caption?:string){
     if(this.shuttingDown||this.inInterior||this.cinematicDirector?.active||this.passage?.active)return false;
-    if(!this.arrivalView&&!this.screenTransition.begin('travel','Preparing the area…',true))return false;
+    const region=this.worldGenerator.getRegionAt(point.x,point.y);
+    const location=this.worldGenerator.getTownAt(point.x,point.y)?.name
+      ??(region==='dead-sea'?'The Dead Sea':REGION_BY_ID[region].name);
+    if(!this.arrivalView&&!this.screenTransition.begin('travel',location,true,caption))return false;
+    this.screenTransition.setLabel(location,caption);
     this.arrivalView={point:{x:point.x,y:point.y},safe:{x:safe.x,y:safe.y},validate,elapsed:0,readyFrames:0,
       recovering:false,phase:'loading'};
     this.player.resetInput();this.targeting.clear();this.spearProjectiles.clear();this.physics.world.pause();
@@ -2228,7 +2233,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.notify('This shrine arrival is obstructed. Try again shortly.');
       return;
     }
-    if(!this.coverWorldArrival(landing,departure,true))return;
+    if(!this.coverWorldArrival(landing,departure,true,'Shrine travel'))return;
     this.spearProjectiles.clear();
     this.playEffect('teleport',departure.x,departure.y);
     (this.player.body as Phaser.Physics.Arcade.Body).reset(landing.x,landing.y);

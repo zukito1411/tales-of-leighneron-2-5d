@@ -58,7 +58,7 @@ export class ShipPassageSystem {
         this.fleet.positionVessel(v.vessel,x,y,dx,dy||(!dx?-1:0),v.phase==='departure'&&(dx!==0||dy!==0));
         this.scene.cameras.main.centerOn(x,y-90);this.scene.streamCinematicView(true,undefined,false);
         if(v.phase==='departure'&&v.elapsed>=DEPARTURE_MS){
-          if(!this.scene.screenTransition.begin('sail',`Sailing to ${v.to.name}…`))throw new Error('Another transition is already active');
+          if(!this.scene.screenTransition.begin('sail',v.to.name,false,'At sea'))throw new Error('Another transition is already active');
           v.phase='fading';this.status(v,.3);
         }
         if(v.phase==='fading'&&this.scene.screenTransition.covered){

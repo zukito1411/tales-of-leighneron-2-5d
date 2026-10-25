@@ -1,24 +1,40 @@
 .journey-screen{position:fixed;inset:0;z-index:10000;background:#03050a;color:#eee0bd;pointer-events:auto;touch-action:none;overflow:hidden;display:grid;place-items:center;isolation:isolate}
 .journey-screen--fade-out{animation:journey-darken var(--transition-duration) ease-in both}
 .journey-screen--fade-in{animation:journey-reveal var(--transition-duration) ease-out both}
-.journey-screen__label{margin:0;padding:24px;text-align:center;font:clamp(17px,2.6vw,24px)/1.5 Georgia,serif;opacity:.8}
-.journey-screen--fade-out .journey-screen__label{visibility:hidden}
-.rest-night{position:absolute;inset:0;background:#090f25;overflow:hidden}
+.journey-screen__caption{position:relative;width:min(88vw,780px);box-sizing:border-box;padding:24px 0;text-align:center}
+.journey-screen__route{margin:0 0 16px;color:#b7a47a;font:clamp(11px,2vmin,14px)/1.5 system-ui,sans-serif;letter-spacing:.2em;text-transform:uppercase}
+.journey-screen__destination{margin:0;text-wrap:balance;overflow-wrap:break-word;font:400 clamp(28px,6vmin,54px)/1.2 Georgia,serif;letter-spacing:.025em}
+.journey-screen__rule{width:min(64vw,320px);height:1px;margin:26px auto 0;background:linear-gradient(90deg,transparent,#a28b56,transparent);opacity:.65}
+.journey-screen__rest-label{font:clamp(17px,2.6vw,24px)/1.5 Georgia,serif;opacity:.8}
+.journey-screen--fade-out .journey-screen__caption{visibility:hidden}
+.rest-night{position:absolute;inset:0;background:linear-gradient(#060a18,#111e38 65%,#253451);overflow:hidden}
 .rest-night>*{animation-duration:var(--night-duration);animation-timing-function:ease-in-out;animation-fill-mode:both;animation-play-state:inherit}
-.rest-night__dawn{position:absolute;inset:0;background:linear-gradient(#527f9b 0%,#9eaeac 35%,#edbd86 65%,#9b6f53 100%);animation-name:rest-dawn}
-.rest-night__stars{position:absolute;inset:0;background:radial-gradient(circle at 18% 21%,#e1ecff 0 1px,transparent 2px),radial-gradient(circle at 68% 14%,#e1ecff 0 1px,transparent 2px),radial-gradient(circle at 39% 31%,#e1ecff 0 1px,transparent 2px),radial-gradient(circle at 81% 32%,#e1ecff 0 1px,transparent 2px),radial-gradient(circle at 30% 13%,#e1ecff 0 1px,transparent 2px),radial-gradient(circle at 57% 27%,#e1ecff 0 1px,transparent 2px);animation-name:rest-stars}
-.rest-night__moon,.rest-night__sun{position:absolute;left:calc(50% - clamp(24px,5vw,44px));width:clamp(48px,10vw,88px);aspect-ratio:1;border-radius:50%}
-.rest-night__moon{top:20%;background:#e5e3c5;box-shadow:inset -16px -5px 0 0 #090f25;animation-name:rest-moonset}
-.rest-night__sun{top:68%;background:#ffe4a3;box-shadow:0 0 45px #ffe4a326;animation-name:rest-sunrise}
-.rest-night__horizon{position:absolute;inset:65% 0 0;background:#182126;clip-path:polygon(0 8%,15% 4%,31% 10%,52% 2%,70% 7%,88% 3%,100% 9%,100% 100%,0 100%)}
-.rest-night__caption{position:absolute;inset:76% 20px auto;text-align:center;display:grid;gap:8px;font:clamp(19px,3vw,27px)/1.3 Georgia,serif;animation-name:rest-morning}
-.rest-night__caption strong{font:15px/1.5 system-ui,sans-serif;letter-spacing:.15em;font-weight:400}
+.rest-night__dawn{position:absolute;inset:0;background:linear-gradient(#476e98 0%,#9cb9c6 40%,#e4be98 72%,#ca8f65 100%);animation-name:rest-dawn}
+/* The same untouched 2x2 sky atlas used by GpuSky: clouds above, sun/moon below. */
+.rest-art{display:block;position:absolute;aspect-ratio:1;overflow:hidden;pointer-events:none}
+.rest-art img{position:absolute;display:block;width:200%;height:200%;max-width:none;user-select:none}
+.rest-art--sun img{left:0;top:-100%}
+.rest-art--moon img{left:-100%;top:-100%}
+.rest-art--cloud img{left:0;top:0}
+.rest-art--cloud-bank img{left:-100%;top:0}
+.rest-night__moon,.rest-night__sun{left:0;right:0;margin-inline:auto;width:clamp(200px,44vmin,380px)}
+.rest-night__moon{top:12%;animation-name:rest-moonset}
+.rest-night__sun{top:38%;animation-name:rest-sunrise}
+.rest-night__clouds{position:absolute;inset:0;animation-name:rest-cloud-light}
+.rest-night__cloud-left,.rest-night__cloud-right{bottom:-35vmin;width:clamp(400px,100vmin,900px)}
+.rest-night__cloud-left{left:-8vw}
+.rest-night__cloud-right{right:-10vw}
+.rest-night__shade{position:absolute;inset:0;background:linear-gradient(transparent 54%,#03050a55 76%,#03050a 100%)}
+.rest-night__caption{position:absolute;inset:76% 20px auto;text-align:center;display:grid;gap:10px;color:#f4e6c8;text-shadow:0 2px 12px #03050a;font:clamp(25px,4vmin,38px)/1.3 Georgia,serif;letter-spacing:.025em;animation-name:rest-morning}
+.rest-night__caption strong{font:13px/1.5 system-ui,sans-serif;letter-spacing:.2em;font-weight:400;color:#c9b991}
+.rest-night--waiting{visibility:hidden}
+.rest-night--waiting>*{animation-name:none}
 .rest-night--complete>*{animation-delay:calc(-1 * var(--night-duration))}
 @keyframes journey-darken{from{opacity:0}to{opacity:1}}
 @keyframes journey-reveal{from{opacity:1}to{opacity:0}}
-@keyframes rest-dawn{0%,37%{opacity:0}80%,100%{opacity:1}}
-@keyframes rest-stars{0%,22%{opacity:.8}55%,100%{opacity:0}}
-@keyframes rest-moonset{0%{transform:translateY(0);opacity:1}47%,100%{transform:translateY(53vh);opacity:0}}
-@keyframes rest-sunrise{0%,37%{transform:translateY(12vh);opacity:0}90%,100%{transform:translateY(-24vh);opacity:1}}
+@keyframes rest-dawn{0%,37%{opacity:0}85%,100%{opacity:1}}
+@keyframes rest-moonset{0%{transform:translateY(0);opacity:1}47%,100%{transform:translateY(38vh);opacity:0}}
+@keyframes rest-sunrise{0%,37%{transform:translateY(40vh);opacity:0}90%,100%{transform:translateY(-4vh);opacity:1}}
+@keyframes rest-cloud-light{0%,22%{opacity:.16}90%,100%{opacity:.85}}
 @keyframes rest-morning{0%,65%{opacity:0}100%{opacity:1}}
-@media(prefers-reduced-motion:reduce){.rest-night__moon{animation-name:rest-stars}.rest-night__sun{top:38%;animation-name:rest-dawn}}
+@media(prefers-reduced-motion:reduce){.rest-night__moon{animation-name:rest-moon-fade}.rest-night__sun{animation-name:rest-dawn}@keyframes rest-moon-fade{0%,22%{opacity:1}55%,100%{opacity:0}}}
