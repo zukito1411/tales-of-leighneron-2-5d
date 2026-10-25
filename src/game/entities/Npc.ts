@@ -564,6 +564,23 @@ export class Npc extends DepthSortedSprite {
 
   private playDirection(_x: number, _y: number, walking: boolean) {
     const combat=this.combatProfile;
+    if(this.regionalModel!==undefined){
+      // Regional portraits have their own identity. Generic family side idles
+      // belong to a different actor and must never override these residents.
+      if(!walking)this.walkDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
+      if(walking&&combat?.walkRows&&this.canStoryWalk){
+        const body=this.body as Phaser.Physics.Arcade.Body;
+        body.setImmovable(false);body.pushable=true;
+        this.walkDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.walkDirection);
+        this.presentTexture(combat.texture,artScale(combat.texture));
+        const key=npcCombatKey(combat,'walk',this.walkDirection),previous=this.anims.currentAnim?.key;
+        const preserve=this.anims.isPlaying&&previous!==key&&previous?.startsWith(`npc-combat:${combat.id}:walk:`);
+        const progress=preserve?this.anims.getProgress():0;
+        this.anims.play(key,true);if(preserve)this.anims.setProgress(progress);
+        this.anims.timeScale=strideRate(body.velocity.length(),60);return;
+      }
+      presentCitizen(this,this.regionalModel);return;
+    }
     if(!walking){
       this.walkDirection=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
       const body=this.body as Phaser.Physics.Arcade.Body;body.setImmovable(true);body.pushable=false;
@@ -581,20 +598,6 @@ export class Npc extends DepthSortedSprite {
           this.presentTexture(texture,scale);this.anims.play(animation,true);this.anims.timeScale=1;return;
         }
       }
-    }
-    if(this.regionalModel!==undefined){
-      if(walking&&combat?.walkRows&&this.canStoryWalk){
-        const body=this.body as Phaser.Physics.Arcade.Body;
-        body.setImmovable(false);body.pushable=true;
-        this.walkDirection=actorViewTravel(this.scene,body.velocity.x,body.velocity.y,this.walkDirection);
-        this.presentTexture(combat.texture,artScale(combat.texture));
-        const key=npcCombatKey(combat,'walk',this.walkDirection),previous=this.anims.currentAnim?.key;
-        const preserve=this.anims.isPlaying&&previous!==key&&previous?.startsWith(`npc-combat:${combat.id}:walk:`);
-        const progress=preserve?this.anims.getProgress():0;
-        this.anims.play(key,true);if(preserve)this.anims.setProgress(progress);
-        this.anims.timeScale=strideRate(body.velocity.length(),60);return;
-      }
-      presentCitizen(this,this.regionalModel);return;
     }
     const body = this.body as Phaser.Physics.Arcade.Body;
     const speed = body.velocity.length();
