@@ -1,5 +1,8 @@
 node_modules/
 dist/
+# Generated Windows desktop builds and executables
+/windows-release/
+*.exe
 test-results/
 .asset-review/
 playwright-report/
