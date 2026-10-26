@@ -28,7 +28,7 @@ export class StreamVisibility {
   ground(left:number,top:number,right:number,bottom:number){
     return this.intersects(left,top,right,bottom,256);
   }
-  image(image:Phaser.GameObjects.Image){
+  image(image:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite){
     const w=Math.abs(image.displayWidth),h=Math.abs(image.displayHeight),key=image.texture.key;
     if(key.startsWith('chunk:')||key==='shared-ocean-chunk')
       return this.intersects(image.x-image.originX*w,image.y-image.originY*h,image.x+(1-image.originX)*w,image.y+(1-image.originY)*h,256);

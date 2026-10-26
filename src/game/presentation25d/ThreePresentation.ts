@@ -1,3 +1,4 @@
+import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
 import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
 import {PAINTED_MODEL_ATLASES} from './PaintedMaterials';
 import {walkSurfaceHeight} from './WalkSurface';
@@ -56,6 +57,7 @@ interface StaticPacket {
   frame:Phaser.Textures.Frame;hint:PresentationHint|undefined;source:Phaser.Textures.TextureSource;texture:Texture;
   x:number;y:number;scaleX:number;scaleY:number;rotation:number;originX:number;originY:number;depth:number;
   alpha:number;flipX:boolean;flipY:boolean;fillTint:boolean;blendMode:Phaser.GameObjects.Image['blendMode'];mask:Phaser.GameObjects.Image['mask'];billboard:boolean;ground:boolean;interior:boolean;key:string;
+  modelState?:ModelState;backDepth:number;furniture?:FurnitureShape;heightLift:number;
   matrix:Matrix4;rect:LocalRect;uv:Float64Array;colors:Uint32Array;repeat?:Float64Array;
 }
 // Phaser 3.90 exposes these fields at runtime but omits them from its declarations.
@@ -92,7 +94,8 @@ export class ThreePresentation {
   private timingFrame=-1;
   private readonly billboardRight={value:new Vector2(1,0)};
   private readonly neutralModel=new Matrix4();
-  private readonly staticPackets=new WeakMap<Phaser.GameObjects.Image,StaticPacket>();
+  private staticModelHits=0;private staticModelBuilds=0;
+  private readonly staticPackets=new WeakMap<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,StaticPacket>();
   private readonly world=new Scene();
   private readonly background=new Scene();
   private readonly screen=new Scene();
@@ -210,7 +213,7 @@ export class ThreePresentation {
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
     this.preparePrograms(this.shaderWarmup.ready);
     bindResourcePreparation(game,{
-      request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source),
+      request:source=>{this.textures.get(source,this.frame);},warm:source=>this.textures.prefetch(source,this.frame),ready:source=>this.textures.ready(source),
       viewReady:(scene,point)=>this.programsReady&&!this.contextLost&&this.presentedScene===scene
         &&Math.hypot(this.orbit.focusGround.x-point.x,this.orbit.focusGround.y-point.y)<1
         &&(!this.heightEnabled||this.elevation.readyAt(point)),
@@ -395,7 +398,8 @@ export class ThreePresentation {
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
-      gpuTextures:this.renderer.info.memory.textures,textureCache,stream};
+      gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
+      staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds},shadowModels:this.gpuShadows.stats()};
     this.game.registry.set('presentationPerf',result);
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
@@ -409,6 +413,8 @@ export class ThreePresentation {
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
         +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
           +' | cold '+textureCache.coldCreates+' | evict '+textureCache.evictions+'\n'
+        +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
+          +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds+'\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
@@ -452,9 +458,9 @@ export class ThreePresentation {
     const houseVolume=Boolean(house)&&!hint?.overlay;
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
-    const staticImage=object instanceof Phaser.GameObjects.Image&&staticSpatialIndex(object.scene).has(object)
-      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!house&&!furniture&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset&&!hint?.combat
-      &&!object.isCropped&&(plane==='ground'||plane==='upright'&&!object.input?.enabled);
+    const staticImage=(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite&&Boolean(house||furniture))&&staticSpatialIndex(object.scene).has(object)
+      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset&&!hint?.combat
+      &&!object.isCropped&&(plane==='ground'||plane==='upright'&&(Boolean(house||furniture)||!object.input?.enabled));
     if(staticImage&&this.collectStatic(object,camera,alpha,hint))return;
     // Conservative early culling. The old code rasterized offscreen Graphics
     // and calculated matrices/elevation for offscreen sprites before inView().
@@ -665,7 +671,7 @@ export class ThreePresentation {
       this.model.set(rx*span,0,-rz*thickness,anchorX,0,height,0,(this.interior?0:anchorHeight)+height/2,
         rz*span,0,rx*thickness,anchorY,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0,staticImage&&plane==='upright'?anchorHeight:undefined))return;
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0,staticImage&&!house&&!furniture&&plane==='upright'?anchorHeight:undefined))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -690,7 +696,7 @@ export class ThreePresentation {
     const mask=this.rectangularMask(object);
     if(source)texture=this.textures.get(source,this.frame,object instanceof Phaser.GameObjects.Text?object:undefined);
     if(!texture)return;
-    const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
+    const billboard=staticImage&&!house&&!furniture&&plane==='upright'&&!object.input?.enabled;
     const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
@@ -707,12 +713,17 @@ export class ThreePresentation {
       repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=anchorHeight;repeat[3]=0;
     }
     batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
-    if(staticImage&&source)this.staticPackets.set(object,{
+    if(staticImage&&source){
+      if(houseVolume||furnitureVolume)this.staticModelBuilds++;
+      this.staticPackets.set(object,{
       frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
       rotation:object.rotation,originX:object.originX,originY:object.originY,depth:object.depth,
       alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:followsTerrain,interior:this.interior,key,
+      modelState:houseVolume||furnitureVolume?captureModelState(object,hint):undefined,
+      backDepth:volumeDepth,furniture:furnitureVolume?furniture:undefined,heightLift:houseVolume?house?.floorLift??0:0,
       matrix:submitted.clone(),rect:{...rect},uv:new Float64Array(uv),colors:new Uint32Array(colors),repeat:repeat?new Float64Array(repeat):undefined,
-    });
+      });
+    }
     camera.addToRenderList(object);
   }
 
@@ -754,21 +765,23 @@ export class ThreePresentation {
     for(let column=0;column<3;column++){const i=column*4,a=e[i],b=e[i+2];e[i]=a*c+b*s;e[i+2]=-a*s+b*c;}
     const a=e[12]-x,b=e[14]-z;e[12]=x+a*c+b*s;e[14]=z-a*s+b*c;
   }
-  private collectStatic(object:Phaser.GameObjects.Image,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined){
+  private collectStatic(object:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined){
     const packet=this.staticPackets.get(object);
     if(!packet||packet.billboard&&object.input?.enabled||packet.frame!==object.frame||packet.hint!==hint||packet.interior!==this.interior
       ||packet.x!==object.x||packet.y!==object.y||packet.scaleX!==object.scaleX||packet.scaleY!==object.scaleY
       ||packet.flipX!==object.flipX||packet.flipY!==object.flipY||packet.fillTint!==object.tintFill||packet.blendMode!==object.blendMode||packet.mask!==object.mask
       ||packet.rotation!==object.rotation||packet.originX!==object.originX||packet.originY!==object.originY||packet.depth!==object.depth
+      ||packet.modelState&&!modelStateMatches(packet.modelState,object,hint,false)
       ||packet.colors[0]!==object.tintTopLeft||packet.colors[1]!==object.tintTopRight||packet.colors[2]!==object.tintBottomLeft||packet.colors[3]!==object.tintBottomRight)return false;
     this.model.copy(packet.matrix);if(packet.billboard)this.rotateModel(this.model,packet.x,packet.y,this.orbit.yaw);
-    if(!this.inView(packet.ground,0,undefined,false,0,packet.billboard?packet.repeat?.[2]:undefined))return true;
+    if(!this.inView(packet.ground,packet.backDepth,packet.furniture,false,packet.heightLift,packet.billboard?packet.repeat?.[2]:undefined))return true;
     if(packet.billboard&&object.getData('presentation25dPlayerVisual')!==true){
       const b=this.projectedBounds;if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
     }
     const batch=this.batches.get(packet.key),texture=this.textures.get(packet.source,this.frame);
     if(!batch||texture!==packet.texture||packet.alpha!==alpha*camera.alpha)return false;
     batch.add(packet.matrix,packet.uv,packet.colors,packet.alpha,object,packet.rect,this.frame,packet.repeat);
+    if(packet.modelState)this.staticModelHits++;
     camera.addToRenderList(object);return true;
   }
 

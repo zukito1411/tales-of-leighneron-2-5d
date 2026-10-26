@@ -187,7 +187,7 @@ export class WorldSpriteSystem {
         }
       }
     }
-    if(actor instanceof Phaser.GameObjects.Image)markStaticPresentation(actor);
+    if(actor instanceof Phaser.GameObjects.Image||house||furniture)markStaticPresentation(actor);
     actor.once('presentation-retired',()=>{for(const layer of layers)layer.setVisible(false);});
     this.owned.set(actor,owned);
     actor.once('destroy',()=>this.release(actor));

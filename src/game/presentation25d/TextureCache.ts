@@ -23,7 +23,9 @@ export class TextureCache {
   private uploads=0;private uploadMs=0;
   private coldCreates=0;
   private evictions=0;
-  stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs};}
+  private prefetchPaused=false;
+  private prefetchSuppressed=0;
+  stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed};}
   get(source:Phaser.Textures.TextureSource,frame:number,text?:Phaser.GameObjects.Text){
     const width=sourceWidth(source),height=sourceHeight(source);
     let entry=this.entries.get(source);
@@ -82,11 +84,18 @@ export class TextureCache {
     if(entry.texture.image!==source.image){entry.texture.image=source.image;entry.texture.needsUpdate=true;}
     const bytes=Math.ceil(Math.max(1,width)*Math.max(1,height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
+    if(this.bytes>MAX_RESIDENT_BYTES)this.prefetchPaused=true;
     entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
   prefetch(source:Phaser.Textures.TextureSource,frame:number){
-    const entry=this.entries.get(source),bytes=Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4;
-    if(!entry&&this.bytes+bytes>MAX_RESIDENT_BYTES||entry&&this.bytes>MAX_RESIDENT_BYTES&&entry.lastUsed<frame-2)return;
+    // Reserve headroom for the visible view and mandatory upload fences.
+    // Once pressured, do not refill each just-evicted preload every 150 ms.
+    if(this.prefetchPaused&&this.bytes<=MAX_RESIDENT_BYTES*.75)this.prefetchPaused=false;
+    const entry=this.entries.get(source),key=source.texture.key;
+    const mipmaps=key.startsWith('chunk:')||key==='shared-ocean-chunk'||key.startsWith('painted-model-');
+    const bytes=Math.ceil(Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4*(mipmaps?4/3:1));
+    if(this.prefetchPaused||!entry&&this.bytes+bytes>MAX_RESIDENT_BYTES*.85
+      ||entry&&this.bytes>MAX_RESIDENT_BYTES*.85&&entry.lastUsed<frame-2){this.prefetchSuppressed++;return;}
     this.get(source,frame);
   }
   ready(source:Phaser.Textures.TextureSource){const entry=this.entries.get(source);return Boolean(entry&&entry.uploadedVersion===entry.texture.version);}

@@ -1,6 +1,6 @@
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
-import {preparePresentationSource} from '../presentation25d/resourcePreparation';
+import {preparePresentationSource,warmPresentationSource} from '../presentation25d/resourcePreparation';
 import {TerrainWorker,type TerrainJob} from './TerrainWorker';
 import {planChunkScenerySteps,type ChunkSceneryPlan} from './chunkSceneryPlan';
 import Phaser from 'phaser';
@@ -186,7 +186,7 @@ export class ChunkManager {
         this.warmSources.add(chunk.image.frame.source);
         for(const source of chunk.sources??[])this.warmSources.add(source);
       }
-      for(const source of this.warmSources)preparePresentationSource(this.scene.game,source);
+      for(const source of this.warmSources)warmPresentationSource(this.scene.game,source);
       this.warmSources.clear();
     }
     if(!this.pendingChunks.size)return;

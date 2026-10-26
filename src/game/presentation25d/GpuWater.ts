@@ -36,7 +36,9 @@ void main(){
 /** Original foam artwork scrolls/blends on the GPU. The cached CPU coastline
  * mask uploads only when viewport coverage or terrain cells change. */
 export class GpuWater {
-  private readonly geometry=new PlaneGeometry(1,1,80,80);
+  // Height is constant; all coastline/foam/depth colour detail is sampled per
+  // fragment. Subdivision changes no surface position or interpolated ground UV.
+  private readonly geometry=new PlaneGeometry(1,1);
   private readonly uniforms={focus:{value:new Vector2()},shore:{value:null as Texture|null},foam:{value:null as Texture|null},frames:{value:Array.from({length:4},()=>new Vector4())},bounds:{value:new Vector4()},maskTexel:{value:new Vector2()},time:{value:0},openSea:{value:false}};
   private readonly material:ShaderMaterial;private readonly mesh:Mesh;
   private source:WaterSurfaceSystem|undefined;private mask:CanvasTexture|undefined;private version=-1;

@@ -1,3 +1,5 @@
+import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
+import {staticSpatialIndex} from './StaticSpatialIndex';
 import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork} from './FrameWorkBudget';
 import {Matrix4,Vector3,type Scene} from 'three';
@@ -14,9 +16,25 @@ import {PRESENTATION_HINT,type PresentationHint} from './plane';
 import {createHouseGeometry,applyHouseRise,type HouseShape} from './HouseGeometry';
 import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 
+type ShadowOptions=Omit<ShadowCaster,'actor'|'enabled'>;
+const OPTION_KEYS:readonly (keyof ShadowOptions)[]=['texture','frame','projection','contactScale','contactHeight','contactOffset','groundOffsetY','contactOpacity','projectionBottom','contacts'];
+interface ModelShadow {
+  state:ModelState;options:ShadowOptions;art:Phaser.Textures.Frame;
+  base:Matrix4;coefficients:Float64Array;uv:Float64Array;
+  reach:number;radius:number;footDx:number;rightX:number;rightZ:number;opacityFactor:number;
+  house:HouseShape|undefined;furniture:FurnitureShape|undefined;
+}
+function optionsMatch(saved:ShadowOptions,caster:ShadowCaster){
+  for(const key of OPTION_KEYS)if(saved[key]!==caster[key])return false;
+  return saved.groundPoint?.x===caster.groundPoint?.x&&saved.groundPoint?.y===caster.groundPoint?.y;
+}
+
 /** Draw the existing caster registry directly from shared original atlases.
  * No shadow canvas repaint, silhouette readback, duplicate actors or loop. */
 export class GpuShadows {
+  private modelShadows=new WeakMap<ShadowCaster,ModelShadow>();
+  private modelHits=0;private modelBuilds=0;
+  stats(){return {hits:this.modelHits,builds:this.modelBuilds};}
   private readonly batches=new Map<string,SpriteBatch>();
   private readonly matrix=new Matrix4();private readonly sun=new Vector3();
   private readonly uv=new Float64Array(4);private readonly color=[0x111916,0x111916,0x111916,0x111916];
@@ -44,14 +62,19 @@ export class GpuShadows {
         const actor=owner.presentationShadowVisual??owner;
         const hint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined;
         const wall=hint?.wall,house=hint?.house,furniture=hint?.furniture;
-        const rightX=house?Math.cos(actor.rotation):wall?(wall.axis==='x'?1:0):viewRightX;
-        const rightZ=house?Math.sin(actor.rotation):wall?(wall.axis==='y'?1:0):viewRightZ;
         if(!owner.active||!owner.visible||!actor.active||!actor.visible||actor.alpha<.01||caster.enabled===false||actor.cameraFilter&scene.cameras.main.id||!dynamic&&!caster.texture)continue;
+        const cached=this.modelShadows.get(caster);
+        if(actor===owner&&cached&&cached.art.source.image&&modelStateMatches(cached.state,actor,hint)&&optionsMatch(cached.options,caster)){
+          if(owner.x+cached.reach<bounds.left||owner.x-cached.reach>bounds.right||owner.y+cached.reach<bounds.top||owner.y-cached.reach>bounds.bottom)continue;
+          this.drawModel(cached,caster,viewRightX,viewRightZ,px,pz,daylight,cloud,frame);this.modelHits++;continue;
+        }
         const art=caster.texture?scene.textures.getFrame(caster.texture,caster.frame):actor.frame;
         if(!art?.source?.image)continue;
         const width=art.cutWidth,height=art.cutHeight,projection=caster.projection??1;
         const reachPx=(width+height*(house?.riseScale??1)*(projection+1))*Math.max(Math.abs(actor.scaleX),Math.abs(actor.scaleY));
         if(owner.x+reachPx<bounds.left||owner.x-reachPx>bounds.right||owner.y+reachPx<bounds.top||owner.y-reachPx>bounds.bottom)continue;
+        const rightX=house?Math.cos(actor.rotation):wall?(wall.axis==='x'?1:0):viewRightX;
+        const rightZ=house?Math.sin(actor.rotation):wall?(wall.axis==='y'?1:0):viewRightZ;
         const gx=(caster.groundPoint?.x??actor.originX)*width+(actor!==owner?(owner.x-actor.x)/actor.scaleX:0);
         const gy=(caster.groundPoint?.y??actor.originY)*height+(actor!==owner?(owner.y-actor.y)/actor.scaleY:0);
         const sx=actor.scaleX*(actor.flipX?-1:1),sy=actor.scaleY*(actor.flipY?-1:1),c=house?1:Math.cos(actor.rotation),s=house?0:Math.sin(actor.rotation);
@@ -93,12 +116,44 @@ export class GpuShadows {
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
         this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=0;
+        if(actor===owner&&(house||furniture)&&staticSpatialIndex(scene).has(actor)){
+          // The current projection is affine in the two sunlight components.
+          // Cache its fixed matrix and four height coefficients, retaining the
+          // exact detailed mesh and full-rate sun motion on every later frame.
+          const coefficients=new Float64Array([-b*width*projection,d*height*projection,0,h*projection]);
+          if(house?.segment){const rise=house.segment.height;coefficients.set([0,rise*projection,0,rise*projection/2]);}
+          if(house){
+            const rise=house.riseScale??1,foot=.5-house.top-Math.max(.96,house.ground??.96)*house.height;
+            coefficients[3]+=coefficients[1]*foot*(1-rise);coefficients[1]*=rise;
+          }
+          if(furniture){const placement=this.furniturePosition;coefficients.set([0,placement.width*projection,0,placement.lift*projection]);}
+          const base=this.matrix.clone(),elements=base.elements;
+          for(let i=0;i<4;i++){elements[i*4]-=px*coefficients[i];elements[i*4+2]-=pz*coefficients[i];}
+          this.modelShadows.set(caster,{state:captureModelState(actor,hint),
+            options:{...caster,groundPoint:caster.groundPoint?{...caster.groundPoint}:undefined},art,base,coefficients,uv:new Float64Array(this.uv),
+            reach:reachPx,radius,footDx,rightX,rightZ,opacityFactor:(caster.contactOpacity??1)*(1-Math.min(.55,airborne/140)),house,furniture});
+          this.modelBuilds++;
+        }
         this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house,furniture);
       }
     }
     for(const batch of this.batches.values())batch.finish();
     const work=frameWork(scene.game),start=performance.now();
     pruneSpriteBatches(this.batches,frame,16,1,start+Math.max(.1,work.remaining('retire',.2)));work.charge('retire',start);
+  }
+  private drawModel(plan:ModelShadow,caster:ShadowCaster,viewRightX:number,viewRightZ:number,px:number,pz:number,daylight:number,cloud:number,frame:number){
+    const actor=caster.actor,opacity=actor.alpha*plan.opacityFactor;
+    const rightX=plan.house?plan.rightX:viewRightX,rightZ=plan.house?plan.rightZ:viewRightZ;
+    const footX=actor.x+plan.footDx*rightX,footZ=actor.y+plan.footDx*rightZ+(caster.groundOffsetY??0),radius=plan.radius;
+    if(this.contactSource){
+      if(caster.contacts)for(const contact of caster.contacts)this.contact(actor,actor.x+contact.x,actor.y+contact.y,contact.width,contact.height,opacity,frame);
+      else this.contact(actor,footX,footZ+radius*(caster.contactOffset??0),radius*2,radius*(caster.contactHeight??2/3),opacity,frame);
+    }
+    if(daylight<=.02)return;
+    this.matrix.copy(plan.base);const elements=this.matrix.elements;
+    for(let i=0;i<4;i++){elements[i*4]+=px*plan.coefficients[i];elements[i*4+2]+=pz*plan.coefficients[i];}
+    this.uv.set(plan.uv);this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=0;
+    this.add(plan.art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,plan.house,plan.furniture);
   }
   private contact(actor:ShadowCaster['actor'],x:number,z:number,width:number,height:number,alpha:number,frame:number){
     if(width<=0||height<=0||!this.contactSource)return;
@@ -114,5 +169,5 @@ export class GpuShadows {
     if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
-  destroy(){for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}
+  destroy(){this.modelShadows=new WeakMap();for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}
 }

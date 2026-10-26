@@ -1,6 +1,7 @@
 import type Phaser from 'phaser';
 interface Preparation {
   request:(source:Phaser.Textures.TextureSource)=>void;ready:(source:Phaser.Textures.TextureSource)=>boolean;
+  warm?:(source:Phaser.Textures.TextureSource)=>void;
   viewReady?:(scene:Phaser.Scene,point:Readonly<{x:number;y:number}>)=>boolean;
 }
 const preparations=new WeakMap<Phaser.Game,Preparation>();
@@ -15,4 +16,10 @@ export function preparePresentationSource(game:Phaser.Game,source:Phaser.Texture
 /** Arrival waits for the destination camera and its complete height buffer. */
 export function presentationViewReady(scene:Phaser.Scene,point:Readonly<{x:number;y:number}>){
   return preparations.get(scene.game)?.viewReady?.(scene,point)??true;
+}
+
+/** Speculative residency must never bypass the texture cache admission budget.
+ * Required boot/chunk upload fences continue using preparePresentationSource. */
+export function warmPresentationSource(game:Phaser.Game,source:Phaser.Textures.TextureSource){
+  preparations.get(game)?.warm?.(source);
 }
