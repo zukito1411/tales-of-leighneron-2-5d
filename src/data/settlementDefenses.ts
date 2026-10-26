@@ -4,8 +4,9 @@ import {ROAD_ROUTES} from './roadRoutes';
 import {ART_BY_KEY,artFrameSize} from './art';
 import type {PropContentDefinition,Vec2} from '../game/types';
 import {HIGHMERE_RIVER} from './rivers';
+import {harborBay} from './worldLandscape';
 
-export interface CurtainLine {a:Vec2;b:Vec2;townId:string;gateShoulder?:boolean}
+export interface CurtainLine {a:Vec2;b:Vec2;townId:string;gateShoulder?:boolean;sourceIndex?:number;shorePart?:number}
 export interface DefensiveEntrance {id:string;townId:string;point:Vec2;width:number;kind:'road'|'water';northSouth:boolean;gateArtwork?:boolean}
 export interface DefensiveSurvey {townId:string;vertices:Vec2[];lines:CurtainLine[];entrances:DefensiveEntrance[];approaches:Vec2[][]}
 const fit=artFrameSize('royal_walls',0).width/ART_BY_KEY.royal_walls.regions![0][2];
@@ -26,6 +27,36 @@ export function curtainBlocksPath(a:Vec2,b:Vec2,line:CurtainLine,radius=0) {
   if(Math.max(a.x,b.x)<Math.min(line.a.x,line.b.x)-pad||Math.min(a.x,b.x)>Math.max(line.a.x,line.b.x)+pad
     ||Math.max(a.y,b.y)<Math.min(line.a.y,line.b.y)-pad||Math.min(a.y,b.y)>Math.max(line.a.y,line.b.y)+pad)return false;
   return Boolean(intersection(a,b,line.a,line.b))||Math.min(distance(a,line.a,line.b),distance(b,line.a,line.b),distance(line.a,a,b),distance(line.b,a,b))<pad;
+}
+
+function dryHarborFoundation(x:number,y:number,clearance:number){
+  return !harborBay(x,y)&&!harborBay(x-clearance,y-clearance)&&!harborBay(x+clearance,y-clearance)
+    &&!harborBay(x-clearance,y+clearance)&&!harborBay(x+clearance,y+clearance);
+}
+/** Clip the surveyed perimeter once, before both scenery and collision are
+ * generated. Harbor water overrides the rectangular town foundation, so a
+ * gate-sized gap alone cannot keep the rest of a sea-facing curtain dry. */
+function shoreCurtain(line:CurtainLine,sourceIndex:number):CurtainLine[]{
+  const dx=line.b.x-line.a.x,dy=line.b.y-line.a.y,length=Math.hypot(dx,dy),steps=Math.max(1,Math.ceil(length/32));
+  const dry=(t:number)=>dryHarborFoundation(line.a.x+dx*t,line.a.y+dy*t,48);
+  const pieces:CurtainLine[]=[];
+  const add=(from:number,to:number)=>{
+    if((to-from)*length<32)return;
+    pieces.push({...line,sourceIndex,shorePart:pieces.length,
+      a:{x:line.a.x+dx*from,y:line.a.y+dy*from},b:{x:line.a.x+dx*to,y:line.a.y+dy*to}});
+  };
+  let previous=0,wasDry=dry(0),start=0;
+  for(let i=1;i<=steps;i++){
+    const t=i/steps,isDry=dry(t);
+    if(isDry!==wasDry){
+      let lo=previous,hi=t;
+      for(let n=0;n<16;n++){const middle=(lo+hi)/2;if(dry(middle)===wasDry)lo=middle;else hi=middle;}
+      if(wasDry)add(start,lo);else start=hi;
+    }
+    wasDry=isDry;previous=t;
+  }
+  if(wasDry)add(start,1);
+  return pieces;
 }
 
 /** Six-sided surveyed enclosure: real horizontal and ±1:2 diagonal source
@@ -86,7 +117,7 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
     lines.push({townId:town.id,gateShoulder:true,a:{x:entrance.point.x-entrance.width/2,y:entrance.point.y},b:{x:entrance.point.x-gateHalfOpening,y:entrance.point.y}},
       {townId:town.id,gateShoulder:true,a:{x:entrance.point.x+gateHalfOpening,y:entrance.point.y},b:{x:entrance.point.x+entrance.width/2,y:entrance.point.y}});
   }
-  return {townId:town.id,vertices,lines,entrances,approaches};
+  return {townId:town.id,vertices,lines:town.kind==='harbor'?lines.flatMap(shoreCurtain):lines,entrances,approaches};
 });
 export const DEFENSE_BY_ID=Object.fromEntries(SETTLEMENT_DEFENSES.map(d=>[d.townId,d])) as Record<string,DefensiveSurvey>;
 const defenseBounds=SETTLEMENT_DEFENSES.map(defense=>({defense,
@@ -116,12 +147,14 @@ for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defens
     const a=line.a.x<=line.b.x?line.a:line.b,b=line.a.x<=line.b.x?line.b:line.a;
     const frame=Math.abs(b.y-a.y)<1?2:b.y<a.y?0:1,sourceSpan=frame===2?285:frame===0?94:90;
     const count=Math.max(1,Math.round((b.x-a.x)/(sourceSpan*fit*baseScale))),scale=(b.x-a.x)/count/sourceSpan/fit;
-    for(let i=0;i<count;i++)SETTLEMENT_DEFENSE_PROPS.push({id:`defense:${town.id}:curtain:${edge}:${i}`,kind:'prop',texture:'royal_walls',frame,scale,solid:false,anchor:'center',tint:profile.wallTint,
+    const section=line.sourceIndex??edge,part=line.shorePart?`:shore:${line.shorePart}`:'';
+    for(let i=0;i<count;i++)SETTLEMENT_DEFENSE_PROPS.push({id:`defense:${town.id}:curtain:${section}:${i}${part}`,kind:'prop',texture:'royal_walls',frame,scale,solid:false,anchor:'center',tint:profile.wallTint,
       wallSegment:{dx:(b.x-a.x)/count,dy:(b.y-a.y)/count},
       world:{x:a.x+(b.x-a.x)*(i+.5)/count,y:a.y+(b.y-a.y)*(i+.5)/count}});
   }
   for(const [i,point] of defense.vertices.entries()){
     const towerScale=baseScale*1.15,clearance=artFrameSize('royal_walls',3).width*towerScale/2+24;
+    if(town.kind==='harbor'&&!dryHarborFoundation(point.x,point.y,clearance))continue;
     // Side roads can enter exactly at a perimeter vertex. The opening cuts
     // both adjacent curtains; a corner tower must not fill that opening again.
     if(defense.entrances.some(e=>Math.hypot(e.point.x-point.x,e.point.y-point.y)<e.width/2+clearance))continue;
