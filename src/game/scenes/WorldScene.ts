@@ -2098,12 +2098,6 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.presentWorldSprite(actor, texture, definition.frame, definition.scale, solid,treeBase,
         definition.rotation,definition.anchor,definition.wallSegment);
       if(texture==='pirate_flagship')this.flagshipArt.attach(actor);
-      if (definition.label) {
-        const caption = onWorldLabel(this.add.text(x, y - 12, definition.label, {
-          fontFamily: 'Georgia, serif', fontSize: '10px', color: '#e7d7ad', stroke: '#211b12', strokeThickness: 3,
-        }).setResolution(2).setOrigin(.5,1),actor);
-        actor.once('destroy', () => caption.destroy());
-      }
       return actor;
     }
     if (!('description' in definition)) throw new Error(`Unknown content type: ${definition.id}`);
@@ -2116,12 +2110,6 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const footprint = propFoundation(texture,definition.frame,definition.scale??.6);
     this.presentWorldSprite(actor, texture, definition.frame, definition.scale ?? .6, solid, footprint,
       definition.rotation??0,definition.anchor??'bottom');
-    if (definition.townShrineId||definition.portId) {
-      const caption = onWorldLabel(this.add.text(x,y - 12,definition.name,{
-        fontFamily:'Georgia, serif',fontSize:'10px',color:'#e7d7ad',stroke:'#211b12',strokeThickness:3,
-      }).setResolution(2).setOrigin(.5,1),actor);
-      actor.once('destroy',() => caption.destroy());
-    }
     if (state.used) actor.setTint(definition.id==='clue:cibar-pump'&&useGameStore.getState().storyFlags['cibar-irrigation-repaired']?0xc9f2ed:definition.townShrineId ? 0xc9e7eb : 0x99907b);
     if(definition.id==='clue:varkhul-ward'&&useGameStore.getState().storyFlags['wards-rewoven'])actor.setTint(0xffefc5);
     actor.on('pointerdown', () => {

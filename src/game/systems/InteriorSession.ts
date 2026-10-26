@@ -1,6 +1,6 @@
 import Phaser from 'phaser';
 import {ForegroundDeadline} from '../../utils/foregroundDeadline';
-import {onPlane,onGround,onFurniture,onWorldLabel,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
+import {onPlane,onGround,onFurniture,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
 import {housingFor,HOME_FLOORS,HOME_ENTRANCE,FURNITURE_BY_ART,furnitureFootprint,homeWeaponMount,type HomeItem} from '../../data/housing';
 import {isPlayerHome,PLAYER_HOME_BY_ID} from '../../data/playerHomes';
 import housingArt from '../../data/housingArt.json';
@@ -522,12 +522,6 @@ export class InteriorSession {
     else{
       const jamb=entrySpan*.48-entryWidth/2;
       for(const dx of [-entrySpan*.48,entryWidth/2])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:jamb,height:105});
-    }
-    for(const r of plan.rooms){
-      const anchor={x:this.origin.x+r.x+r.width/2,y:this.origin.y+r.y+100};
-      this.own(onWorldLabel(scene.add.text(anchor.x,anchor.y-24,r.label,
-        {fontFamily:'Georgia, serif',fontSize:'11px',color:'#bba67d',stroke:'#19140f',strokeThickness:2})
-        .setResolution(2).setOrigin(.5).setAlpha(.7).setName('interior-room-title:'+r.id),anchor));
     }
     if(entry.profile!=='cave'&&scene.textures.exists('warm-light')){
       const spatial=scene.game.registry.get('presentation')==='three-2.5d';
