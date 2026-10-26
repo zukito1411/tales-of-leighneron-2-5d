@@ -37,6 +37,7 @@ export class Npc extends DepthSortedSprite {
   private readonly titleLabel: Phaser.GameObjects.Text;
   private readonly sideQuestMarker: Phaser.GameObjects.Text | null;
   private readonly labelY: number;
+  private readonly showOverheadLabels: boolean;
   private readonly rng: () => number;
   private target: Vec2 | null = null;
   private returningHome = false;
@@ -109,6 +110,9 @@ export class Npc extends DepthSortedSprite {
     this.rng = seededRandom(`npc-patrol:${definition.id}`);
     this.nextPatrolAt = scene.time.now + 1200 + this.rng() * 1800;
     this.labelY = -(apparentHeight * sizeMultiplier + 12);
+    // An authored quest actor must never lose its overhead identity, even if a
+    // future spawn accidentally requests hidden decorative labels.
+    this.showOverheadLabels=definition.showOverheadLabels!==false||definition.questIds.length>0;
     scene.add.existing(this);
     const sheet = ART_BY_KEY[texture], modelScale = this.walkScale;
     this.setScale(modelScale).setOrigin(.5,1 - 2 / sheet.frameHeight);
@@ -123,15 +127,17 @@ export class Npc extends DepthSortedSprite {
     this.setDepth(y);
     this.setInteractive({ useHandCursor: true });
     this.setName(definition.name);
-    this.nameLabel = scene.add.text(x, y + this.labelY, definition.name, {
+    this.nameLabel = scene.add.text(x, y + this.labelY, this.showOverheadLabels?definition.name:'', {
       fontFamily: 'Georgia, serif', fontSize: '11px', color: '#f6edd7', stroke: '#17130e', strokeThickness: 3,
       // A black rectangle behind every angled 3D nameplate obscures scenery.
       // Readability comes from the existing outlined lettering instead.
       padding: { x: 4, y: 2 },
-    }).setResolution(2).setOrigin(.5,1).setDepth(y + 80).setName(`npc-name:${definition.id}`);
-    this.titleLabel = scene.add.text(x, y + this.labelY + 2, definition.title, {
+    }).setResolution(2).setOrigin(.5,1).setDepth(y + 80).setName(`npc-name:${definition.id}`)
+      .setVisible(this.showOverheadLabels);
+    this.titleLabel = scene.add.text(x, y + this.labelY + 2, this.showOverheadLabels?definition.title:'', {
       fontFamily: 'system-ui, sans-serif', fontSize: '9px', color: '#d2c3a5', stroke: '#17130e', strokeThickness: 2,
-    }).setResolution(2).setOrigin(.5,0).setDepth(y + 80).setName(`npc-title:${definition.id}`);
+    }).setResolution(2).setOrigin(.5,0).setDepth(y + 80).setName(`npc-title:${definition.id}`)
+      .setVisible(this.showOverheadLabels);
     onPlane(this.nameLabel,'upright',this);onPlane(this.titleLabel,'upright',this);
     // Keep this cue separate from the sprite and its name label; like the
     // name, it follows a walking NPC without becoming a clickable obstacle.
@@ -535,18 +541,22 @@ export class Npc extends DepthSortedSprite {
       this.playDirection(this.facing.x, this.facing.y, false);
     }
     if (paused) this.anims.pause(); else if (this.anims.isPaused) this.anims.resume();
-    // Phaser Text color/text setters can regenerate their canvas and upload
-    // glyph textures. Preserve identical presentation without doing so 60x/s.
-    if(this.nameHighlighted!==questTarget){
-      this.nameHighlighted=questTarget;
-      this.nameLabel.setColor(questTarget?'#ffe193':'#f6edd7');
+    // Roaming road-life actors have no overhead labels. Skip all text updates,
+    // depth adjustment and potential glyph texture uploads for those actors.
+    if(this.showOverheadLabels){
+      // Phaser Text color/text setters can regenerate their canvas and upload
+      // glyph textures. Preserve identical presentation without doing so 60x/s.
+      if(this.nameHighlighted!==questTarget){
+        this.nameHighlighted=questTarget;
+        this.nameLabel.setColor(questTarget?'#ffe193':'#f6edd7');
+      }
+      setDepthIfChanged(this.nameLabel,this.y+80).setPosition(this.x,this.y+this.labelY)
+        .setVisible(!this.companionControl);
+      const title=this.storyAlert??this.definition.title;
+      if(this.titleLabel.text!==title)this.titleLabel.setText(title);
+      setDepthIfChanged(this.titleLabel,this.y+80).setPosition(this.x,this.y+this.labelY+2)
+        .setVisible(!this.companionControl&&(Boolean(this.storyAlert)||distance<260));
     }
-    setDepthIfChanged(this.nameLabel,this.y+80).setPosition(this.x,this.y+this.labelY)
-      .setVisible(!this.companionControl);
-    const title=this.storyAlert??this.definition.title;
-    if(this.titleLabel.text!==title)this.titleLabel.setText(title);
-    setDepthIfChanged(this.titleLabel,this.y+80).setPosition(this.x,this.y+this.labelY+2)
-      .setVisible(!this.companionControl&&(Boolean(this.storyAlert)||distance<260));
     if(this.sideQuestMarker){
       const story=useGameStore.getState();
       const available=this.definition.questIds.some(id=>{

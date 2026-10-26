@@ -338,6 +338,9 @@ export class AmbientRoadLifeSystem{
       role:patrol?'road guard':'adventurer',spriteFrame:0,
       spriteTexture:patrol?(elven?'npc_elven_guard_idle':rank===0?'npc_general':'npc_guard'):role==='huntress'?'npc_huntress':'npc_adventurer',
       worldOffset:{x:p.x-town.world.x,y:p.y-town.world.y},combatant:true,stationary:true,
+      // These anonymous moving patrols/adventurers are scenery, not quest givers.
+      // Keep their actors and combat AI but do not show name/title/status plates.
+      showOverheadLabels:false,
       weaponId:bow?'narenthil-longbow':'roadwarden-sword',schedule:[],questIds:[],dialogue:[],relationshipToLeigneron:{kind:'acquaintance',trust:0,summary:'A fellow traveler on the road.'}};
     const npc=this.scene.createRoadNpc(definition,p),maxHp=(patrol?180:110)+useGameStore.getState().level*9;
     let nearest=Infinity,next=1;

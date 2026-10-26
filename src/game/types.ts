@@ -78,6 +78,8 @@ export interface NpcDefinition {
   relationshipToLeigneron: NpcRelationship;
   dialogue: string[];
   questIds: string[];
+  /** Only suppress decorative name/title plates. Quest NPCs always retain theirs. */
+  showOverheadLabels?: boolean;
   combatant?: boolean;
   patrolRadius?: number;
   stationary?: boolean;
