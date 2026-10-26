@@ -1,8 +1,12 @@
 import Phaser from 'phaser';
 import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLRenderer} from 'three';
 import type {FrameWorkBudget} from './FrameWorkBudget';
+// Canvas-mode Phaser Text resizes its frame/canvas without updating the
+// TextureSource dimensions. GPU allocation and UVs must use the actual image.
+export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
+export function sourceHeight(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.height:source.height;}
 
-interface Entry {texture:Texture;lastUsed:number;bytes:number;uploadedVersion:number;restore:()=>void}
+interface Entry {texture:Texture;lastUsed:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
 const IDLE_FRAMES=300;
@@ -20,7 +24,8 @@ export class TextureCache {
   private coldCreates=0;
   private evictions=0;
   stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs};}
-  get(source:Phaser.Textures.TextureSource,frame:number){
+  get(source:Phaser.Textures.TextureSource,frame:number,text?:Phaser.GameObjects.Text){
+    const width=sourceWidth(source),height=sourceHeight(source);
     let entry=this.entries.get(source);
     if(!entry){
       this.coldCreates++;
@@ -46,20 +51,36 @@ export class TextureCache {
         dynamic.fill=nextFill;dynamic.clear=nextClear;dynamic.endDraw=nextEnd;
         restoreDynamic.push(()=>{if(dynamic.fill===nextFill)dynamic.fill=fill;if(dynamic.clear===nextClear)dynamic.clear=clear;if(dynamic.endDraw===nextEnd)dynamic.endDraw=endDraw;});
       }
-      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,restore:()=>{if(source.update===update)source.update=original;for(const restore of restoreDynamic)restore();}};
+      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;for(const restore of restoreDynamic)restore();}};
       this.entries.set(source,entry);
     }
+    if(text&&entry.text!==text){
+      // Canvas-mode Text.updateText redraws its existing canvas without calling
+      // TextureSource.update. Observe that actual drawing boundary, including
+      // style/wrapping changes, rather than comparing strings every frame.
+      const original=text.updateText,texture=entry.texture;
+      const update:typeof original=function(){const result=original.call(text);texture.needsUpdate=true;return result;};
+      text.updateText=update;entry.text=text;
+      entry.restorers.push(()=>{if(text.updateText===update)text.updateText=original;});
+    }
+    if(entry.width!==width||entry.height!==height){
+      // WebGL2 immutable storage cannot accept a differently sized sub-image.
+      // Keep the Texture identity used by batches; dispose its old GPU storage.
+      entry.texture.dispose();entry.width=width;entry.height=height;
+      entry.uploadedVersion=-1;entry.texture.needsUpdate=true;
+    }
     if(entry.texture.image!==source.image){entry.texture.image=source.image;entry.texture.needsUpdate=true;}
-    const bytes=Math.ceil(Math.max(1,source.width)*Math.max(1,source.height)*4*(entry.texture.generateMipmaps?4/3:1));
+    const bytes=Math.ceil(Math.max(1,width)*Math.max(1,height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
     entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
   prefetch(source:Phaser.Textures.TextureSource,frame:number){
-    const entry=this.entries.get(source),bytes=Math.max(1,source.width)*Math.max(1,source.height)*4;
+    const entry=this.entries.get(source),bytes=Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4;
     if(!entry&&this.bytes+bytes>MAX_RESIDENT_BYTES||entry&&this.bytes>MAX_RESIDENT_BYTES&&entry.lastUsed<frame-2)return;
     this.get(source,frame);
   }
   ready(source:Phaser.Textures.TextureSource){const entry=this.entries.get(source);return Boolean(entry&&entry.uploadedVersion===entry.texture.version);}
+  invalidate(){for(const [source,entry] of this.entries){entry.uploadedVersion=-1;entry.texture.needsUpdate=true;this.pending.add(source);}}
   prepare(renderer:WebGLRenderer,work:FrameWorkBudget){
     if(work.remaining('upload')<=0)return;
     // A GL upload is atomic. Do at most one cold/dirty source here, before it

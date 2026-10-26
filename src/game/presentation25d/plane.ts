@@ -19,7 +19,10 @@ const point3=new Vector3(),ray=new Raycaster(),ndc=new Vector2();
 export function bindPresentationView(scene:Phaser.Scene,view:PresentationView){gameViews.set(scene.game,view);cameraViews.set(scene.cameras.main,view);}
 export function clearPresentationView(game:Phaser.Game){const view=gameViews.get(game);if(view)cameraViews.delete(view.native);gameViews.delete(game);}
 export function presentationView(scene:Phaser.Scene){return gameViews.get(scene.game);}
-export function worldHeight(scene:Phaser.Scene,x:number,y:number){return gameViews.get(scene.game)?.height(x,y)??0;}
+export function worldHeight(scene:Phaser.Scene,x:number,y:number){
+  const owner=scene as Phaser.Scene&{groundHeightAt?:(x:number,y:number)=>number};
+  return owner.groundHeightAt?.(x,y)??gameViews.get(scene.game)?.height(x,y)??0;
+}
 /** Shared perspective visibility for selection and ambient actors. Height is
  * above terrain, margin is in logical pre-zoom pixels. Reject the far side of
  * the camera as well as points outside the near/far clipping planes. */
@@ -179,10 +182,20 @@ export function projectedViewOrigin(scene:Phaser.Scene,out:{x:number;y:number}){
   projectGroundPoint(scene,camera.midPoint.x,camera.midPoint.y,out);
   out.x-=camera.width/(2*camera.zoom);out.y-=camera.height/(2*camera.zoom);return out;
 }
+/** Blend from upright sprites into full camera-facing artwork overhead.
+ * A small capped lean still leaves characters edge-on at steep angles. Use
+ * the camera's complete pitch above 70 degrees, rotating around their feet.
+ * CPU actors, attachments, culling and cached GPU sprites share this rule. */
+export function billboardLean(pitch:number){
+  const start=45*Math.PI/180,end=70*Math.PI/180;
+  const t=Math.max(0,Math.min(1,(pitch-start)/(end-start)));
+  return Math.max(0,pitch)*t*t*(3-2*t);
+}
 /** Camera-facing sprite geometry retains its complete pose and pixel scale. */
 export function uprightPoint(x:number,y:number,anchorX:number,anchorY:number,out:{x:number;y:number;z:number},scene?:Phaser.Scene){
   const view=scene?gameViews.get(scene.game):undefined;
-  if(view){const dx=x-anchorX;out.x=anchorX+dx*Math.cos(view.yaw);out.y=view.height(anchorX,anchorY)+anchorY-y;out.z=anchorY-dx*Math.sin(view.yaw);return out;}
+  if(view){const dx=x-anchorX,h=anchorY-y,tilt=billboardLean(view.pitch),c=Math.cos(view.yaw),s=Math.sin(view.yaw);
+    out.x=anchorX+dx*c-h*Math.sin(tilt)*s;out.y=view.height(anchorX,anchorY)+h*Math.cos(tilt);out.z=anchorY-dx*s-h*Math.sin(tilt)*c;return out;}
   const dx=x-anchorX,h=anchorY-y;
   out.x=anchorX+dx*CAMERA_YAW_COS-h*CAMERA_SIN*CAMERA_YAW_SIN;
   out.y=h*CAMERA_COS;

@@ -5,6 +5,8 @@ export class GpuTimer {
   private readonly pending:WebGLQuery[]=[];
   private active:WebGLQuery|null=null;
   milliseconds:number|null=null;
+  /** Lost-context query objects cannot be reused or ended after restoration. */
+  abandon(){this.active=null;this.pending.length=0;this.milliseconds=null;}
   constructor(private readonly gl:WebGL2RenderingContext){this.extension=gl.getExtension('EXT_disjoint_timer_query_webgl2') as TimerExtension|null;}
   begin(enabled:boolean){
     if(this.active||!enabled||!this.extension||this.pending.length>=4||this.gl.isContextLost())return;

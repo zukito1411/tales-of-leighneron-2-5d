@@ -1,11 +1,12 @@
 import {bridgeShape} from '../presentation25d/BridgeGeometry';
+import {dockShape} from '../presentation25d/DockGeometry';
 import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {houseShape,sizeHouseForPlayer,type WallSegment} from '../presentation25d/HouseGeometry';
 import {worldPropShape,shipShape} from '../presentation25d/WorldPropGeometry';
-import {furniturePlacement} from '../presentation25d/FurnitureGeometry';
+import {furniturePlacement,furniturePassageFootprints} from '../presentation25d/FurnitureGeometry';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
@@ -69,10 +70,10 @@ export class WorldSpriteSystem {
     if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
-      const furniture=texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
+      const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
     }
-    if(this.scene.game.registry.get('presentation')==='three-2.5d'&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
+    if(this.scene.game.registry.get('presentation')==='three-2.5d'&&!(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
     if(!profile?.floor&&texture!=='port_dock'){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
@@ -176,6 +177,14 @@ export class WorldSpriteSystem {
           .map(([x,y])=>[p.x+(x*c-y*s)*p.width,p.y+(x*s+y*c)*p.width] as GroundPoint);
         if(Math.abs(c)<.0001||Math.abs(s)<.0001)add(Math.min(...footprint.map(p=>p[0])),Math.min(...footprint.map(p=>p[1])),Math.max(...footprint.map(p=>p[0])),Math.max(...footprint.map(p=>p[1])));
         else for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
+      }
+      if(furniture&&(solid||profile?.forceSolid)&&(furniture.art==='arch'||furniture.art==='fence')){
+        const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0}),c=Math.cos(p.heading),s=Math.sin(p.heading);
+        for(const [left,right,back,front] of furniturePassageFootprints(furniture)){
+          const footprint:GroundPoint[]=[[left,back],[right,back],[right,front],[left,front]]
+            .map(([x,y])=>[p.x+(x*c-y*s)*p.width,p.y+(x*s+y*c)*p.width] as GroundPoint);
+          for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
+        }
       }
     }
     if(actor instanceof Phaser.GameObjects.Image)markStaticPresentation(actor);

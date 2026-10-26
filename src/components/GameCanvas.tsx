@@ -23,6 +23,7 @@ const LOADING_QUOTES=[
 export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>void;onExit:()=>void;onRetry:()=>void;retryAvailable:boolean}) {
   const ref = useRef<HTMLDivElement>(null);
   const [error,setError]=useState<string|null>(null);
+  const [graphicsRecovering,setGraphicsRecovering]=useState(false);
   const [loading,setLoading]=useState({ready:false,progress:0,stage:'Loading artwork'});
   const [quoteIndex,setQuoteIndex]=useState(()=>Math.floor(Math.random()*LOADING_QUOTES.length));
 
@@ -46,10 +47,6 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
     };
     const onRejection=(event:PromiseRejectionEvent)=>failed(event.reason);
     const canvasHost=ref.current;
-    const onContextLost=()=>failed(new Error('The graphics context was lost while preparing the game. Return to the menu and retry; your stored save has not been reset.'));
-    // Capture because WebGL context events do not bubble, and Phaser adds its
-    // canvas after construction. A lost context may never reach POST_RENDER.
-    canvasHost.addEventListener('webglcontextlost',onContextLost,true);
     window.addEventListener('error',onError);window.addEventListener('unhandledrejection',onRejection);
     // Some overlay focus transitions prevent Phaser from seeing a keydown.
     // Both inputs use the same boolean action queue, so a duplicate event is harmless.
@@ -73,6 +70,9 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
     document.addEventListener('visibilitychange',onVisible);
     const readinessPoll=window.setInterval(()=>{
       if(!game||recovering)return;
+      const restoring=game.registry.get('presentationRecovering')===true;
+      setGraphicsRecovering(current=>current===restoring?current:restoring);
+      if(restoring){lastAdvance=Date.now();return;}
       const presentationError=game.registry.get('presentationError');
       if(typeof presentationError==='string'){setError(presentationError);return;}
       const assetError=game.registry.get('assetError');
@@ -113,7 +113,6 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
       });
     },100);
     return () => {disposed=true;window.clearInterval(readinessPoll);window.removeEventListener('error',onError);window.removeEventListener('unhandledrejection',onRejection);window.removeEventListener('keydown',onInteractKey);document.removeEventListener('visibilitychange',onVisible);
-      canvasHost.removeEventListener('webglcontextlost',onContextLost,true);
       if (window.__mernondnaGame === game) delete window.__mernondnaGame; if(game)disposeGame(game); };
   }, []);
 
@@ -142,5 +141,6 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
         <button type="button" onClick={onExit}>Return to Main Menu</button>
       </div>
     </div>}
+    {graphicsRecovering&&!error&&<div className="startup-failure" role="status" aria-live="polite"><h2>Restoring your view</h2><p>Your journey is paused while the graphics recover.</p><button onClick={onExit}>Return to Main Menu</button></div>}
     {error&&<div className="startup-failure" role="alert"><h2>Your journey is waiting</h2><p>{error}</p><button onClick={()=>window.location.reload()}>Try again</button><button onClick={()=>{void refreshOfflineGameFiles();}}>Refresh game files (keeps save)</button><div className="game-recovery-controls"><SaveTransferControls exportOnly storedOnly/><button onClick={onExit}>Return to Main Menu</button></div></div>}</>;
 }

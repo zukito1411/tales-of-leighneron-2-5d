@@ -1,4 +1,6 @@
 import {createFountainGeometry} from './FountainGeometry';
+import {createDockGeometry} from './DockGeometry';
+import {STAIR_STEPS,STAIR_HALF_WIDTH} from './WalkSurface';
 import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
 import {createLifeTreeGeometry} from './LifeTreeGeometry';
 import {createRockGeometry} from './RockGeometry';
@@ -10,7 +12,7 @@ import type {HomeFurnitureArt} from '../../data/housing';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 
-export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat';
+export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
@@ -27,6 +29,14 @@ export interface FurnitureShape {
   bounds?:{left:number;right:number;bottom:number;top:number;back:number;front:number};
 }
 export interface FurniturePlacement {x:number;y:number;width:number;heading:number;lift:number}
+/** Structural feet of hollow prefabs. Their openings must never be replaced
+ * with one enclosing solid rectangle. Coordinates match the mesh below. */
+export function furniturePassageFootprints(shape:FurnitureShape):ReadonlyArray<readonly [number,number,number,number]> {
+  if(shape.art==='arch'||shape.art==='doorway'||shape.art==='tower-door-open')return [[-.48,-.30,-shape.depth,0],[.30,.48,-shape.depth,0]];
+  if(shape.art==='fence')return [[-.48,.48,-shape.depth*.7,-shape.depth*.3]];
+  if(shape.art==='stairs')return [[-.48,-.43,-shape.depth,0],[.43,.48,-shape.depth,0]];
+  return [];
+}
 export function furniturePlacement(owner:Pick<Phaser.GameObjects.Image,'x'|'y'|'rotation'|'displayWidth'>,shape:FurnitureShape,out:FurniturePlacement){
   const width=Math.abs(owner.displayWidth)*shape.width*(shape.modelScale??1),a=owner.rotation,c=Math.cos(a),s=Math.sin(a);
   const x=(shape.footX??0)*width,y=(shape.footY??0)*width;
@@ -70,6 +80,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   if(shape.art==='life-tree')return createLifeTreeGeometry(shape,emission);
   if(shape.art==='fountain'||shape.art==='signature'&&/elven/.test(shape.kit))return createFountainGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);
+  if(shape.art==='dock')return createDockGeometry(shape,emission);
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
@@ -280,7 +291,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     for(const x of [-.43,.43]){box(x-.04,x+.04,0,H,-D*.65,-D*.35);box(x-.075,x+.075,0,H*.08,-D,0);}
     for(const y of [.16,.79])box(-.47,.47,H*y,H*(y+.065),-D*.65,-D*.35);for(let i=0;i<4;i++){const x=-.30+i*.2;m.beam([x,H*.81,-D*.36],[x,H*.76,-D*.15],.014,metal);}
   }else if(art==='stairs'){
-    for(let i=0;i<5;i++)box(-.43,.43,0,H*(i+1)/5,-D*(i+1)/5,-D*i/5,stone);
+    for(let i=0;i<STAIR_STEPS;i++)box(-STAIR_HALF_WIDTH,STAIR_HALF_WIDTH,0,H*(i+1)/STAIR_STEPS,-D*(i+1)/STAIR_STEPS,-D*i/STAIR_STEPS,stone);
     for(const x of [-.46,.46]){m.beam([x,H*.16,-.02],[x,H*.97,-D],.025,trim);for(let i=0;i<3;i++)m.beam([x,H*i/3,-D*i/3],[x,H*i/3+H*.20,-D*i/3],.016,trim);}
   }else if(art==='lantern'||art==='lampPost'||art==='brazier'||art==='pump'||art==='signature'&&/obsidian/.test(kit)){
     const z=-D/2;

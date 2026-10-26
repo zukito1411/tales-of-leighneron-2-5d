@@ -252,7 +252,7 @@ export class WorldPostFX {
   }
   async warm(renderer:WebGLRenderer){
     const scene=new Scene();scene.add(new Mesh(this.geometry,this.blur),new Mesh(this.geometry,this.composite));
-    try{await renderer.compileAsync(scene,this.camera);}catch{/* Actual render initialization retains its normal error path. */}
+    try{await renderer.compileAsync(scene,this.camera);}
     finally{scene.clear();}
   }
   setNight(mask:Texture|null,darkness:number){this.composite.uniforms.nightMask.value=mask;this.composite.uniforms.nightOpacity.value=mask?darkness:0;}

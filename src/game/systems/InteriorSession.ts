@@ -22,6 +22,9 @@ import {CAVE_ART_PATH,CAVE_ART_FRAMES,CAVE_FLOOR} from '../../data/caveArt';
 import {TOWER_ENTRY_ID,towerKnown,towerCampaignComplete,towerEntryFloor,TOWER_CHAMBERS,TOWER_DOOR_ART,TOWER_NORTH_DOOR} from '../../data/towerOfMight';
 import {TOWER_ROOM_ART,TOWER_ROOM_SIZE,TOWER_ROOM_ART_EXTENT,TOWER_SOUTH_DOOR} from '../../data/towerRoom';
 import {interiorFloorSurfaces} from './interiorFloorSurfaces';
+import {furniturePlacement,furniturePassageFootprints} from '../presentation25d/FurnitureGeometry';
+import {polygonGroundBands,type GroundPoint} from '../../data/worldSpriteGeometry';
+import {stairSurfaceHeight,type StairWalkSurface} from '../presentation25d/WalkSurface';
 
 const DEPTH=10_000_000;
 const SOURCE='interior-source',ATLAS='interior-furniture';
@@ -34,6 +37,34 @@ const HOME_ATLASES=[0,1,2].map(i=>'home-furniture:'+i);
  * freeze; only the local player's swept feet advance, so hidden world actors
  * cannot fight, move or collide with room furniture. Saves use safePosition. */
 export class InteriorSession {
+  private readonly stairSurfaces=new Map<Phaser.GameObjects.Image,StairWalkSurface>();
+  private readonly passageContacts=new Map<Phaser.GameObjects.Image,RoomRect[]>();
+  private passageOverlaps(overlaps:(r:RoomRect)=>boolean){
+    for(const contacts of this.passageContacts.values())if(contacts.some(overlaps))return true;
+    return false;
+  }
+  groundHeightAt(x:number,y:number){
+    let height=0;
+    for(const surface of this.stairSurfaces.values())height=Math.max(height,stairSurfaceHeight(surface,x,y)??0);
+    return height;
+  }
+  private registerWalkSurface(image:Phaser.GameObjects.Image){
+    const shape=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    if(!shape||this.scene.game.registry.get('presentation')!=='three-2.5d')return;
+    const p=furniturePlacement(image,shape,{x:0,y:0,width:0,heading:0,lift:0});
+    const c=Math.cos(p.heading),s=Math.sin(p.heading),contacts:RoomRect[]=[];
+    for(const [left,right,back,front] of furniturePassageFootprints(shape)){
+      const footprint:GroundPoint[]=[[left,back],[right,back],[right,front],[left,front]]
+        .map(([x,y])=>[p.x-this.origin.x+(x*c-y*s)*p.width,p.y-this.origin.y+(x*s+y*c)*p.width] as GroundPoint);
+      for(const r of polygonGroundBands(footprint))contacts.push({x:r.left,y:r.top,width:r.right-r.left,height:r.bottom-r.top});
+    }
+    if(contacts.length){this.passageContacts.set(image,contacts);image.once('destroy',()=>this.passageContacts.delete(image));}
+    if(shape.art!=='stairs')return;
+    // The staircase is based on the room floor, never on its own tread query.
+    shape.fixedGround=0;
+    this.stairSurfaces.set(image,{...p,depth:shape.depth,rise:shape.rise});
+    image.once('destroy',()=>this.stairSurfaces.delete(image));
+  }
   private entry:InteriorEntry|null=null;
   private plan:RoomPlan|null=null;
   private origin:Vec2={x:0,y:0};
@@ -332,6 +363,7 @@ export class InteriorSession {
     image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
     if(art!=='rug'&&art!=='northWall'&&art!=='sideWall'){
       onFurniture(image,art,this.entry?.kit??'');
+      this.registerWalkSurface(image);
       this.scene.addInteriorLight(image,art);
       if(this.entry?.profile!=='cave'&&art!=='doorway')this.addFurnitureContact(image);
     }
@@ -544,7 +576,7 @@ export class InteriorSession {
       const touches=(a:RoomRect,b:RoomRect)=>a.x<b.x+b.width&&a.x+a.width>b.x
         &&a.y<b.y+b.height&&a.y+a.height>b.y;
       const feet={x:p.x-14,y:p.y-24,width:28,height:24};
-      if(this.wallSolids.some(r=>touches(feet,r))||plan.objects.some(o=>o.solid&&touches(feet,o.solid)))return false;
+      if(this.wallSolids.some(r=>touches(feet,r))||this.passageOverlaps(r=>touches(feet,r))||plan.objects.some(o=>o.solid&&touches(feet,o.solid)))return false;
       // Conservative complete furniture bounds: a resident must not start
       // beneath a foreground counter, bed, shelf or planter. Rugs/stairs are
       // floor artwork. Prefer the authored workplace before looking nearby.
@@ -569,7 +601,7 @@ export class InteriorSession {
     const feet={x:local.x-radius,y:local.y-radius*2,width:radius*2,height:radius*2};
     const overlaps=(r:RoomRect)=>feet.x<r.x+r.width&&feet.x+feet.width>r.x
       &&feet.y<r.y+r.height&&feet.y+feet.height>r.y;
-    return !this.wallSolids.some(overlaps)&&!this.plan.objects.some(o=>o.solid&&overlaps(o.solid))
+    return !this.wallSolids.some(overlaps)&&!this.passageOverlaps(overlaps)&&!this.plan.objects.some(o=>o.solid&&overlaps(o.solid))
       &&(ignoreResidents||!this.getResidents().some(n=>n!==ignoreResident&&overlaps({x:n.x-this.origin.x-14,y:n.y-this.origin.y-24,width:28,height:24})));
   }
   playerFeet(x:number,y:number){
@@ -670,8 +702,8 @@ export class InteriorSession {
     const velocity=body.velocity.clone(),steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/6));
     let x=player.x,y=player.y;
     for(let i=0;i<steps;i++){
-      if(this.validFeet(x+dx/steps,y))x+=dx/steps;
-      if(this.validFeet(x,y+dy/steps))y+=dy/steps;
+      if(this.validFeet(x+dx/steps,y)&&this.scene.canTraverseGround({x,y},{x:x+dx/steps,y}))x+=dx/steps;
+      if(this.validFeet(x,y+dy/steps)&&this.scene.canTraverseGround({x,y},{x,y:y+dy/steps}))y+=dy/steps;
     }
     body.reset(x,y);body.setVelocity(velocity.x,velocity.y);player.setDepth(this.scene.playerRenderDepth(y));
     for(const npc of this.getResidents()){
@@ -769,6 +801,7 @@ export class InteriorSession {
     this.nearInnBed=false;this.nearHomeBed=false;this.nextBedHintAt=0;
     this.mapFloors=[];this.mapCircle=undefined;
     for(const object of this.objects){this.scene.tweens.killTweensOf(object);object.destroy();}this.objects=[];this.residents=[];this.guide=null;
+    this.stairSurfaces.clear();this.passageContacts.clear();
     this.floorMask?.destroy();this.floorMask=null;this.wallSolids=[];
     for(const saved of this.hidden){if(saved.object.scene)saved.object.cameraFilter=saved.filter;}this.hidden=[];
     if(this.formerBounds)this.scene.cameras.main.setBounds(this.formerBounds.x,this.formerBounds.y,this.formerBounds.width,this.formerBounds.height);
@@ -842,6 +875,7 @@ export class InteriorSession {
         .setDepth(spec.walkable?DEPTH-750:depth));
       if(item.art==='rug')onGround(image,.025);
       else onFurniture(image,item.art,item.kit,spec.h*32/spec.width);
+      this.registerWalkSurface(image);
       this.scene.addInteriorLight(image,item.art);
       this.homeObjects.push(image);
       const shadow=this.addFurnitureContact(image);if(shadow)this.homeObjects.push(shadow);
@@ -851,7 +885,8 @@ export class InteriorSession {
         if(this.homeBedReachable(item))this.scene.restAtHome();
         else this.scene.notify('Walk beside the bed to sleep.');
       });
-      this.plan.objects.push({art:item.art==='weaponRack'?'pantry':item.art,x:r.x+r.width/2,y:r.y+r.height,width:spec.width,...(!spec.walkable?{solid:r}:{})});
+      const traversableStairs=item.art==='stairs'&&this.scene.game.registry.get('presentation')==='three-2.5d';
+      this.plan.objects.push({art:item.art==='weaponRack'?'pantry':item.art,x:r.x+r.width/2,y:r.y+r.height,width:spec.width,...(!spec.walkable&&!traversableStairs?{solid:r}:{})});
       if(item.weaponId&&this.scene.textures.get(SWORD_TEXTURE).has(item.weaponId)){
         const mount=homeWeaponMount(item);
         const sword=this.own(this.scene.add.image(this.origin.x+mount.x,this.origin.y+mount.y,SWORD_TEXTURE,item.weaponId)

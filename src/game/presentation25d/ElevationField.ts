@@ -1,9 +1,10 @@
 import {DataTexture,FloatType,NearestFilter,RedFormat,Vector4} from 'three';
 import {CHUNK_SIZE} from '../../data/world';
+import {TerrainHeightField,ELEVATION_CELL_SIZE} from '../systems/TerrainHeightField';
 
-export const ELEVATION_CELL_SIZE=64;
+export {ELEVATION_CELL_SIZE} from '../systems/TerrainHeightField';
 export const TERRAIN_GRID_SEGMENTS=CHUNK_SIZE/ELEVATION_CELL_SIZE;
-const CELL=ELEVATION_CELL_SIZE,TEXTURE_SIZE=129,LIMIT=TEXTURE_SIZE*TEXTURE_SIZE*2;
+const CELL=ELEVATION_CELL_SIZE,TEXTURE_SIZE=129;
 /** One bounded, shared height field for terrain, decals and sprite feet. The
  * illustrated terrain still supplies every visible ground pixel. */
 /** A camera-rotation-independent field. A square centered on the player
@@ -11,7 +12,7 @@ const CELL=ELEVATION_CELL_SIZE,TEXTURE_SIZE=129,LIMIT=TEXTURE_SIZE*TEXTURE_SIZE*
  * Subsequent center changes prepare a complete second buffer incrementally:
  * terrain never sees half-written samples or a moving view-edge clamp. */
 export class ElevationField {
-  private readonly samples=new Map<number,number>();
+  private field=new TerrainHeightField();
   private readonly pixels=new Float32Array(TEXTURE_SIZE*TEXTURE_SIZE);
   private sample:(x:number,y:number)=>number=()=>0;
   private left=Infinity;private top=Infinity;private columns=0;
@@ -23,21 +24,16 @@ export class ElevationField {
   readonly texture=new DataTexture(this.pixels,TEXTURE_SIZE,TEXTURE_SIZE,RedFormat,FloatType);
   readonly uniforms={heightMap:{value:this.texture},heightBounds:{value:new Vector4(0,0,CELL,CELL)},heightEnabled:{value:false}};
   constructor(){this.texture.minFilter=this.texture.magFilter=NearestFilter;this.texture.generateMipmaps=false;this.texture.needsUpdate=true;}
-  setSource(sample:(x:number,y:number)=>number){
-    if(this.sample===sample)return;
-    this.sample=sample;this.samples.clear();this.left=this.centerX=this.centerY=Infinity;
+  setSource(sample:(x:number,y:number)=>number,field?:TerrainHeightField){
+    if(this.sample===sample&&(!field||this.field===field))return;
+    this.sample=sample;this.field=field??new TerrainHeightField(sample);this.left=this.centerX=this.centerY=Infinity;
     this.columns=0;this.pending=undefined;
   }
   private vertex(x:number,y:number){
-    const key=x*1048576+y,old=this.samples.get(key);if(old!==undefined)return old;
-    const value=Math.fround(this.sample(x*CELL,y*CELL));
-    if(this.samples.size>=LIMIT)this.samples.delete(this.samples.keys().next().value!);
-    this.samples.set(key,value);return value;
+    return this.field.vertex(x,y);
   }
   height(x:number,y:number){
-    const gx=Math.floor(x/CELL),gy=Math.floor(y/CELL),u=x/CELL-gx,v=y/CELL-gy;
-    const a=this.vertex(gx,gy),b=this.vertex(gx+1,gy),c=this.vertex(gx,gy+1),d=this.vertex(gx+1,gy+1);
-    return u+v<=1?a+(b-a)*u+(c-a)*v:d+(c-d)*(1-u)+(b-d)*(1-v);
+    return this.field.height(x,y);
   }
   readyAt(point:{x:number;y:number}){
     return this.columns>0&&Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024;
@@ -106,7 +102,7 @@ export class ElevationField {
       if(performance.now()>=deadline)break;
     }
   }
-  destroy(){this.pending=undefined;this.texture.dispose();this.samples.clear();}
+  destroy(){this.pending=undefined;this.texture.dispose();}
 }
 
 export const elevationShader=`

@@ -25,7 +25,7 @@ import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {RasterCache} from './RasterCache';
-import {TextureCache} from './TextureCache';
+import {TextureCache,sourceWidth,sourceHeight} from './TextureCache';
 import {WorldPostFX} from './WorldPostFX';
 import {GpuSky} from './GpuSky';
 import {GpuShadows} from './GpuShadows';
@@ -42,8 +42,10 @@ import {renderDensity} from '../systems/renderSizing';
 import {nightStrength} from '../../data/environmentLights';
 import {TELEGRAPH_PRESENTATION,type TelegraphPresentation} from '../systems/AttackTelegraph';
 import {useGameStore} from '../../store/gameStore';
-import {PRESENTATION_HINT,uprightPoint,presentationAttachmentWorld,bindPresentationView,clearPresentationView,type PresentationView,type PresentationHint,type PresentationPlane} from './plane';
+import {PRESENTATION_HINT,billboardLean,uprightPoint,presentationAttachmentWorld,bindPresentationView,clearPresentationView,type PresentationView,type PresentationHint,type PresentationPlane} from './plane';
 import {GAME_DISPOSING} from '../systems/gameLifetime';
+import {mobileInput} from '../input';
+import type {TerrainHeightField} from '../systems/TerrainHeightField';
 
 type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameObjects.Text;
 type DrawingObject=ImageObject|Phaser.GameObjects.Graphics|Phaser.GameObjects.Shape|Phaser.GameObjects.TileSprite;
@@ -61,6 +63,8 @@ interface PresentationScene extends Phaser.Scene {
   readonly presentationFocus?:Readonly<{x:number;y:number}>;
   readonly inInterior?:boolean;
   readonly presentationHeightAt?:(x:number,y:number)=>number;
+  readonly presentationTerrain?:TerrainHeightField;
+  readonly groundHeightAt?:(x:number,y:number)=>number;
   readonly presentationControlsEnabled?:boolean;
   readonly presentationLockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
   readonly presentationPause?:()=>void;
@@ -77,8 +81,10 @@ function sceneWhiteSource(scene:Phaser.Scene){return scene.textures.getFrame('__
  * CanvasRenderer prepares existing art; only Three.js draws the world. */
 export class ThreePresentation {
   private readonly renderer:WebGLRenderer;
-  private readonly gpuTimer:GpuTimer;
+  private gpuTimer:GpuTimer;
   private readonly shaderWarmup:ShaderWarmup;
+  private programsReady=false;private contextLost=false;private preparationEpoch=0;
+  private recoveryTimeout:number|undefined;
   private readonly frameTiming=new FrameTiming();
   private readonly visibility=new StreamVisibility();
   private timingFrame=-1;
@@ -94,7 +100,8 @@ export class ThreePresentation {
   private renderScale=0;
   private interior=false;
   private heightEnabled=false;
-  private readonly heightAt=(x:number,y:number)=>this.heightEnabled?(walkSurfaceHeight(x,y)??this.elevation.height(x,y)):0;
+  private sceneGroundHeight:((x:number,y:number)=>number)|undefined;
+  private readonly heightAt=(x:number,y:number)=>this.sceneGroundHeight?.(x,y)??(this.heightEnabled?(walkSurfaceHeight(x,y)??this.elevation.height(x,y)):0);
   private view:PresentationView|undefined;
   private presentedScene:Phaser.Scene|undefined;
   private readonly screenCamera=new OrthographicCamera(0,1,0,1,-100,100);
@@ -110,7 +117,7 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly atmosphere={billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},
     fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
@@ -165,6 +172,10 @@ export class ThreePresentation {
     // bandwidth costs on top of the world/depth postprocessing targets.
     // Normal preserves detail on both platforms; Low remains an explicit choice.
     this.renderer=new WebGLRenderer({alpha:false,antialias:getEffectsQuality()!=='low',powerPreference:'high-performance'});
+    this.renderer.debug.onShaderError=(gl,program,vertex,fragment)=>{
+      console.error('[2.5d] Shader compilation failed',gl.getProgramInfoLog(program),gl.getShaderInfoLog(vertex),gl.getShaderInfoLog(fragment));
+      this.failPresentation(new Error('A required graphics shader could not be compiled.'));
+    };
     const context=this.renderer.getContext();if(!('beginQuery' in context))throw new Error('2.5D requires WebGL 2');
     this.gpuTimer=new GpuTimer(context);
     this.budget=new RenderBudget();
@@ -189,10 +200,10 @@ export class ThreePresentation {
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();},
       ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
-    void this.postFX.warm(this.renderer);
+    this.preparePrograms(this.shaderWarmup.ready);
     bindResourcePreparation(game,{
       request:source=>{this.textures.get(source,this.frame);},ready:source=>this.textures.ready(source),
-      viewReady:(scene,point)=>this.presentedScene===scene
+      viewReady:(scene,point)=>this.programsReady&&!this.contextLost&&this.presentedScene===scene
         &&Math.hypot(this.orbit.focusGround.x-point.x,this.orbit.focusGround.y-point.y)<1
         &&(!this.heightEnabled||this.elevation.readyAt(point)),
     });
@@ -200,6 +211,7 @@ export class ThreePresentation {
     this.originalMouseEnabled=game.input.mouse?.enabled;this.originalTouchEnabled=game.input.touch?.enabled;
     if(game.input.mouse)game.input.mouse.enabled=false;if(game.input.touch)game.input.touch.enabled=false;
     canvas.addEventListener('webglcontextlost',this.onContextLost);
+    canvas.addEventListener('webglcontextrestored',this.onContextRestored);
     // The scene manager still executes its normal camera pre-render and emits
     // POST_RENDER only after this draw, preserving world-ready/save protection.
     this.native.render=(scene,children,camera)=>this.draw(scene,children,camera);
@@ -209,7 +221,7 @@ export class ThreePresentation {
   }
 
   private draw(scene:Phaser.Scene,children:Phaser.GameObjects.GameObject[],camera:Phaser.Cameras.Scene2D.Camera){
-    if(this.stopped)return;
+    if(this.stopped||this.contextLost||!this.programsReady)return;
     const profStart=this.frameDiagnostics?performance.now():0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
@@ -238,19 +250,21 @@ export class ThreePresentation {
     this.atmosphere.visualTime.value=this.game.loop.time/1000;
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
-    if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt);
+    this.sceneGroundHeight=presentation.groundHeightAt;
+    if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt,presentation.presentationTerrain);
     const lockedTarget=presentation.presentationLockedTarget;
     this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget);
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
+    const lean=billboardLean(this.orbit.pitch);this.atmosphere.billboardPitch.value.set(Math.cos(lean),Math.sin(lean));
     this.pitchSin=Math.sin(this.orbit.pitch);this.pitchCos=Math.cos(this.orbit.pitch);this.pitchTan=Math.tan(this.orbit.pitch);
     if(!this.view)this.view={camera:this.orbit.camera,native:camera,yaw:this.orbit.yaw,pitch:this.orbit.pitch,
       bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt,visibility:this.visibility};
     else{this.view.native=camera;this.view.yaw=this.orbit.yaw;this.view.pitch=this.orbit.pitch;}
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
-    this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y).project(this.orbit.camera);
+    this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y);this.leanPoint(this.subject,this.heightAt(focus.x,focus.y));this.subject.project(this.orbit.camera);
     this.cutaway.cutawayViewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
     if(presentation.presentationControlsEnabled)this.updateCutaway(this.cutaway.cutawaySubject.value,focus,90);
     else this.cutaway.cutawaySubject.value.w=0;
@@ -327,11 +341,12 @@ export class ThreePresentation {
 
   private updateCutaway(out:Vector4,target:{x:number;y:number},height:number,elevation=0){
     const camera=this.orbit.camera;
-    this.protectionPoint.set(target.x,this.heightAt(target.x,target.y)+elevation+height*.45,target.y).applyMatrix4(camera.matrixWorldInverse);
+    const floor=this.heightAt(target.x,target.y)+elevation;
+    this.protectionPoint.set(target.x,floor+height*.45,target.y);this.leanPoint(this.protectionPoint,floor);this.protectionPoint.applyMatrix4(camera.matrixWorldInverse);
     const depth=-this.protectionPoint.z;
     if(depth<=camera.near){out.w=0;return;}
     const radius=Math.max(42/Math.max(1,this.height),Math.min(.65,height/(2*depth*Math.tan(camera.fov*Math.PI/360))*.8));
-    this.protectionPoint.set(target.x,this.heightAt(target.x,target.y)+elevation+height*.45,target.y).project(camera);
+    this.protectionPoint.set(target.x,floor+height*.45,target.y);this.leanPoint(this.protectionPoint,floor);this.protectionPoint.project(camera);
     out.set((this.protectionPoint.x+1)/2,(this.protectionPoint.y+1)/2,depth,radius);
   }
 
@@ -492,7 +507,10 @@ export class ThreePresentation {
       if(flipY&&!frame.customPivot)top+=-frame.realHeight+object.displayOriginY*2;
       if(flipX)left=-left-w/resolution;if(flipY)top=-top-h/resolution;
       rect.left=left;rect.top=top;rect.width=w/resolution;rect.height=h/resolution;
-      const inset=.25,sw=frame.source.width,sh=frame.source.height;
+      // Standalone terrain canvases share exact world edges. Cropping every
+      // chunk's UVs compresses its border texels into a visible seam overhead.
+      // Atlas sprites retain their inset against neighboring frame bleed.
+      const inset=object instanceof Phaser.GameObjects.Image&&this.isGroundBase(object)?0:.25,sw=sourceWidth(frame.source),sh=sourceHeight(frame.source);
       let u=(sx+inset)/sw,v=1-(sy+h-inset)/sh,du=(w-inset*2)/sw,dv=(h-inset*2)/sh;
       if(flipX){u+=du;du=-du;}if(flipY){v+=dv;dv=-dv;}
       uv[0]=u;uv[1]=v;uv[2]=du;uv[3]=dv;
@@ -525,7 +543,8 @@ export class ThreePresentation {
     const houseScaleY=house?Math.hypot(this.transform.c,this.transform.d):1;
     const houseCos=house?this.transform.a/houseScaleX:1,houseSin=house?this.transform.b/houseScaleX:0;
     const groundBase=plane==='ground'&&this.isGroundBase(object);
-    const deck=plane==='ground'&&!groundBase&&!hint?.absoluteGround&&!this.interior?walkSurfaceHeight(anchorX,anchorY):undefined;
+    const deck=plane==='ground'&&!groundBase&&!hint?.absoluteGround
+      ?this.interior?this.heightAt(anchorX,anchorY):walkSurfaceHeight(anchorX,anchorY):undefined;
     const followsTerrain=plane==='ground'&&!hint?.absoluteGround&&deck===undefined;
     const lift=hint?.elevation??this.groundLift(object),project=(x:number,y:number,out:Vector3)=>{
       const px=this.transform.a*x+this.transform.c*y+this.transform.tx;
@@ -576,7 +595,8 @@ export class ThreePresentation {
         const dx=px-anchorX;
         out.set(hint.wall.axis==='x'?px:anchorX,anchorHeight+anchorY-py+ownerElevation,hint.wall.axis==='x'?anchorY:anchorY+dx);
       }
-      else{const dx=px-anchorX;out.set(anchorX+dx*this.yawCos,anchorHeight+anchorY-py+ownerElevation,anchorY-dx*this.yawSin);}
+      else{const dx=px-anchorX;out.set(anchorX+dx*this.yawCos,anchorHeight+anchorY-py+ownerElevation,anchorY-dx*this.yawSin);
+        if(!staticImage)this.leanPoint(out,anchorHeight+ownerElevation);}
     };
     project(rect.left,rect.top+rect.height,this.p0);
     project(rect.left+rect.width,rect.top+rect.height,this.p1);
@@ -626,10 +646,10 @@ export class ThreePresentation {
     if(roomWall){
       const direction=roomWall.direction??1,rx=roomWall.axis==='x'?direction:0,rz=roomWall.axis==='y'?direction:0;
       const span=roomWall.span!,height=roomWall.height!,thickness=roomWall.thickness!;
-      this.model.set(rx*span,0,-rz*thickness,anchorX,0,height,0,anchorHeight+height/2,
+      this.model.set(rx*span,0,-rz*thickness,anchorX,0,height,0,(this.interior?0:anchorHeight)+height/2,
         rz*span,0,rx*thickness,anchorY,0,0,0,1);
     }
-    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0))return;
+    if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0,staticImage&&plane==='upright'?anchorHeight:undefined))return;
     // Fade only foreground scenery whose projected rectangle covers the subject.
     // The original art and depth remain intact outside that small sight line.
     if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
@@ -652,7 +672,7 @@ export class ThreePresentation {
     const depthWrite=!overlay&&!additive&&(groundBase||plane!=='ground')&&alpha*camera.alpha>=.999;
     const fillTint='tintFill' in object&&object.tintFill===true;
     const mask=this.rectangularMask(object);
-    if(source)texture=this.textures.get(source,this.frame);
+    if(source)texture=this.textures.get(source,this.frame,object instanceof Phaser.GameObjects.Text?object:undefined);
     if(!texture)return;
     const billboard=staticImage&&plane==='upright'&&!object.input?.enabled;
     const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
@@ -668,7 +688,7 @@ export class ThreePresentation {
       // Store yaw-neutral world transforms. Only one shared camera uniform
       // changes while orbiting; static instance buffers remain unchanged.
       this.neutralModel.copy(this.model);this.rotateModel(this.neutralModel,anchorX,anchorY,-this.orbit.yaw);submitted=this.neutralModel;
-      repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=repeat[3]=0;
+      repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=anchorHeight;repeat[3]=0;
     }
     batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
     if(staticImage&&source)this.staticPackets.set(object,{
@@ -726,7 +746,7 @@ export class ThreePresentation {
       ||packet.rotation!==object.rotation||packet.originX!==object.originX||packet.originY!==object.originY||packet.depth!==object.depth
       ||packet.colors[0]!==object.tintTopLeft||packet.colors[1]!==object.tintTopRight||packet.colors[2]!==object.tintBottomLeft||packet.colors[3]!==object.tintBottomRight)return false;
     this.model.copy(packet.matrix);if(packet.billboard)this.rotateModel(this.model,packet.x,packet.y,this.orbit.yaw);
-    if(!this.inView(packet.ground))return true;
+    if(!this.inView(packet.ground,0,undefined,false,0,packet.billboard?packet.repeat?.[2]:undefined))return true;
     if(packet.billboard&&object.getData('presentation25dPlayerVisual')!==true){
       const b=this.projectedBounds;if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
     }
@@ -736,7 +756,11 @@ export class ThreePresentation {
     camera.addToRenderList(object);return true;
   }
 
-  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false,heightLift=0){
+  private leanPoint(point:Vector3,floor:number){
+    const pitch=this.atmosphere.billboardPitch.value,h=point.y-floor;
+    point.x-=h*pitch.y*this.yawSin;point.z-=h*pitch.y*this.yawCos;point.y=floor+h*pitch.x;
+  }
+  private inView(ground:boolean,backDepth=0,furniture?:FurnitureShape,centeredWall=false,heightLift=0,billboardFloor?:number){
     if(ground){
       // A terrain quad can cross the camera's near plane. Dividing its four
       // corners by negative clip-W can put every projected corner offscreen
@@ -757,6 +781,7 @@ export class ThreePresentation {
           b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
       else this.projected.set(x,y+(y>0?heightLift:0),i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
       this.projected.applyMatrix4(this.model);
+      if(billboardFloor!==undefined)this.leanPoint(this.projected,billboardFloor);
       this.projected.project(this.orbit.camera);
       left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);top=Math.min(top,this.projected.y);bottom=Math.max(bottom,this.projected.y);
       depth+=this.projected.z/count;near=Math.min(near,this.projected.z);far=Math.max(far,this.projected.z);}
@@ -853,10 +878,53 @@ export class ThreePresentation {
       if(hit.object.userData.presentationOccluder)break;
     }
   };
+  private failPresentation(reason:unknown){
+    if(this.stopped)return;
+    console.error('[2.5d] Graphics preparation failed',reason);
+    this.programsReady=false;this.preparationEpoch++;
+    this.game.registry.set('presentationProgramsReady',false);
+    this.orbit.suspend();
+    if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
+    this.recoveryTimeout=undefined;
+    this.game.registry.set('presentationRecovering',false);
+    this.game.registry.set('presentationError','The graphics could not be prepared. Return to the menu and reopen your save.');
+    this.game.loop.sleep();
+  }
+  private preparePrograms(world:Promise<void>,restoring=false){
+    const epoch=++this.preparationEpoch;this.programsReady=false;
+    this.game.registry.set('presentationProgramsReady',false);
+    void Promise.all([world,this.postFX.warm(this.renderer)]).then(()=>{
+      if(this.stopped||this.contextLost||epoch!==this.preparationEpoch)return;
+      if(this.game.registry.get('presentationError'))return;
+      this.programsReady=true;this.game.registry.set('presentationProgramsReady',true);
+      if(restoring){
+        if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
+        this.recoveryTimeout=undefined;this.game.registry.set('presentationRecovering',false);
+        // Reset Phaser's delta history before wake; the paused interval must
+        // never become one giant physics step or catch-up frame.
+        this.game.loop.resetDelta();
+        this.game.loop.wake();
+      }
+    }).catch(reason=>{if(!this.stopped&&!this.contextLost&&epoch===this.preparationEpoch)this.failPresentation(reason);});
+  }
   private readonly onContextLost=(event:Event)=>{
     event.preventDefault();
-    this.game.registry.set('presentationError','The 2.5D graphics context was lost. Return to the menu and reopen your save.');
+    if(this.stopped||this.contextLost)return;
+    this.contextLost=true;this.programsReady=false;this.preparationEpoch++;
+    this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();
+    this.game.registry.set('presentationRecovering',true);
+    this.game.registry.set('presentationProgramsReady',false);
     this.game.loop.sleep();
+    this.recoveryTimeout=window.setTimeout(()=>this.failPresentation(new Error('Graphics context restoration timed out.')),30000);
+  };
+  private readonly onContextRestored=()=>{
+    if(this.stopped||!this.contextLost||this.game.registry.get('presentationError'))return;
+    this.contextLost=false;
+    // Three restores its own renderer before this listener. CPU-side atlases,
+    // meshes and gameplay survive; their GPU residency fences do not.
+    this.gpuTimer=new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
+    this.textures.invalidate();
+    this.preparePrograms(this.shaderWarmup.compile(this.renderer,this.orbit.camera),true);
   };
   destroy(){
     if(this.stopped)return;this.stopped=true;
@@ -867,7 +935,8 @@ export class ThreePresentation {
     this.game.canvas.style.visibility=this.originalCanvasVisibility;
     if(this.game.input.mouse&&this.originalMouseEnabled!==undefined)this.game.input.mouse.enabled=this.originalMouseEnabled;
     if(this.game.input.touch&&this.originalTouchEnabled!==undefined)this.game.input.touch.enabled=this.originalTouchEnabled;
-    const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);this.orbit.destroy();clearPresentationView(this.game);
+    this.preparationEpoch++;if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
+    const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
     releaseLifeTreeGeometry();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();

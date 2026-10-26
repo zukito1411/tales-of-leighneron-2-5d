@@ -5,6 +5,7 @@ import {getCameraSettings,CAMERA_SETTINGS_EVENT} from './cameraSettings';
 import {VIEW_DISTANCE} from './environment';
 
 const RAD=Math.PI/180;
+const MIN_ZOOM=.18,MAX_ZOOM=1.7,MIN_DISTANCE=90;
 const CORNERS=[[-1,-1],[1,-1],[-1,1],[1,1]] as const;
 interface ShakeOffset {_offsetX:number;_offsetY:number}
 export class OrbitCamera {
@@ -40,6 +41,7 @@ export class OrbitCamera {
     window.addEventListener('blur',this.clearControls);window.addEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
   }
   get locked(){return document.pointerLockElement===this.canvas;}
+  suspend(){this.enabled=false;this.clearControls();this.hint.hidden=true;}
   private readonly capture=()=>{
     if(this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)return;
     try{const result=this.canvas.requestPointerLock?.();if(result)void result.then(()=>{
@@ -88,7 +90,7 @@ export class OrbitCamera {
     touch.moved ||=Math.hypot(touch.x-touch.startX,touch.y-touch.startY)>6;
     if(this.touches.size===1&&touch.moved)this.rotate(dx,dy);
     else if(this.touches.size===2){const points=[...this.touches.values()],distance=Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y);
-      if(this.touchDistance>0)this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*this.touchDistance/Math.max(20,distance)));
+      if(this.touchDistance>0)this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*this.touchDistance/Math.max(20,distance)));
       this.touchDistance=distance;for(const point of points)point.moved=true;
     }
   };
@@ -96,7 +98,7 @@ export class OrbitCamera {
     if(touch&&!touch.moved&&event.type!=='pointercancel')this.pick(event);
     if(this.canvas.hasPointerCapture(event.pointerId))this.canvas.releasePointerCapture(event.pointerId);
   };
-  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();this.targetZoom=Math.max(.55,Math.min(1.7,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
+  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
     lockedTarget?:{x:number;y:number}){
     if(this.enabled&&!enabled){if(!this.altKeys.size)this.resumeCapture=false;this.release();}this.enabled=enabled;
@@ -119,7 +121,7 @@ export class OrbitCamera {
     else this.focus.lerp(this.nextFocus.set(target.x,aimY,target.y),follow);
     const base=native.height/(native.zoom*2*Math.tan(this.camera.fov*RAD/2));
     // A bounded frustum keeps terrain streaming finite on ultrawide displays.
-    const distance=Math.max(220,Math.min(1350,1900/Math.max(1,native.width/native.height),base*this.zoom));
+    const distance=Math.max(MIN_DISTANCE,Math.min(1350,1900/Math.max(1,native.width/native.height),base*this.zoom));
     this.camera.aspect=native.width/native.height;
     const orbitPitch=Math.max(8*RAD,this.pitch);
     const horizontal=distance*Math.cos(orbitPitch),vertical=distance*Math.sin(orbitPitch);

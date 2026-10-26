@@ -41,6 +41,7 @@ export class Player extends DepthSortedSprite {
     facing.y=this.viewFacing==='up'?-1:this.viewFacing==='down'?1:0;return facing;
   }
   private jumpY=0;private jumpVelocity=0;private jumping=false;
+  private verticalReady=false;private verticalDelta=0;private verticalX=0;private verticalY=0;private verticalInterior=false;
   private jumpQueuedUntil=0;
   get presentationElevation(){return this.jumping?Math.max(0,this.jumpY-worldHeight(this.scene,this.x,this.y)):0;}
   private readonly keys: Record<'up' | 'down' | 'left' | 'right' | 'sprint' | MobileAction, Phaser.Input.Keyboard.Key>;
@@ -69,11 +70,38 @@ export class Player extends DepthSortedSprite {
   // scene's updatePlayer call. Attach visual layers only once that is done.
   private readonly syncSwordAfterPhysics=()=>{
     if(!this.active)return;
+    (this.scene as WorldScene).resolvePlayerGroundMotion();
+    this.updateVerticalAfterPhysics();
     this.refreshAttackView();
     this.setDepth((this.scene as WorldScene).playerRenderDepth(this.y));
     if(this.attackVisual?.active)setDepthIfChanged(this.attackVisual,this.depth).setPosition(this.x,this.y);
     this.updateSwordVisual();
   };
+  private resetVerticalPosition(){
+    this.jumpY=worldHeight(this.scene,this.x,this.y);this.jumpVelocity=0;this.jumping=false;
+    this.verticalX=this.x;this.verticalY=this.y;this.verticalInterior=(this.scene as WorldScene).inInterior;this.verticalReady=true;
+  }
+  private updateVerticalAfterPhysics(){
+    const scene=this.scene as WorldScene,ground=worldHeight(scene,this.x,this.y),dt=this.verticalDelta;
+    this.verticalDelta=0;
+    // Teleports and room changes select their destination floor immediately.
+    // Ordinary walking is resolved only after Arcade/manual indoor movement.
+    if(!this.verticalReady||scene.inInterior!==this.verticalInterior||Math.hypot(this.x-this.verticalX,this.y-this.verticalY)>256){this.resetVerticalPosition();return;}
+    this.verticalX=this.x;this.verticalY=this.y;
+    if(!this.jumping){
+      if(this.jumpY-ground>32){this.jumping=true;this.jumpVelocity=0;}
+      else {this.jumpY=ground;return;}
+    }
+    let remaining=dt;
+    while(remaining>0){
+      const step=Math.min(.02,remaining);remaining-=step;
+      this.jumpY+=this.jumpVelocity*step-550*step*step;this.jumpVelocity-=1100*step;
+      if(this.jumpY<=ground){
+        this.jumpY=ground;
+        if(this.jumpVelocity<=0){this.jumping=false;this.jumpVelocity=0;break;}
+      }
+    }
+  }
   private updateSwordVisual(){
     const actor=this.awakenedVisual.update(this.skills.weaponActor??this.attackVisual??this);
     this.shadowVisual=actor;
@@ -165,12 +193,12 @@ export class Player extends DepthSortedSprite {
     // Input events arriving during a cast, animation transition or a slow
     // frame must not vanish just because jumping was temporarily locked.
     if(jumpPressed)this.jumpQueuedUntil=time+250;
-    const ground=worldHeight(scene,this.x,this.y),dt=Math.max(0,Math.min(delta,80))/1000;
-    if(this.jumpQueuedUntil>=time&&!this.jumping&&!movementLocked&&this.hp>0){
+    const ground=worldHeight(scene,this.x,this.y);
+    if(!this.verticalReady)this.resetVerticalPosition();
+    this.verticalDelta=Math.max(0,Math.min(delta,80))/1000;
+    if(this.jumpQueuedUntil>0&&this.jumpQueuedUntil>=time&&!this.jumping&&!movementLocked&&this.hp>0){
       this.jumping=true;this.jumpY=ground;this.jumpVelocity=380;this.jumpQueuedUntil=0;
     }
-    if(this.jumping){this.jumpY+=this.jumpVelocity*dt-550*dt*dt;this.jumpVelocity-=1100*dt;
-      if(this.jumpY<=ground&&this.jumpVelocity<0){this.jumping=false;this.jumpVelocity=0;this.jumpY=ground;}}
 
     let x = (this.keys.right.isDown ? 1 : 0) - (this.keys.left.isDown ? 1 : 0) + mobileInput.moveX;
     let y = (this.keys.down.isDown ? 1 : 0) - (this.keys.up.isDown ? 1 : 0) + mobileInput.moveY;
@@ -227,7 +255,8 @@ export class Player extends DepthSortedSprite {
     const dashMultiplier = dashing ? dodge.speedMultiplier : 1;
     if (dashing) { x = this.dashDirection.x; y = this.dashDirection.y; }
     const walkSpeed = this.moveSpeed * progression.speedMultiplier;
-    const speed = walkSpeed * (sprinting ? 1.42 : 1) * dashMultiplier * (this.pendingBasicAttack&&!dashing ? .8 : 1);
+    const slopeScale=this.jumping?1:scene.movementSurfaceScale(this.x,this.y,x,y);
+    const speed = walkSpeed * (sprinting ? 1.42 : 1) * dashMultiplier * (this.pendingBasicAttack&&!dashing ? .8 : 1)*slopeScale;
     // The exhausted state uses walking speed immediately, including cadence;
     // don't carry the previous sprint velocity into the walking animation.
     if (this.sprintExhausted && !dashing && body.velocity.length() > walkSpeed) {
@@ -383,6 +412,7 @@ export class Player extends DepthSortedSprite {
     this.skills.cancelCast(); this.skills.clearRally();
     this.clearAttackVisual();
     (this.body as Phaser.Physics.Arcade.Body).reset(x, y);
+    this.resetVerticalPosition();this.verticalDelta=0;
     this.dashUntil = 0;
     this.invulnerableUntil = 0;
     this.sprintExhausted = false;

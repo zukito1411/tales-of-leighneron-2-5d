@@ -50,7 +50,7 @@ export class RasterCache {
       cached={texture,...bounds,hash,lastUsed:frame};this.frames.set(object,cached);
     }
     const canvas=cached.texture.image as HTMLCanvasElement;
-    if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
+    if(canvas.width!==width||canvas.height!==height){cached.texture.dispose();canvas.width=width;canvas.height=height;}
     const context=canvas.getContext('2d');if(!context)throw new Error('2.5D vector surface unavailable');
     context.setTransform(1,0,0,1,0,0);context.clearRect(0,0,width,height);
     // A detached read-only drawing facade prevents local rasterization from

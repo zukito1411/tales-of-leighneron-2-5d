@@ -20,13 +20,16 @@ export const PORTS:Port[]=[
   description:'The basalt shore is safe to land on. Follow the marked ash road north to Blackspire and the forge.'},
 ];
 export const PORT_BY_ID=Object.fromEntries(PORTS.map(p=>[p.id,p])) as Record<string,Port>;
-/** Walk only the painted plank surface, leaving surrounding water intact. */
+export interface PortDeckRect {left:number;right:number;back:number;front:number}
+// One survey for the solid deck geometry and walkability, relative to the quay.
+const COASTAL_DECK:readonly PortDeckRect[]=[{left:-24,right:24,back:-10,front:244},{left:-99,right:99,back:244,front:277}];
+const RIVER_DECK:readonly PortDeckRect[]=[{left:-76,right:76,back:-28,front:28}];
+export function portDeckRects(river:boolean){return river?RIVER_DECK:COASTAL_DECK;}
+/** Walk only the actual deck, leaving surrounding water intact. */
 export function onPortDeck(x:number,y:number){
  return PORTS.some(port=>{
-  if(port.river)return false;
   const dx=x-port.quay.x,dy=y-port.quay.y;
-  return Math.abs(dx)<=24&&dy>=-10&&dy<=277
-    ||Math.abs(dx)<=99&&dy>=244&&dy<=277;
+  return portDeckRects(port.river).some(r=>dx>=r.left&&dx<=r.right&&dy>=r.back&&dy<=r.front);
  });
 }
 export const ASHEN_DOCK_ROAD=[TOWN_BY_ID.blackspire.world,{x:162048,y:TOWN_BY_ID.blackspire.world.y+2500},{x:162048,y:27616}];

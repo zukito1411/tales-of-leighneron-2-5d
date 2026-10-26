@@ -1,4 +1,6 @@
 import {presentationViewReady} from '../presentation25d/resourcePreparation';
+import {TerrainHeightField} from '../systems/TerrainHeightField';
+import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {groundWorldView,onCombatEffect} from '../presentation25d/plane';
 import Phaser from 'phaser';
@@ -172,6 +174,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return out;
   }
   readonly presentationHeightAt=(x:number,y:number)=>this.worldGenerator?.getElevationAt(x,y)??0;
+  readonly presentationTerrain=new TerrainHeightField(this.presentationHeightAt);
+  /** Gameplay owns the same floor that the renderer and actor feet sample. */
+  readonly groundHeightAt=(x:number,y:number):number=>this.game.registry.get('presentation')!=='three-2.5d'?0:
+    this.inInterior?this.interiors.groundHeightAt(x,y):(walkSurfaceHeight(x,y)??this.presentationTerrain.height(x,y));
+  movementSurfaceScale(x:number,y:number,dx:number,dy:number){return surfaceSpeedScale(this.groundHeightAt,x,y,dx,dy);}
   get presentationShadows(){return this.groundShadows;}
   get presentationWeather(){return this.weather;}
   get presentationLighting(){return this.dayNight;}
@@ -249,6 +256,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   playerRenderDepth(y:number){return this.interiors?.playerRenderDepth(y)??y;}
   private readonly interactables = new Map<string, { definition: InteractableContentDefinition; actor: ContentActor }>();
   private lastSafe = { x: LEIGNERON.spawn.x, y: LEIGNERON.spawn.y };
+  private resolveGroundAfterPhysics=false;
   private hudAccumulator = 0;
   private spawnAccumulator = 0;
   private nextAmbientIntervalMs = 11000;
@@ -475,10 +483,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   canSeeEnemy(enemy:Enemy){return this.inInterior?this.storyEncounters.owns(enemy)||this.dungeons.owns(enemy):this.dayNight.isIlluminated(enemy.x,enemy.y)||Math.hypot(enemy.x-this.player.x,enemy.y-this.player.y)<180;}
   safeSkillPosition(point:Vec2){return this.inInterior?this.interiors.playerFeet(point.x,point.y):this.worldGenerator.isWalkable(point.x,point.y)&&!this.isBlockedByBuilding(point.x,point.y);}
   canTraverseGround(from:Vec2,to:Vec2){
-    if(this.inInterior)return this.interiors.clearPath(from,to);
+    if(this.inInterior)return this.interiors.clearPath(from,to)&&surfacePathWalkable(this.groundHeightAt,from,to);
     // Swept feet catch thin object/wall contours before the terrain sampling.
     return !fortificationBlocksPath(from,to,12)&&!this.worldSprites.blocksPath(from,to)
-      &&this.worldGenerator.isWalkablePath(from,to);
+      &&this.worldGenerator.isWalkablePath(from,to)&&surfacePathWalkable(this.groundHeightAt,from,to);
   }
   restoreOutsidePosition(point:Vec2){
     (this.player.body as Phaser.Physics.Arcade.Body).reset(point.x,point.y);
@@ -905,7 +913,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private onFirstWorldRender(){
       // Do not consume readiness on an inactive frame, or announce a world
       // whose game has already been scheduled for disposal by React/retry.
-      if(this.shuttingDown||isGameDisposing(this.game)||!this.sys.isActive())return;
+      if(this.shuttingDown||isGameDisposing(this.game)||!this.sys.isActive()||this.registry.get('presentationProgramsReady')===false)return;
       this.game.events.off(Phaser.Core.Events.POST_RENDER,this.onFirstWorldRender,this);
       this.registry.set('worldReady',true);
       // Optional sound effects must not prevent the first playable frame.
@@ -930,6 +938,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     try{this.updateWorld(time,delta);}finally{this.registry.set('simulationCpuMs',performance.now()-start);}
   }
   private updateWorld(time: number, delta: number) {
+    this.resolveGroundAfterPhysics=false;
     if(this.pendingRespawn){
       const death=this.pendingRespawn;this.pendingRespawn=null;
       this.respawnPlayer(death);
@@ -1043,7 +1052,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       for (const npc of this.npcs) if (npc.active) (npc.body as Phaser.Physics.Arcade.Body).setVelocity(0,0);
     }
 
-    this.enforceLandCollision();
+    this.resolveGroundAfterPhysics=true;
     this.chunkManager.update(this.player.x, this.player.y);
     // Residency is presentation state, not persistent progress. Every save
     // invokes syncState() through the registered snapshot provider; semantic
@@ -2299,6 +2308,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return true;
   }
 
+  resolvePlayerGroundMotion(){
+    if(!this.resolveGroundAfterPhysics||this.shuttingDown)return;
+    this.resolveGroundAfterPhysics=false;
+    this.enforceLandCollision();
+  }
   private enforceLandCollision() {
     if (this.canTraverseGround(this.lastSafe,this.player)) {
       this.lastSafe = { x: this.player.x, y: this.player.y };
@@ -2379,6 +2393,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   shutdown() {
     if(this.shuttingDown)return;
     this.shuttingDown=true;
+    this.presentationTerrain.clear();
     // A partially created system (or an already destroyed sprite) must not
     // prevent other systems from releasing their listeners and resources.
     const release=(name:string,cleanup:()=>void)=>{
