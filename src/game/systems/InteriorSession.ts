@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
-import {onPlane,onGround,onFurniture,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
+import {ForegroundDeadline} from '../../utils/foregroundDeadline';
+import {onPlane,onGround,onFurniture,onWorldLabel,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
 import {housingFor,HOME_FLOORS,HOME_ENTRANCE,FURNITURE_BY_ART,furnitureFootprint,homeWeaponMount,type HomeItem} from '../../data/housing';
 import {isPlayerHome,PLAYER_HOME_BY_ID} from '../../data/playerHomes';
 import housingArt from '../../data/housingArt.json';
@@ -96,7 +97,7 @@ export class InteriorSession {
   private loadingPromise:Promise<boolean>|null=null;
   private loadEpoch=0;
   private loadAbort:AbortController|null=null;
-  private loadTimeout:number|undefined;
+  private loadDeadline:ForegroundDeadline|undefined;
   private artworkFrame:number|undefined;
   private resumeArtwork:(()=>void)|null=null;
   private readonly combatPaths=new WeakMap<Enemy,{key:string;until:number;point:Vec2}>();
@@ -229,7 +230,7 @@ export class InteriorSession {
     const settle=(ready:boolean)=>{
       if(settled)return;settled=true;
       abort.abort();if(this.loadAbort===abort)this.loadAbort=null;
-      window.clearTimeout(this.loadTimeout);this.loadTimeout=undefined;
+      this.loadDeadline?.clear();this.loadDeadline=undefined;
       this.finishArtworkFrame();this.settleLoad=null;resolve(ready);
     };
     this.settleLoad=settle;
@@ -284,8 +285,10 @@ export class InteriorSession {
       try{await Promise.all([worker(),worker()]);if(alive())await prepare();}
       catch(error){fail(`Interior art could not load: ${error instanceof Error?error.message:String(error)}`);}
     };
-    // Covers fetch, decoding and preparation, including hidden-tab RAF waits.
-    this.loadTimeout=window.setTimeout(()=>fail('The room took too long to load. Please try entering again.'),25000);
+    // Cover stalled fetch/decoding/preparation without counting suspended
+    // Android activity time as a failed doorway or a hidden-tab RAF stall.
+    this.loadDeadline=new ForegroundDeadline(()=>fail('The room took too long to load. Please try entering again.'));
+    this.loadDeadline.start(25000);
     void load();
     });
     this.loadingPromise=promise;
@@ -521,9 +524,10 @@ export class InteriorSession {
       for(const dx of [-entrySpan*.48,entryWidth/2])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:jamb,height:105});
     }
     for(const r of plan.rooms){
-      this.own(scene.add.text(this.origin.x+r.x+r.width/2,this.origin.y+r.y+100,r.label,
+      const anchor={x:this.origin.x+r.x+r.width/2,y:this.origin.y+r.y+100};
+      this.own(onWorldLabel(scene.add.text(anchor.x,anchor.y-24,r.label,
         {fontFamily:'Georgia, serif',fontSize:'11px',color:'#bba67d',stroke:'#19140f',strokeThickness:2})
-        .setResolution(2).setOrigin(.5).setDepth(DEPTH+3000).setAlpha(.7).setName('interior-room-title:'+r.id));
+        .setResolution(2).setOrigin(.5).setAlpha(.7).setName('interior-room-title:'+r.id),anchor));
     }
     if(entry.profile!=='cave'&&scene.textures.exists('warm-light')){
       const spatial=scene.game.registry.get('presentation')==='three-2.5d';
@@ -847,7 +851,7 @@ export class InteriorSession {
   }
   private cancelLoad(){
     this.loadEpoch++;this.loadAbort?.abort();this.loadAbort=null;
-    window.clearTimeout(this.loadTimeout);this.loadTimeout=undefined;
+    this.loadDeadline?.clear();this.loadDeadline=undefined;
     this.finishArtworkFrame();this.settleLoad?.(false);this.settleLoad=null;
   }
   private fitBackdrop(){

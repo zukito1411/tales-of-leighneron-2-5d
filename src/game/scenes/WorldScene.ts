@@ -2,7 +2,7 @@ import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {TerrainHeightField} from '../systems/TerrainHeightField';
 import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
-import {groundWorldView,onCombatEffect} from '../presentation25d/plane';
+import {groundWorldView,onCombatEffect,onWorldLabel} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {housingFor} from '../../data/housing';
 import {isGameDisposing} from '../systems/gameLifetime';
@@ -1637,8 +1637,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const factor=encounterRewardFactor(enemy.level,state.level,summoned);
     const rewardXp=Math.max(1,Math.round(definition.xp*factor)),rewardGold=Math.round(gold*factor);
     state.recordEnemyDefeat(definition.id,rewardXp,rewardGold,bossId,this.contentManager.snapshot(),enemy.instanceId,!summoned,this.worldGenerator.getRegionAt(enemy.x,enemy.y));
-    const gained=this.add.text(enemy.x,enemy.y-48,`+${Math.round(rewardXp*progressionStats(state.attributes,state.learnedSkills,state.armorBonuses).rewardMultiplier)} XP`,{fontFamily:'Georgia,serif',fontSize:'15px',fontStyle:'bold',color:'#f8dc8c',stroke:'#23160b',strokeThickness:4}).setResolution(2).setDepth(enemy.y+900).setOrigin(.5);
-    this.tweens.add({targets:gained,y:enemy.y-112,alpha:0,duration:1450,ease:'Sine.easeOut',onComplete:()=>gained.destroy()});
+    const reward=earnedRewards(rewardXp,rewardGold,state.attributes,state.learnedSkills,state.armorBonuses);
+    const anchor={x:enemy.x,y:enemy.y};
+    const rewardText=`+${reward.xp} XP`+(reward.gold>0?`  +${reward.gold} gold`:'');
+    const gained=onWorldLabel(this.add.text(anchor.x,anchor.y-64,rewardText,{fontFamily:'Georgia,serif',fontSize:'15px',fontStyle:'bold',color:'#f8dc8c',stroke:'#23160b',strokeThickness:4}).setResolution(2).setOrigin(.5,1),anchor);
+    this.tweens.add({targets:gained,y:anchor.y-128,alpha:0,duration:1450,ease:'Sine.easeOut',onComplete:()=>gained.destroy()});
 
     if (enemy.instanceId.startsWith('boss:')) {
       useGameStore.getState().setBossEncounter(null);
@@ -2078,10 +2081,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       return enemy;
     }
     if (definition.kind === 'settlement') {
-      const town = TOWN_BY_ID[definition.townId];
-      return this.add.text(x, y, town.name, {
-        fontFamily: 'Georgia, serif', fontSize: '18px', color: '#f4dfae', stroke: '#24170d', strokeThickness: 4,
-      }).setResolution(2).setOrigin(.5).setDepth(y + 180).setAlpha(town.id === 'oakmere' ? 1 : .82);
+      // Keep the streamed record for navigation and saved content IDs, without
+      // allocating a visible town-name canvas in the world.
+      return this.add.sprite(x,y,'__WHITE').setName(definition.id).setVisible(false);
     }
     if (definition.kind === 'prop' || definition.kind === 'settlement-prop') {
       const texture = definition.texture ?? 'world_objects';
@@ -2097,9 +2099,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         definition.rotation,definition.anchor,definition.wallSegment);
       if(texture==='pirate_flagship')this.flagshipArt.attach(actor);
       if (definition.label) {
-        const caption = this.add.text(x, y + 14, definition.label, {
+        const caption = onWorldLabel(this.add.text(x, y - 12, definition.label, {
           fontFamily: 'Georgia, serif', fontSize: '10px', color: '#e7d7ad', stroke: '#211b12', strokeThickness: 3,
-        }).setResolution(2).setOrigin(.5,0).setDepth(y + 80);
+        }).setResolution(2).setOrigin(.5,1),actor);
         actor.once('destroy', () => caption.destroy());
       }
       return actor;
@@ -2115,9 +2117,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.presentWorldSprite(actor, texture, definition.frame, definition.scale ?? .6, solid, footprint,
       definition.rotation??0,definition.anchor??'bottom');
     if (definition.townShrineId||definition.portId) {
-      const caption = this.add.text(x,y + 15,definition.name,{
+      const caption = onWorldLabel(this.add.text(x,y - 12,definition.name,{
         fontFamily:'Georgia, serif',fontSize:'10px',color:'#e7d7ad',stroke:'#211b12',strokeThickness:3,
-      }).setResolution(2).setOrigin(.5,0).setDepth(y + 80);
+      }).setResolution(2).setOrigin(.5,1),actor);
       actor.once('destroy',() => caption.destroy());
     }
     if (state.used) actor.setTint(definition.id==='clue:cibar-pump'&&useGameStore.getState().storyFlags['cibar-irrigation-repaired']?0xc9f2ed:definition.townShrineId ? 0xc9e7eb : 0x99907b);

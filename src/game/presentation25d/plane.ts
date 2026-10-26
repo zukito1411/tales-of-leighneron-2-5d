@@ -98,6 +98,14 @@ export function onPlane<T extends Phaser.GameObjects.GameObject>(object:T,plane:
   return object;
 }
 
+/** Labels rise above one fixed foot point, rather than sampling a different
+ * patch of terrain as their text/tween moves. A stable overlay order keeps
+ * glyphs clear of floors without creating a new render batch every frame. */
+export function onWorldLabel<T extends Phaser.GameObjects.Text>(object:T,anchor:NonNullable<PresentationHint['anchor']>):T {
+  object.setData(PRESENTATION_HINT,{plane:'upright',anchor,overlay:true} satisfies PresentationHint);
+  return object.setDepth(2_000_100);
+}
+
 /** Bootstrap projection before the live orbit camera's first frame. Isolated
  * Phaser artwork fixtures also retain this deterministic fallback. */
 export const CAMERA_ELEVATION = 30 * Math.PI / 180;

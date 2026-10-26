@@ -11,6 +11,7 @@ import type {WorldScene} from '../scenes/WorldScene';
 import type {Enemy} from '../entities/Enemy';
 import type {Npc} from '../entities/Npc';
 import type {Vec2} from '../types';
+import {onWorldLabel} from '../presentation25d/plane';
 
 /** Finite quest-owned Enemy actors. Combat, targeting, art and damage remain
  * the ordinary game systems. Only permission, waves and lifecycle live here. */
@@ -75,8 +76,8 @@ export class StoryEncounterSystem {
       this.scene.targeting.clear();this.scene.player.resetInput();
       const state=useGameStore.getState();state.hydrate({trackedQuestId:next.questId});
       this.scene.notify(next.warning);this.scene.playAudio('sfx-heal-bell',.45,.65);
-      this.label=this.scene.add.text(point.x,point.y-100,next.name,{fontFamily:'Georgia, serif',fontSize:'12px',
-        color:'#ffe2a2',stroke:'#19120c',strokeThickness:3}).setResolution(2).setOrigin(.5).setDepth(this.scene.playerRenderDepth(point.y)+85);
+      this.label=onWorldLabel(this.scene.add.text(point.x,point.y-100,next.name,{fontFamily:'Georgia, serif',fontSize:'12px',
+        color:'#ffe2a2',stroke:'#19120c',strokeThickness:3}).setResolution(2).setOrigin(.5),this.anchor);
       this.react();
       if(this.scene.playStoryIntro(next.id))return;
     }

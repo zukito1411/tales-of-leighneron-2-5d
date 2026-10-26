@@ -4,6 +4,7 @@ import { GraphicsQualityControl } from './GraphicsQualityControl';
 import {TitleArtwork} from './TitleArtwork';
 import {REGION_MUSIC} from '../game/systems/regionMusic';
 import {SaveTransferControls} from './SaveTransferControls';
+import {GraphicsReportControls} from './GraphicsReportControls';
 
 interface HomeMenuProps {
   canContinue: boolean;
@@ -74,6 +75,7 @@ export function HomeMenu({ canContinue, message, onContinue, onNewGame }: HomeMe
             </button>
             <GraphicsQualityControl />
             <SaveTransferControls/>
+            <GraphicsReportControls/>
             <p>This option controls weather ambience and gameplay sound effects. Regional background music is unaffected.</p>
           </section>
         </div>

@@ -179,9 +179,13 @@ export default function App() {
 
   return (
     <main className="game-shell" onClickCapture={event=>{
+      // A graphics failure during a boat/arrival fade must not trap the player
+      // behind the normal transition input lock, including backup/report export.
+      if(event.target instanceof Element&&event.target.closest('.startup-failure,.game-loading-recovery'))return;
       const s=useGameStore.getState();
       if(s.screenTransition||s.passage){event.preventDefault();event.stopPropagation();}
     }} onKeyDownCapture={event=>{
+      if(event.target instanceof Element&&event.target.closest('.startup-failure,.game-loading-recovery'))return;
       const s=useGameStore.getState();
       if((s.screenTransition||s.passage)&&!event.ctrlKey&&!event.metaKey&&!event.altKey){event.preventDefault();event.stopPropagation();}
     }} onPointerDown={event=>{

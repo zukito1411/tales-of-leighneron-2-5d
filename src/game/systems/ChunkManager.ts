@@ -4,7 +4,8 @@ import {preparePresentationSource} from '../presentation25d/resourcePreparation'
 import {TerrainWorker,type TerrainJob} from './TerrainWorker';
 import {planChunkScenerySteps,type ChunkSceneryPlan} from './chunkSceneryPlan';
 import Phaser from 'phaser';
-import { CHUNK_SIZE } from '../../data/world';
+import { CHUNK_SIZE,TILE_SIZE } from '../../data/world';
+import {harborWaterRect} from '../../data/worldLandscape';
 import {projectedGroundView} from '../presentation25d/plane';
 import { artScale } from '../../data/art';
 import { WorldGenerator } from './WorldGenerator';
@@ -254,7 +255,10 @@ export class ChunkManager {
     }
     const work=frameWork(this.scene.game),start=performance.now(),allowance=work.remaining('retire',.35);
     let released=0;
-    while(this.retiredScenery.length&&released<4&&performance.now()-start<allowance){this.retiredScenery.pop()!.destroy();released++;}
+    // Once hidden/disabled, at least one retired actor must finish teardown.
+    // Otherwise a busy frame can leave the queue full and prevent old chunks
+    // from unloading at all, retaining their canvases and scenery indefinitely.
+    while(this.retiredScenery.length&&released<4&&(released===0||performance.now()-start<allowance)){this.retiredScenery.pop()!.destroy();released++;}
     work.charge('retire',start);
   }
   private retireScenery(actor:ChunkRuntime['scenery'][number]){
@@ -341,7 +345,12 @@ export class ChunkManager {
   private *loadSteps(chunkX:number,chunkY:number,background=true):Generator<void,void>{
     // Fully open sea shares a single texture. Voyages no longer allocate and
     // repaint nine identical 1536-square ocean canvases at every chunk change.
-    const ocean=Array.from({length:25},(_,i)=>({x:(chunkX+i%5/4)*CHUNK_SIZE,y:(chunkY+Math.floor(i/5)/4)*CHUNK_SIZE}))
+    // Harbor water belongs to Portquill/Frostlands, not the dead-sea region.
+    // Previously each wholly wet bay cell allocated another 1536px canvas
+    // plus a mipmapped GPU copy despite containing identical water artwork.
+    const ocean=harborWaterRect(chunkX*CHUNK_SIZE-TILE_SIZE,chunkY*CHUNK_SIZE-TILE_SIZE,
+      (chunkX+1)*CHUNK_SIZE+TILE_SIZE,(chunkY+1)*CHUNK_SIZE+TILE_SIZE)
+      ||Array.from({length:25},(_,i)=>({x:(chunkX+i%5/4)*CHUNK_SIZE,y:(chunkY+Math.floor(i/5)/4)*CHUNK_SIZE}))
       .every(p=>this.world.getRegionAt(p.x,p.y)==='dead-sea');
     if(ocean){
       const key='shared-ocean-chunk';if(!this.scene.textures.exists(key)){

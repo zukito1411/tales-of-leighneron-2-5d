@@ -45,6 +45,8 @@ import {useGameStore} from '../../store/gameStore';
 import {PRESENTATION_HINT,billboardLean,uprightPoint,presentationAttachmentWorld,bindPresentationView,clearPresentationView,type PresentationView,type PresentationHint,type PresentationPlane} from './plane';
 import {GAME_DISPOSING} from '../systems/gameLifetime';
 import {mobileInput} from '../input';
+import {recordGraphicsFault,graphicsError,type GraphicsFaultKind} from '../../utils/graphicsRecoveryReport';
+import {ForegroundDeadline} from '../../utils/foregroundDeadline';
 import type {TerrainHeightField} from '../systems/TerrainHeightField';
 
 type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameObjects.Text;
@@ -84,7 +86,7 @@ export class ThreePresentation {
   private gpuTimer:GpuTimer;
   private readonly shaderWarmup:ShaderWarmup;
   private programsReady=false;private contextLost=false;private preparationEpoch=0;
-  private recoveryTimeout:number|undefined;
+  private readonly recoveryDeadline=new ForegroundDeadline(()=>this.failPresentation(new Error('Graphics context restoration timed out.')));
   private readonly frameTiming=new FrameTiming();
   private readonly visibility=new StreamVisibility();
   private timingFrame=-1;
@@ -171,8 +173,14 @@ export class ThreePresentation {
     // On tile-based mobile GPUs default framebuffer MSAA can duplicate
     // bandwidth costs on top of the world/depth postprocessing targets.
     // Normal preserves detail on both platforms; Low remains an explicit choice.
-    this.renderer=new WebGLRenderer({alpha:false,antialias:getEffectsQuality()!=='low',powerPreference:'high-performance'});
+    // World rendering uses the existing FXAA compositor. An additional mobile
+    // default-framebuffer MSAA allocation does not antialias that world FBO.
+    const mobile=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
+    this.renderer=new WebGLRenderer({alpha:false,antialias:!mobile&&getEffectsQuality()!=='low',powerPreference:'high-performance'});
     this.renderer.debug.onShaderError=(gl,program,vertex,fragment)=>{
+      if(this.contextLost||gl.isContextLost())return;
+      this.reportGraphicsFault('shader-error',{program:gl.getProgramInfoLog(program)?.slice(0,4000),
+        vertex:gl.getShaderInfoLog(vertex)?.slice(0,4000),fragment:gl.getShaderInfoLog(fragment)?.slice(0,4000)});
       console.error('[2.5d] Shader compilation failed',gl.getProgramInfoLog(program),gl.getShaderInfoLog(vertex),gl.getShaderInfoLog(fragment));
       this.failPresentation(new Error('A required graphics shader could not be compiled.'));
     };
@@ -214,7 +222,13 @@ export class ThreePresentation {
     canvas.addEventListener('webglcontextrestored',this.onContextRestored);
     // The scene manager still executes its normal camera pre-render and emits
     // POST_RENDER only after this draw, preserving world-ready/save protection.
-    this.native.render=(scene,children,camera)=>this.draw(scene,children,camera);
+    this.native.render=(scene,children,camera)=>{
+      try{this.draw(scene,children,camera);}catch(error){
+        // The loss event owns recovery; a draw interrupted by that same loss
+        // must not turn a recoverable context into a permanent failure.
+        if(!this.renderer.getContext().isContextLost())this.failPresentation(error);
+      }
+    };
     game.events.once(GAME_DISPOSING,this.destroy,this);
     game.events.once(Phaser.Core.Events.DESTROY,this.destroy,this);
     game.registry.set('presentation','three-2.5d');
@@ -298,9 +312,11 @@ export class ThreePresentation {
       if(batch.mesh.visible&&(batch.interactive||batch.mesh.userData.presentationOccluder)&&batch.mesh.parent===this.world)this.pickable.push(batch.mesh);
     }
     const retireStart=performance.now(),retireMs=work.remaining('retire',.3);
-    pruneSpriteBatches(this.batches,this.frame,80,2,retireStart+retireMs);
-    if(performance.now()-retireStart<retireMs)this.textures.prune(this.frame);
-    if(performance.now()-retireStart<retireMs)this.rasters.prune(this.frame);
+    // Resource caps must remain enforceable when terrain uses the full work
+    // allowance. Each cache already bounds releases; cleanup cannot starve.
+    pruneSpriteBatches(this.batches,this.frame,80,2,retireStart+Math.max(.1,retireMs));
+    this.textures.prune(this.frame);
+    this.rasters.prune(this.frame);
     work.charge('retire',retireStart);
     const profCollect=this.frameDiagnostics?performance.now():0;
     this.gpuTimer.begin(sampleGpu);
@@ -610,9 +626,9 @@ export class ThreePresentation {
     if(hint?.overlay&&plane!=='screen'){
       // Preserve world anchoring while sharing exact depth order with screen
       // darkness and weather. These are tiny planes, not world screenshots.
-      for(const p of [this.p0,this.p1,this.p2]){
-        p.project(this.orbit.camera);p.set((p.x+1)*this.width/2,(1-p.y)*this.height/2,0);
-      }
+      // Screen composition bypasses world clipping. Reject invalid/behind-
+      // camera corners before division can create giant mirrored overlays.
+      if(!this.projectOverlayPoint(this.p0)||!this.projectOverlayPoint(this.p1)||!this.projectOverlayPoint(this.p2))return;
     }
     const xx=this.p1.x-this.p0.x,xy=this.p1.y-this.p0.y,xz=this.p1.z-this.p0.z;
     const yx=this.p2.x-this.p0.x,yy=this.p2.y-this.p0.y,yz=this.p2.z-this.p0.z;
@@ -756,6 +772,11 @@ export class ThreePresentation {
     camera.addToRenderList(object);return true;
   }
 
+  private projectOverlayPoint(point:Vector3){
+    point.project(this.orbit.camera);
+    if(!Number.isFinite(point.x)||!Number.isFinite(point.y)||!Number.isFinite(point.z)||point.z< -1||point.z>1)return false;
+    point.set((point.x+1)*this.width/2,(1-point.y)*this.height/2,0);return true;
+  }
   private leanPoint(point:Vector3,floor:number){
     const pitch=this.atmosphere.billboardPitch.value,h=point.y-floor;
     point.x-=h*pitch.y*this.yawSin;point.z-=h*pitch.y*this.yawCos;point.y=floor+h*pitch.x;
@@ -878,14 +899,24 @@ export class ThreePresentation {
       if(hit.object.userData.presentationOccluder)break;
     }
   };
+  private reportGraphicsFault(kind:GraphicsFaultKind,details:Record<string,unknown>={}){
+    const state=useGameStore.getState();
+    recordGraphicsFault(kind,{...details,region:state.regionId,town:state.townId,
+      passage:state.passage,transition:state.screenTransition?.kind,
+      focus:this.orbit?{x:this.orbit.focusGround.x,y:this.orbit.focusGround.y}:undefined,
+      textures:this.textures.stats(),gpuTextures:this.renderer.info.memory.textures,
+      gpuGeometries:this.renderer.info.memory.geometries,batches:this.batches.size,
+      terrain:this.game.registry.get('presentationStreamPerf'),quality:getEffectsQuality(),
+      backing:{width:this.renderer.domElement.width,height:this.renderer.domElement.height}});
+  }
   private failPresentation(reason:unknown){
-    if(this.stopped)return;
+    if(this.stopped||this.game.registry.get('presentationError'))return;
+    this.reportGraphicsFault('preparation-failed',graphicsError(reason));
     console.error('[2.5d] Graphics preparation failed',reason);
     this.programsReady=false;this.preparationEpoch++;
     this.game.registry.set('presentationProgramsReady',false);
     this.orbit.suspend();
-    if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
-    this.recoveryTimeout=undefined;
+    this.recoveryDeadline.clear();
     this.game.registry.set('presentationRecovering',false);
     this.game.registry.set('presentationError','The graphics could not be prepared. Return to the menu and reopen your save.');
     this.game.loop.sleep();
@@ -898,8 +929,8 @@ export class ThreePresentation {
       if(this.game.registry.get('presentationError'))return;
       this.programsReady=true;this.game.registry.set('presentationProgramsReady',true);
       if(restoring){
-        if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
-        this.recoveryTimeout=undefined;this.game.registry.set('presentationRecovering',false);
+        this.reportGraphicsFault('context-restored');
+        this.recoveryDeadline.clear();this.game.registry.set('presentationRecovering',false);
         // Reset Phaser's delta history before wake; the paused interval must
         // never become one giant physics step or catch-up frame.
         this.game.loop.resetDelta();
@@ -910,12 +941,15 @@ export class ThreePresentation {
   private readonly onContextLost=(event:Event)=>{
     event.preventDefault();
     if(this.stopped||this.contextLost)return;
+    this.reportGraphicsFault('context-lost',{status:'statusMessage' in event?String(event.statusMessage).slice(0,2000):undefined});
     this.contextLost=true;this.programsReady=false;this.preparationEpoch++;
     this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();
     this.game.registry.set('presentationRecovering',true);
     this.game.registry.set('presentationProgramsReady',false);
     this.game.loop.sleep();
-    this.recoveryTimeout=window.setTimeout(()=>this.failPresentation(new Error('Graphics context restoration timed out.')),30000);
+    // Background time is not restoration time: Android may keep the GPU
+    // unavailable until the activity returns to the foreground.
+    this.recoveryDeadline.start(30000);
   };
   private readonly onContextRestored=()=>{
     if(this.stopped||!this.contextLost||this.game.registry.get('presentationError'))return;
@@ -924,7 +958,8 @@ export class ThreePresentation {
     // meshes and gameplay survive; their GPU residency fences do not.
     this.gpuTimer=new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
     this.textures.invalidate();
-    this.preparePrograms(this.shaderWarmup.compile(this.renderer,this.orbit.camera),true);
+    try{this.preparePrograms(this.shaderWarmup.compile(this.renderer,this.orbit.camera),true);}
+    catch(error){this.failPresentation(error);}
   };
   destroy(){
     if(this.stopped)return;this.stopped=true;
@@ -935,12 +970,12 @@ export class ThreePresentation {
     this.game.canvas.style.visibility=this.originalCanvasVisibility;
     if(this.game.input.mouse&&this.originalMouseEnabled!==undefined)this.game.input.mouse.enabled=this.originalMouseEnabled;
     if(this.game.input.touch&&this.originalTouchEnabled!==undefined)this.game.input.touch.enabled=this.originalTouchEnabled;
-    this.preparationEpoch++;if(this.recoveryTimeout!==undefined)window.clearTimeout(this.recoveryTimeout);
+    this.preparationEpoch++;this.recoveryDeadline.clear();
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
     releaseLifeTreeGeometry();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
-    this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();canvas.remove();
+    this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();
     this.hits.length=0;this.pickable.length=0;this.transform.destroy();this.parentTransform.destroy();
   }

@@ -13,7 +13,7 @@ export class GpuTimer {
     const query=this.gl.createQuery();if(!query)return;
     this.active=query;this.gl.beginQuery(this.extension.TIME_ELAPSED_EXT,query);
   }
-  end(){if(!this.active||!this.extension)return;this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);this.pending.push(this.active);this.active=null;}
+  end(){if(this.gl.isContextLost()){this.abandon();return;}if(!this.active||!this.extension)return;this.gl.endQuery(this.extension.TIME_ELAPSED_EXT);this.pending.push(this.active);this.active=null;}
   poll(){
     const ext=this.extension;if(!ext||!this.pending.length||this.gl.isContextLost())return;
     if(this.gl.getParameter(ext.GPU_DISJOINT_EXT)){

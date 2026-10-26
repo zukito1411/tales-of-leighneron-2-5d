@@ -8,6 +8,8 @@ import {TitleArtwork} from './TitleArtwork';
 import {refreshOfflineGameFiles} from '../utils/appStartup';
 import {saveGame} from '../utils/save';
 import {SaveTransferControls} from './SaveTransferControls';
+import {GraphicsReportControls} from './GraphicsReportControls';
+import {recordGraphicsFault,graphicsError} from '../utils/graphicsRecoveryReport';
 
 declare global { interface Window { __mernondnaGame?: Phaser.Game } }
 
@@ -43,9 +45,12 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
     const onError=(event:ErrorEvent)=>{
       // WebViews may supply a message without an Error object. Resource error
       // events have neither; the Phaser asset loader handles those separately.
-      if(event.error||event.message)failed(event.error??new Error(event.message));
+      if(event.error||event.message){
+        recordGraphicsFault('runtime-error',graphicsError(event.error??new Error(event.message)));
+        failed(event.error??new Error(event.message));
+      }
     };
-    const onRejection=(event:PromiseRejectionEvent)=>failed(event.reason);
+    const onRejection=(event:PromiseRejectionEvent)=>{recordGraphicsFault('runtime-error',graphicsError(event.reason));failed(event.reason);};
     const canvasHost=ref.current;
     window.addEventListener('error',onError);window.addEventListener('unhandledrejection',onRejection);
     // Some overlay focus transitions prevent Phaser from seeing a keydown.
@@ -141,6 +146,6 @@ export function GameCanvas({onReady,onExit,onRetry,retryAvailable}:{onReady:()=>
         <button type="button" onClick={onExit}>Return to Main Menu</button>
       </div>
     </div>}
-    {graphicsRecovering&&!error&&<div className="startup-failure" role="status" aria-live="polite"><h2>Restoring your view</h2><p>Your journey is paused while the graphics recover.</p><button onClick={onExit}>Return to Main Menu</button></div>}
-    {error&&<div className="startup-failure" role="alert"><h2>Your journey is waiting</h2><p>{error}</p><button onClick={()=>window.location.reload()}>Try again</button><button onClick={()=>{void refreshOfflineGameFiles();}}>Refresh game files (keeps save)</button><div className="game-recovery-controls"><SaveTransferControls exportOnly storedOnly/><button onClick={onExit}>Return to Main Menu</button></div></div>}</>;
+    {graphicsRecovering&&!error&&<div className="startup-failure" role="status" aria-live="polite"><h2>Restoring your view</h2><p>Your journey is paused while the graphics recover.</p><GraphicsReportControls/><button onClick={onExit}>Return to Main Menu</button></div>}
+    {error&&<div className="startup-failure" role="alert"><h2>Your journey is waiting</h2><p>{error}</p><button onClick={()=>window.location.reload()}>Try again</button><button onClick={()=>{void refreshOfflineGameFiles();}}>Refresh game files (keeps save)</button><div className="game-recovery-controls"><SaveTransferControls exportOnly storedOnly/><GraphicsReportControls/><button onClick={onExit}>Return to Main Menu</button></div></div>}</>;
 }

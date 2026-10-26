@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import {useGameStore} from '../../store/gameStore';
 import type {WorldScene} from '../scenes/WorldScene';
+import {onWorldLabel} from '../presentation25d/plane';
 
 /** Transient active-play celebration. Loading a save never replays a level. */
 export class LevelUpFeedback{
@@ -11,8 +12,8 @@ export class LevelUpFeedback{
   private readonly reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(private readonly scene:WorldScene){
     this.glow=scene.add.graphics().setName('player-level-up').setVisible(false);
-    this.label=scene.add.text(0,0,'',{fontFamily:'Georgia, serif',fontSize:'16px',fontStyle:'bold',
-      color:'#fff1b7',stroke:'#47301c',strokeThickness:4}).setOrigin(.5,1).setResolution(2).setVisible(false);
+    this.label=onWorldLabel(scene.add.text(0,0,'',{fontFamily:'Georgia, serif',fontSize:'16px',fontStyle:'bold',
+      color:'#fff1b7',stroke:'#47301c',strokeThickness:4}).setOrigin(.5,1).setResolution(2).setVisible(false),scene.player);
   }
   update(delta:number,blocked:boolean){
     const notice=useGameStore.getState().levelUpNotice,player=this.scene.player;
@@ -36,7 +37,7 @@ export class LevelUpFeedback{
       this.glow.fillStyle(i%2?0xffd16b:0xfff6c5,alpha*.9).fillCircle(px,py,i%3===0?2:1.3);
       if(i%3===0)this.glow.lineStyle(1,0xffdf8d,alpha*.35).lineBetween(px,py+9,px,py);
     }
-    this.label.setPosition(x,y-92-motion*20).setDepth(depth+100).setAlpha(alpha);
+    this.label.setPosition(x,y-92-motion*20).setAlpha(alpha);
   }
   destroy(){this.glow.destroy();this.label.destroy();}
 }

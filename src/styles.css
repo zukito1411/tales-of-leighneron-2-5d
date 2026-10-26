@@ -438,7 +438,7 @@ kbd { font-size: 10px; opacity: .65; }
 .atlas-zoom-controls button { padding:6px 10px; background:#46361f; color:#ffe9ba; border:1px solid #8a7046; border-radius:6px; cursor:pointer; }
 .atlas-zoom-controls button:disabled { opacity:.45; cursor:default; }
 .minimap-weather { display:block; font-size:9px; line-height:1.2; padding-top:3px; color:#d9d8bd; text-align:center; }
-.startup-failure { position:fixed; inset:0; z-index:1000; background:#17120df5; color:#f4dfae; padding:clamp(20px,6vw,70px); pointer-events:auto; overflow:auto; }
+.startup-failure { position:fixed; inset:0; z-index:20000; background:#17120df5; color:#f4dfae; padding:clamp(20px,6vw,70px); pointer-events:auto; overflow:auto; }
 .startup-failure button { padding:12px 20px; background:#46361f; border:1px solid #b49a6b; color:#ffe9ba; border-radius:8px; }
 .game-loading { position:fixed; inset:0; z-index:900; overflow:hidden; background:#172016; color:#fff0cf; }
 .game-loading-recovery { position:absolute; z-index:3; top:max(10px,env(safe-area-inset-top)); right:max(10px,env(safe-area-inset-right)); display:grid; gap:5px; justify-items:stretch; width:min(210px,42vw); }

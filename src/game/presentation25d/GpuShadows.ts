@@ -98,7 +98,7 @@ export class GpuShadows {
     }
     for(const batch of this.batches.values())batch.finish();
     const work=frameWork(scene.game),start=performance.now();
-    pruneSpriteBatches(this.batches,frame,16,1,start+work.remaining('retire',.2));work.charge('retire',start);
+    pruneSpriteBatches(this.batches,frame,16,1,start+Math.max(.1,work.remaining('retire',.2)));work.charge('retire',start);
   }
   private contact(actor:ShadowCaster['actor'],x:number,z:number,width:number,height:number,alpha:number,frame:number){
     if(width<=0||height<=0||!this.contactSource)return;

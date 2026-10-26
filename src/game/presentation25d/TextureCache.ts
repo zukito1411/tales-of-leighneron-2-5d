@@ -40,8 +40,18 @@ export class TextureCache {
       texture.needsUpdate=true;
       texture.onUpdate=()=>{const current=this.entries.get(source);if(current){current.uploadedVersion=texture.version;this.pending.delete(source);}};
       const original=source.update;
+      const originalDestroy=source.destroy;
       const update:typeof original=function(){const result=original.call(source);texture.needsUpdate=true;return result;};
       source.update=update;
+      // Phaser returns canvas sources to its pool during remove(). Release
+      // their Three copy at that same ownership boundary, even while the
+      // streaming frame has exhausted its optional retirement allowance.
+      const destroy:typeof originalDestroy=()=>{
+        const current=this.entries.get(source);
+        if(current)this.release(source,current);
+        originalDestroy.call(source);
+      };
+      source.destroy=destroy;
       const restoreDynamic: (()=>void)[]=[];
       if(source.texture instanceof Phaser.Textures.DynamicTexture){
         const dynamic=source.texture,fill=dynamic.fill,clear=dynamic.clear,endDraw=dynamic.endDraw;
@@ -51,7 +61,7 @@ export class TextureCache {
         dynamic.fill=nextFill;dynamic.clear=nextClear;dynamic.endDraw=nextEnd;
         restoreDynamic.push(()=>{if(dynamic.fill===nextFill)dynamic.fill=fill;if(dynamic.clear===nextClear)dynamic.clear=clear;if(dynamic.endDraw===nextEnd)dynamic.endDraw=endDraw;});
       }
-      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;for(const restore of restoreDynamic)restore();}};
+      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;if(source.destroy===destroy)source.destroy=originalDestroy;for(const restore of restoreDynamic)restore();}};
       this.entries.set(source,entry);
     }
     if(text&&entry.text!==text){
@@ -80,7 +90,12 @@ export class TextureCache {
     this.get(source,frame);
   }
   ready(source:Phaser.Textures.TextureSource){const entry=this.entries.get(source);return Boolean(entry&&entry.uploadedVersion===entry.texture.version);}
-  invalidate(){for(const [source,entry] of this.entries){entry.uploadedVersion=-1;entry.texture.needsUpdate=true;this.pending.add(source);}}
+  invalidate(){
+    // A restored context must not eagerly reupload every old town/atlas.
+    // get() requeues only sources requested by the live view or preload band.
+    this.pending.clear();
+    for(const entry of this.entries.values()){entry.uploadedVersion=-1;entry.texture.needsUpdate=true;}
+  }
   prepare(renderer:WebGLRenderer,work:FrameWorkBudget){
     if(work.remaining('upload')<=0)return;
     // A GL upload is atomic. Do at most one cold/dirty source here, before it
@@ -111,9 +126,13 @@ export class TextureCache {
     // Evict only idle resources, oldest first; never drop visible assets.
     while((this.bytes>MAX_RESIDENT_BYTES||idle>MAX_IDLE_ENTRIES)&&retired<2){
       let oldest:Entry|undefined,oldestSource:Phaser.Textures.TextureSource|undefined;
-      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-RESIDENCY_GRACE&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
+      // Above the byte budget, reclaim sources absent from the last complete
+      // view immediately. A two-second grace is only affordable below budget.
+      const grace=this.bytes>MAX_RESIDENT_BYTES?2:RESIDENCY_GRACE;
+      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-grace&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
-      this.release(oldestSource,oldest);retired++;idle--;
+      if(oldest.lastUsed<frame-RESIDENCY_GRACE)idle--;
+      this.release(oldestSource,oldest);retired++;
     }
   }
   destroy(){for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}

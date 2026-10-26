@@ -12,7 +12,7 @@ import {artScale} from '../../data/art';
 import {grandMagusFarewell} from './GrandMagusArt';
 import {TOWER_SOUTH_ENTRY} from '../../data/towerRoom';
 import {ensureBossSkillArt} from './BossSkillArt';
-import {PRESENTATION_HINT,onFurniture,type PresentationHint} from '../presentation25d/plane';
+import {PRESENTATION_HINT,onFurniture,onWorldLabel,type PresentationHint} from '../presentation25d/plane';
 import {towerOfMightShape} from '../presentation25d/HouseGeometry';
 
 const EXTERIOR='cave-entrances-v1';
@@ -280,8 +280,8 @@ export class DungeonSystem {
         .setDepth(this.scene.playerRenderDepth(point.y)+1).setName('tower-return-portal');
       this.portal.play({key:'effect-teleport',repeat:-1,frameRate:8});
       this.portal.setInteractive({useHandCursor:true}).on('pointerdown',()=>{if(this.near(point))this.requestTowerReturn();});
-      this.portalLabel=this.scene.add.text(point.x,point.y-85,'Return to Oakmere',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#d9c4ff',stroke:'#171021',strokeThickness:3})
-        .setOrigin(.5).setDepth(this.scene.playerRenderDepth(point.y)+2);
+      this.portalLabel=onWorldLabel(this.scene.add.text(point.x,point.y-85,'Return to Oakmere',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#d9c4ff',stroke:'#171021',strokeThickness:3})
+        .setOrigin(.5),point);
       if(this.practice)return;
       if(d.tower.floor<5)return;
     }
@@ -290,8 +290,8 @@ export class DungeonSystem {
     this.chest=this.scene.add.image(p.x,p.y,'interior-furniture',claimed?'openChest':'chest').setOrigin(.5,1).setDisplaySize(72,70).setDepth(this.scene.playerRenderDepth(p.y));
     onFurniture(this.chest,claimed?'openChest':'chest','cave_stone');
     this.chest.setInteractive({useHandCursor:true}).on('pointerdown',()=>this.interact());
-    this.caption=this.scene.add.text(p.x,p.y-82,claimed?'Claimed':'War chest',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#ffe3a2',stroke:'#1b140e',strokeThickness:3})
-      .setOrigin(.5).setDepth(this.scene.playerRenderDepth(p.y)+1);
+    this.caption=onWorldLabel(this.scene.add.text(p.x,p.y-82,claimed?'Claimed':'War chest',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#ffe3a2',stroke:'#1b140e',strokeThickness:3})
+      .setOrigin(.5),p);
   }
   get prompt(){
     if(!this.session)return null;
