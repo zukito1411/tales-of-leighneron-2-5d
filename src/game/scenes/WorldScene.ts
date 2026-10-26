@@ -64,7 +64,7 @@ import { ContentChunkManager, restoreLegacySummonWaves, type EncounterSpawnMembe
 import { EncounterCoordinator } from '../systems/EncounterCoordinator';
 import { AmbientWildlifeSystem } from '../systems/AmbientWildlifeSystem';
 import {PirateFlagshipArt} from '../systems/PirateFlagshipArt';
-import {FLAGSHIP,FLAGSHIP_CONTENT,flagshipFootprint,flagshipWalkable,flagshipNavigation,onFlagshipDeck,onFlagshipBoarding,isFlagshipCombatant} from '../../data/pirateFlagship';
+import {FLAGSHIP,FLAGSHIP_CONTENT,flagshipFootprint,flagshipWalkable,flagshipNavigation,flagshipDeckPathClear,onFlagshipDeck,onFlagshipBoarding,isFlagshipCombatant} from '../../data/pirateFlagship';
 import {tidewatchGullHabitat} from '../systems/wildlifeCover';
 import { resolveQuestTarget, questBearing } from '../systems/questNavigation';
 import { artScale, artFrameSize, worldPropOrigin } from '../../data/art';
@@ -170,7 +170,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const enemy=this.presentationControlsEnabled?this.targeting?.lockedTarget:null;if(!enemy)return undefined;
     const visual=enemy.presentationLockVisual,out=this.lockPresentation;
     out.x=enemy.x;out.y=enemy.y;out.displayWidth=Math.max(enemy.displayWidth,visual.displayWidth);
-    out.displayHeight=Math.max(enemy.displayHeight,visual.displayHeight);out.presentationElevation=Math.max(0,enemy.y-visual.y);
+    out.displayHeight=Math.max(enemy.displayHeight,visual.displayHeight);out.presentationElevation=Math.max(0,enemy.y-visual.y)+enemy.presentationElevation;
     return out;
   }
   readonly presentationHeightAt=(x:number,y:number)=>this.worldGenerator?.getElevationAt(x,y)??0;
@@ -266,6 +266,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private readonly combatEnemyList:Enemy[]=[];
   private combatEnemyListDirty=true;
   private readonly shipPaths=new WeakMap<Enemy,{until:number;target:Vec2;point:Vec2}>();
+  private playerTerritoryFrame=-1;private playerTerritoryX=NaN;private playerTerritoryY=NaN;
+  private playerTerritoryRoadOpen=false;private playerTerritoryAllowed=false;
   private focused = true;
   private wasBlocked = false;
   // Lethal hits can arrive inside enemy timers and projectile iterations.
@@ -458,8 +460,16 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   storyActor(enemy:Enemy){return enemy.instanceId.startsWith('story-event:')||enemy.instanceId.startsWith('dungeon-event:');}
   canEnemyTargetPlayer(enemy:Enemy){
     if(this.passage?.active||this.screenTransition.active||this.restSession)return false;
-    return this.storyActor(enemy)?Boolean(this.dungeons?.owns(enemy)?this.dungeons.allows(this.player):this.storyEncounters?.owns(enemy)&&this.storyEncounters.allows(this.player))
-      :!this.inInterior&&this.isEnemyTerritory(this.player.x,this.player.y);
+    if(this.storyActor(enemy))return Boolean(this.dungeons?.owns(enemy)?this.dungeons.allows(this.player):this.storyEncounters?.owns(enemy)&&this.storyEncounters.allows(this.player));
+    if(this.inInterior)return false;
+    const p=this.player,frame=this.game.loop.frame,roadOpen=Boolean(useGameStore.getState().storyFlags['oakmere-road-open']);
+    // Every hostile asks about the same player location. Reuse only within
+    // this frame and invalidate on blinks/quest changes even within that frame.
+    if(frame!==this.playerTerritoryFrame||p.x!==this.playerTerritoryX||p.y!==this.playerTerritoryY||roadOpen!==this.playerTerritoryRoadOpen){
+      this.playerTerritoryFrame=frame;this.playerTerritoryX=p.x;this.playerTerritoryY=p.y;this.playerTerritoryRoadOpen=roadOpen;
+      this.playerTerritoryAllowed=this.isEnemyTerritory(p.x,p.y);
+    }
+    return this.playerTerritoryAllowed;
   }
   updateInteriorStoryCombat(time:number,delta:number,blocked:boolean){
     if(this.dungeons.active)this.dungeons.update(time,blocked);else this.storyEncounters.update(time,delta,blocked);
@@ -717,6 +727,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     // approved soft pack separation; dragon flight uses its own movement system.
     this.physics.add.collider(this.creatureBodies,this.creatureBodies,undefined,(a,b)=>
       a instanceof Enemy&&b instanceof Enemy&&a.hp>0&&b.hp>0
+      &&!a.isAirborne&&!b.isAirborne
       &&a.definition.combatStyle!=='dragon'&&b.definition.combatStyle!=='dragon'
       &&!(a.wolfPackId&&b.wolfPackId));
     this.physics.add.collider(this.npcBodies, this.buildings);
@@ -1846,7 +1857,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
   hasClearPath(ax: number, ay: number, bx: number, by: number, exclude?: Phaser.GameObjects.GameObject) {
     if(this.inInterior)return this.interiors.combatPath({x:ax,y:ay},{x:bx,y:by});
-    if(flagshipFootprint(ax,ay)||flagshipFootprint(bx,by)){
+    const onShip=flagshipFootprint(ax,ay)||flagshipFootprint(bx,by);
+    const deckPath=onShip?flagshipDeckPathClear(ax,ay,bx,by):undefined;
+    if(deckPath===false)return false;
+    if(onShip&&deckPath===undefined){
       const steps=Math.max(1,Math.ceil(Math.hypot(bx-ax,by-ay)/16));
       for(let i=0;i<=steps;i++)if(!this.worldGenerator.isWalkable(ax+(bx-ax)*i/steps,ay+(by-ay)*i/steps))return false;
     }

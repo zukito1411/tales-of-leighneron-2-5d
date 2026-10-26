@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import {setDepthIfChanged} from './renderDepth';
 import {onGround} from '../presentation25d/plane';
 import {ATTACK_WARNING_FRAMES,ATTACK_WARNING_TEXTURE,windupProgress,type AttackArea} from './attackWarning';
 
@@ -25,9 +26,9 @@ export class AttackTelegraph {
   draw(area:AttackArea,progress:number,depth:number,color=0xf3aa57){
     const g=this.graphics,p=windupProgress(progress,1),r=area.radius;
     this.progress=p;
-    g.setVisible(true).setPosition(area.x,area.y).setRotation(area.angle).setDepth(depth);
+    setDepthIfChanged(g,depth).setVisible(true).setPosition(area.x,area.y).setRotation(area.angle);
     const tint=p>=.85?0xff6659:color;
-    this.rune?.setPosition(area.x,area.y).setDisplaySize(r*2,r*2).setDepth(depth-.1).setAlpha(.12).setVisible(area.kind==='circle');
+    if(this.rune)setDepthIfChanged(this.rune,depth-.1).setPosition(area.x,area.y).setDisplaySize(r*2,r*2).setAlpha(.12).setVisible(area.kind==='circle');
     this.presentation.area=area;this.presentation.progress=p;this.presentation.color=tint;
     if(this.gpu)return this;
     const old=this.geometry;

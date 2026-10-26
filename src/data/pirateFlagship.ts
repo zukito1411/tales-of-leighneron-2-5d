@@ -17,42 +17,75 @@ export const FLAGSHIP_DECK:readonly Vec2[]=[{x:385,y:260},{x:485,y:320},{x:565,y
   {x:620,y:835},{x:600,y:970},{x:215,y:970},{x:205,y:850},{x:235,y:660},{x:300,y:420}];
 export const FLAGSHIP_GANGPLANK={left:590,right:1000,top:780,bottom:834};
 export const FLAGSHIP_OBSTACLES=[{left:366,right:457,top:577,bottom:657}];
-const local=(x:number,y:number)=>({x:(x-FLAGSHIP.topLeft.x)/FLAGSHIP.scale,y:(y-FLAGSHIP.topLeft.y)/FLAGSHIP.scale});
-function inPolygon(p:Vec2,polygon:readonly Vec2[]){
+function inPolygon(x:number,y:number,polygon:readonly Vec2[]){
   let inside=false;
   for(let i=0,j=polygon.length-1;i<polygon.length;j=i++){
     const a=polygon[i],b=polygon[j];
-    if((a.y>p.y)!==(b.y>p.y)&&p.x<(b.x-a.x)*(p.y-a.y)/(b.y-a.y)+a.x)inside=!inside;
+    if((a.y>y)!==(b.y>y)&&x<(b.x-a.x)*(y-a.y)/(b.y-a.y)+a.x)inside=!inside;
   }
   return inside;
 }
-const inRect=(p:Vec2,r:{left:number;right:number;top:number;bottom:number},margin=0)=>
-  p.x>=r.left-margin&&p.x<=r.right+margin&&p.y>=r.top-margin&&p.y<=r.bottom+margin;
+const inRect=(x:number,y:number,r:{left:number;right:number;top:number;bottom:number},margin=0)=>
+  x>=r.left-margin&&x<=r.right+margin&&y>=r.top-margin&&y<=r.bottom+margin;
+const FOOT_OFFSETS= [[0,0],[-1,0],[1,0],[0,-1],[0,1]] as const;
 const left=FLAGSHIP.topLeft.x,top=FLAGSHIP.topLeft.y,scale=FLAGSHIP.scale;
 export function onFlagshipDeck(x:number,y:number){
   if(x<left+205*scale||x>left+620*scale||y<top+260*scale||y>top+970*scale)return false;
-  return inPolygon(local(x,y),FLAGSHIP_DECK);
+  return inPolygon((x-left)/scale,(y-top)/scale,FLAGSHIP_DECK);
 }
 export function onFlagshipBoarding(x:number,y:number){
   // Terrain baking calls this globally: reject distant samples before creating
   // points or visiting polygon edges. Detailed work stays local to one ship.
   if(x<left+205*scale||x>left+1000*scale||y<top+260*scale||y>top+970*scale)return false;
-  return onFlagshipDeck(x,y)||inRect(local(x,y),FLAGSHIP_GANGPLANK);
+  return onFlagshipDeck(x,y)||inRect((x-left)/scale,(y-top)/scale,FLAGSHIP_GANGPLANK);
 }
-export function flagshipObstacle(x:number,y:number,margin=10){return FLAGSHIP_OBSTACLES.some(r=>inRect(local(x,y),r,margin/FLAGSHIP.scale));}
+export function flagshipObstacle(x:number,y:number,margin=10){
+  const lx=(x-left)/scale,ly=(y-top)/scale;
+  for(const obstacle of FLAGSHIP_OBSTACLES)if(inRect(lx,ly,obstacle,margin/scale))return true;
+  return false;
+}
 export function flagshipFootprint(x:number,y:number){return x>=left+120*scale&&x<=left+1018*scale&&y>=top+200*scale&&y<=top+1500*scale;}
 export function flagshipWalkable(x:number,y:number,radius=10){
-  return !flagshipObstacle(x,y,radius)&&[[0,0],[-radius,0],[radius,0],[0,-radius],[0,radius]].every(([dx,dy])=>{
-    if(onFlagshipBoarding(x+dx,y+dy))return true;
-    const p=local(x+dx,y+dy);
+  if(flagshipObstacle(x,y,radius))return false;
+  for(const [dx,dy] of FOOT_OFFSETS){
+    const px=x+dx*radius,py=y+dy*radius;
+    if(onFlagshipBoarding(px,py))continue;
+    const lx=(px-left)/scale,ly=(py-top)/scale;
     // The eastern end lands well beyond the surveyed bay edge. Do not make
     // a body-radius-sized invisible gap where the plank joins dry beach.
-    return p.x>=FLAGSHIP_GANGPLANK.right&&p.x<=FLAGSHIP_GANGPLANK.right+12
-      &&p.y>FLAGSHIP_GANGPLANK.top&&p.y<FLAGSHIP_GANGPLANK.bottom;
-  });
+    if(!(lx>=FLAGSHIP_GANGPLANK.right&&lx<=FLAGSHIP_GANGPLANK.right+12
+      &&ly>FLAGSHIP_GANGPLANK.top&&ly<FLAGSHIP_GANGPLANK.bottom))return false;
+  }
+  return true;
+}
+/** The surveyed inner deck is convex. If both complete foot probes fit it,
+ * every intermediate probe fits too. Test the mast's expanded rectangle
+ * exactly, without resampling procedural world terrain every sixteen units.
+ * Plank/shore and uncertain boundary cases retain the original sampled path. */
+export function flagshipDeckPathClear(ax:number,ay:number,bx:number,by:number,radius=10):boolean|undefined {
+  for(const [dx,dy] of FOOT_OFFSETS)
+    if(!onFlagshipDeck(ax+dx*radius,ay+dy*radius)||!onFlagshipDeck(bx+dx*radius,by+dy*radius))return undefined;
+  const x=(ax-left)/scale,y=(ay-top)/scale,dx=(bx-ax)/scale,dy=(by-ay)/scale,margin=radius/scale;
+  for(const obstacle of FLAGSHIP_OBSTACLES){
+    let enter=0,leave=1;
+    if(Math.abs(dx)<1e-9){if(x<obstacle.left-margin||x>obstacle.right+margin)continue;}
+    else {
+      const a=(obstacle.left-margin-x)/dx,b=(obstacle.right+margin-x)/dx;
+      enter=Math.max(enter,Math.min(a,b));leave=Math.min(leave,Math.max(a,b));
+    }
+    if(Math.abs(dy)<1e-9){if(y<obstacle.top-margin||y>obstacle.bottom+margin)continue;}
+    else {
+      const a=(obstacle.top-margin-y)/dy,b=(obstacle.bottom+margin-y)/dy;
+      enter=Math.max(enter,Math.min(a,b));leave=Math.min(leave,Math.max(a,b));
+    }
+    if(enter<=leave)return false;
+  }
+  return true;
 }
 const NAV_NODES=[[310,860],[535,860],[310,700],[535,700],[310,515],[510,515],[410,380],[410,860],[595,805]].map(([x,y])=>shipPoint(x,y));
 const deckLine=(a:Vec2,b:Vec2)=>{
+  const clear=flagshipDeckPathClear(a.x,a.y,b.x,b.y);
+  if(clear!==undefined)return clear;
   const steps=Math.max(1,Math.ceil(Math.hypot(a.x-b.x,a.y-b.y)/16));
   for(let i=0;i<=steps;i++){
     const x=a.x+(b.x-a.x)*i/steps,y=a.y+(b.y-a.y)*i/steps;

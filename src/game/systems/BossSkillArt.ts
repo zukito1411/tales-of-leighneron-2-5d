@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {losslessImagePath} from '../../utils/losslessImagePath';
+import {preparePresentationSource} from '../presentation25d/resourcePreparation';
 import {BOSS_SKILL_ART,BOSS_SKILL_CELL,BOSS_SKILL_ROWS,BOSS_SKILL_TEXTURE,
  BOSS_MOTION_ART,BOSS_MOTION_TEXTURE,BOSS_MOTION_COLUMNS,BOSS_MOTION_ROWS} from '../../data/bossSkillEffects';
 
@@ -49,8 +50,12 @@ async function load(scene:Phaser.Scene,state:Residency){
     await Promise.race([image.decode(),cancelled]);
     if(state.disposed||abort.signal.aborted)return;
     if(image.width!==BOSS_SKILL_CELL*sheet.columns||image.height!==BOSS_SKILL_CELL*sheet.rows)throw new Error('Invalid boss effect sheet dimensions: '+sheet.path);
-    if(!scene.textures.exists(sheet.key))scene.textures.addSpriteSheet(sheet.key,image,
-     {frameWidth:BOSS_SKILL_CELL,frameHeight:BOSS_SKILL_CELL});
+    if(!scene.textures.exists(sheet.key)){
+     const texture=scene.textures.addSpriteSheet(sheet.key,image,
+      {frameWidth:BOSS_SKILL_CELL,frameHeight:BOSS_SKILL_CELL});
+     // Warm through the existing staged queue before the first attack impact.
+     if(texture)for(const source of texture.source)preparePresentationSource(scene.game,source);
+    }
    }finally{
     window.clearTimeout(timer);if(cancelDecode)abort.signal.removeEventListener('abort',cancelDecode);
     if(abort.signal.aborted)image.src='';if(url)URL.revokeObjectURL(url);

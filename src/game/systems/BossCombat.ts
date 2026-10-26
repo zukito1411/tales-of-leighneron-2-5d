@@ -10,6 +10,7 @@ import {BOSS_SKILL_BY_ENEMY} from '../../data/bossSkillEffects';
 import {TOWER_ROUND_FLOOR} from '../../data/towerRoom';
 import {BossPhaseState} from './BossPhaseState';
 import type {BossPhaseSnapshot} from '../types';
+import {worldHeight} from '../presentation25d/plane';
 
 interface CommittedZone {
   area:AttackArea;at:number;duration:number;fired:boolean;hit:boolean;expired:boolean;warning:AttackTelegraph;
@@ -20,12 +21,15 @@ interface CommittedZone {
 export class BossCombat {
   private readonly rage=new BossPhaseState();
   private roarPresented=false;
-  private phase:'ready'|'windup'|'charge'|'projectile'|'recovery'='ready';
+  private phase:'ready'|'windup'|'charge'|'leap'|'projectile'|'recovery'='ready';
   private clock=0;private age=0;private nextReady=900;private sequence=0;
   private combo:readonly BossMove[]=[];private step=0;
   private area:AttackArea|null=null;
   private readonly warning:AttackTelegraph;
   private chargeStart={x:0,y:0};private chargeTravel=0;private hit=false;
+  private leapHeight=0;
+  private leapStartHeight=0;private leapEndHeight=0;
+  private readonly projectileSweep:AttackArea={kind:'line',x:0,y:0,angle:0,radius:0,range:0};
   private spellVisual:Phaser.GameObjects.Sprite|null=null;
   private spellTimer:Phaser.Time.TimerEvent|null=null;
   private magusVisual:MagusSpellVisual|null=null;
@@ -53,7 +57,9 @@ export class BossCombat {
   }
   get attackName(){return this.rage.transitioning||this.phase==='ready'?null:this.combo[this.step]?.name??null;}
   get isAttacking(){return this.rage.transitioning||this.phase!=='ready';}
-  get windupFraction(){return this.rage.transitioning?null:this.phase==='windup'?(this.zones.length?
+  get airborne(){return this.phase==='leap';}
+  get elevation(){return this.leapHeight;}
+  get windupFraction(){return this.rage.transitioning?null:this.phase==='leap'?this.warning.progress:this.phase==='windup'?(this.zones.length?
     Math.min(1,this.age/(this.zones.find(zone=>!zone.fired)?.at??this.zones[0].at)):this.warning.progress):null;}
   update(delta:number,engaged:boolean){
     const e=this.enemy,body=e.body as Phaser.Physics.Arcade.Body,player=this.scene.player;
@@ -98,11 +104,17 @@ export class BossCombat {
     if(this.phase==='windup'){
       if(move.zones){this.updateZones(move);return;}
       const progress=windupProgress(this.age,move.windup);
-      this.warning.draw(this.area!,progress,this.warningDepth,magusSpellColor(move,this.profile.color));
+      const warningProgress=move.leap?windupProgress(this.age,move.windup+move.leap.travelMs):progress;
+      this.warning.draw(this.area!,warningProgress,this.warningDepth,magusSpellColor(move,this.profile.color));
       if(move.spell&&progress>=.7&&!this.released){this.released=true;e.finishBossWindup(move.recovery);}
       this.magusVisual?.windup(e,move,progress);
       this.skillVisual?.gather(progress);
       if(this.age<move.windup)return;
+      if(move.leap){
+        if(e.isRooted){this.finishLeap(move,false);return;}
+        this.skillVisual?.endWindup();this.phase='leap';this.age=0;this.chargeTravel=0;
+        return;
+      }
       e.finishBossWindup(move.recovery);
       if(move.projectileMs){this.magusVisual?.release(e);this.phase='projectile';this.age=0;this.chargeTravel=0;return;}
       if(move.chargeMs){this.skillVisual?.beginCharge(e,this.area!);this.phase='charge';this.age=0;this.chargeTravel=0;return;}
@@ -113,8 +125,9 @@ export class BossCombat {
       this.magusVisual?.travel(p,area);
       // The same capsule as the warning, swept only over the distance actually
       // travelled this frame. Players farther down the lane are not hit early.
-      const swept:AttackArea={...area,x:area.x+Math.cos(area.angle)*previous,
-        y:area.y+Math.sin(area.angle)*previous,range:travel-previous};
+      const swept=this.projectileSweep;
+      swept.x=area.x+Math.cos(area.angle)*previous;swept.y=area.y+Math.sin(area.angle)*previous;
+      swept.angle=area.angle;swept.radius=area.radius;swept.range=travel-previous;
       if(!this.hit&&attackAreaContains(swept,player.x,player.y)
         &&this.scene.hasClearPath(swept.x,swept.y,player.x,player.y,e)){
         this.hurtPlayer(move);
@@ -128,6 +141,8 @@ export class BossCombat {
           y:area.y+Math.sin(area.angle)*range-32,radius:60});
         e.playMonsterAttackFoley('impact');this.phase='recovery';this.age=0;
       }
+    }else if(this.phase==='leap'){
+      this.updateLeap(move);
     }else if(this.phase==='charge'){
       if(e.isRooted){this.phase='recovery';this.age=0;this.skillVisual?.endCharge();return;}
       const range=this.area!.range??0;
@@ -172,13 +187,22 @@ export class BossCombat {
     this.area={kind:move.kind,x:move.target?player.x:e.x,y:move.target?player.y:e.y,angle,
       radius:move.radius,range:move.range,innerRadius:move.innerRadius,halfAngle:move.halfAngle};
     this.fitTowerArea(this.area);
+    if(move.leap){
+      // Clip a committed landing once, before its warning appears. Keep
+      // rechecking short swept segments in flight for newly added blockers.
+      const dx=this.area.x-e.x,dy=this.area.y-e.y,distance=Math.hypot(dx,dy),bearing=Math.atan2(dy,dx);
+      const lane:AttackArea={kind:'line',x:e.x,y:e.y,angle:bearing,radius:0,range:distance};
+      this.clipLane(lane,distance);
+      this.area.x=e.x+Math.cos(bearing)*(lane.range??0);this.area.y=e.y+Math.sin(bearing)*(lane.range??0);
+    }
     if(move.kind==='line'){
       // Validate the advertised lane before drawing it, then validate it again
       // while travelling in case an actor or collision has changed. Spell
       // lanes also stop at walls instead of sending artwork into the void.
       this.clipLane(this.area,move.range);
     }
-    this.chargeStart={x:e.x,y:e.y};this.hit=false;this.phase='windup';this.age=0;
+    this.chargeStart.x=e.x;this.chargeStart.y=e.y;this.leapHeight=0;this.hit=false;this.phase='windup';this.age=0;
+    if(move.leap){this.leapStartHeight=worldHeight(this.scene,e.x,e.y);this.leapEndHeight=worldHeight(this.scene,this.area.x,this.area.y);}
     if(move.zones){
       // Authoring and runtime both cap simultaneous areas. Geometry is prepared
       // once per commitment, not re-aimed or allocated during frame updates.
@@ -199,7 +223,7 @@ export class BossCombat {
       this.warning.clear();
     }
     body.setVelocity(0,0);
-    e.playBossWindup(move.windup,move.recovery+(move.chargeMs??0),angle,move.presentation==='cast');
+    e.playBossWindup(move.windup,move.recovery+(move.chargeMs??0)+(move.leap?.travelMs??0),angle,move.presentation==='cast');
     e.playMonsterVocal('attack');e.playMonsterAttackFoley('windup');
     if(move.spell){
       this.magusVisual??=new MagusSpellVisual(this.scene);
@@ -226,14 +250,42 @@ export class BossCombat {
   private clipLane(area:AttackArea,range:number){
     let length=0,previousX=area.x,previousY=area.y;
     if(!this.scene.canEnemyOccupy(previousX,previousY,this.enemy)){area.range=0;return;}
-    for(let distance=12;distance<=range;distance+=12){
+    for(let distance=Math.min(12,range);distance>0&&distance<=range;distance=Math.min(range,distance+12)){
       const x=area.x+Math.cos(area.angle)*distance,y=area.y+Math.sin(area.angle)*distance;
       // Check each short segment once, rather than rescanning every earlier
       // segment from the origin (especially expensive on the ship's deck).
       if(!this.scene.canEnemyOccupy(x,y,this.enemy)||!this.scene.hasClearPath(previousX,previousY,x,y,this.enemy))break;
       length=distance;previousX=x;previousY=y;
+      if(distance===range)break;
     }
     area.range=length;
+  }
+  private updateLeap(move:BossMove){
+    const e=this.enemy,area=this.area!,body=e.body as Phaser.Physics.Arcade.Body;
+    if(e.isRooted){this.finishLeap(move,false);return;}
+    const p=windupProgress(this.age,move.leap!.travelMs),dx=area.x-this.chargeStart.x,dy=area.y-this.chargeStart.y;
+    const distance=Math.hypot(dx,dy),travel=distance*p;
+    while(this.chargeTravel<travel){
+      const next=Math.min(travel,this.chargeTravel+12),fraction=next/Math.max(1e-6,distance);
+      const x=this.chargeStart.x+dx*fraction,y=this.chargeStart.y+dy*fraction;
+      if(!this.scene.canEnemyOccupy(x,y,e)||!this.scene.hasClearPath(e.x,e.y,x,y,e)){
+        this.finishLeap(move,false);return;
+      }
+      body.reset(x,y);this.chargeTravel=next;
+    }
+    // Elevation belongs to the existing actor/renderer. Collision, target
+    // rings and authoritative save coordinates stay on the floor beneath it.
+    const height=this.leapStartHeight+(this.leapEndHeight-this.leapStartHeight)*p+4*p*(1-p)*move.leap!.height;
+    this.leapHeight=Math.max(0,height-worldHeight(this.scene,e.x,e.y));
+    this.warning.draw(area,windupProgress(move.windup+this.age,move.windup+move.leap!.travelMs),this.warningDepth,this.profile.color);
+    if(p<1)return;
+    this.finishLeap(move,true);
+  }
+  private finishLeap(move:BossMove,landed:boolean){
+    this.leapHeight=0;this.skillVisual?.endWindup();
+    this.enemy.cancelBossWindup();this.enemy.finishBossWindup(move.recovery);
+    if(landed)this.impact(move);else this.warning.clear();
+    this.phase='recovery';this.age=0;
   }
   private fitGroundOrigin(area:AttackArea){
     const e=this.enemy,dx=area.x-e.x,dy=area.y-e.y;
@@ -353,7 +405,7 @@ export class BossCombat {
     else body.setVelocity(0,0);
   }
   cancel(delay=700){
-    this.roarPresented=false;
+    this.roarPresented=false;this.leapHeight=0;
     if(this.phase==='ready'&&!this.combo.length&&!this.area){this.nextReady=this.clock+delay;return;}
     this.clearZones();
     this.clearSpell(true,true);
@@ -371,5 +423,5 @@ export class BossCombat {
     this.spellTimer?.remove(false);this.spellTimer=null;this.spellVisual?.destroy();this.spellVisual=null;
   }
   private get warningDepth(){return this.scene.playerRenderDepth(Math.min(this.enemy.y,this.scene.player.y))-2;}
-  destroy(){this.clearSpell();this.skillVisual?.destroy();this.warning.destroy();for(const warning of this.zoneWarnings)warning.destroy();this.zones.length=0;}
+  destroy(){this.leapHeight=0;this.clearSpell();this.skillVisual?.destroy();this.warning.destroy();for(const warning of this.zoneWarnings)warning.destroy();this.zones.length=0;}
 }

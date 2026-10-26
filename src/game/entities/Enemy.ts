@@ -124,7 +124,7 @@ export class Enemy extends DepthSortedSprite {
   private indicatorSelected=false;
   private ringWidth=-1;
   private ringHeight=-1;
-  private healthFraction=-1;
+  private healthFillWidth=-1;
   private healthWidth=-1;
   private healthColor=-1;
   private healthStatusColor:number|null=null;
@@ -151,6 +151,10 @@ export class Enemy extends DepthSortedSprite {
   private wolfFlankSlot: number | null = null;
   private wolfHuntBearing = 0;
   get canBeTargeted(){return !this.dragonCombat?.airborne;}
+  /** A protected flight changes hit eligibility, not the player's chosen foe. */
+  get canRemainLocked(){return !this.dragonCombat?.airborne||this.dragonCombat.engagedWithPlayer;}
+  get isAirborne(){return Boolean(this.dragonCombat?.airborne||this.bossCombat?.airborne);}
+  get presentationElevation(){return this.bossCombat?.elevation??0;}
   get presentationLockVisual():Phaser.GameObjects.Sprite{return this.dragonCombat?.visual??(this.leapVisual?.active?this.leapVisual:this);}
   get movementSpeed(){return this.isRooted?0:this.definition.moveSpeed*this.weaponStatus.movementMultiplier;}
   get attackSpeedMultiplier(){return this.weaponStatus.attackSpeedMultiplier;}
@@ -1075,10 +1079,16 @@ export class Enemy extends DepthSortedSprite {
     const visible = this.isAlive && distance < 700 && (Boolean(this.definition.boss) || this.hp < this.definition.hp || distance < this.definition.aggroRange);
     const width = this.definition.boss ? 48 : this.definition.id === 'road-bandit' ? 35 : 30;
     const scene=this.scene as WorldScene;
-    // Reject actors outside the camera before costly targeting LOS queries.
-    // Visibility and eligibility stay identical, only their order changes.
-    const eligible=!paused&&worldPointInView(scene,this.x,this.y,Math.max(30,(this.definition.bodyRadius??12)*2),48)
-      &&scene.targeting.eligible(this,scene.targeting.lockedTarget===this?900:680);
+    // Reject actors outside the camera before cached indicator sight checks.
+    // A lock follows the airborne visual while hit eligibility stays separate.
+    const trackedVisual=this.presentationLockVisual;
+    const indicatorHeight=Math.max(30,(this.definition.bodyRadius??12)*2)+Math.max(0,this.y-trackedVisual.y)+this.presentationElevation;
+    const eligible=!paused&&worldPointInView(scene,this.x,this.y,indicatorHeight,48)
+      &&scene.targeting.indicatorEligible(this);
+    if(!eligible){
+      this.targetIndicator.setVisible(false);this.targetRing.setVisible(false);
+      this.healthBar.setVisible(false);this.nameLabel.setVisible(false);return;
+    }
     if(eligible){
       const story=useGameStore.getState();
       if(!story.cinematic&&(!Object.hasOwn(story.journal.creatures,this.definition.id)
@@ -1124,12 +1134,16 @@ export class Enemy extends DepthSortedSprite {
     setDepthIfChanged(this.nameLabel,depth+85).setPosition(this.x,top-4)
       .setVisible(showHealth);
     if (showHealth) {
-      const fraction=Math.max(0,this.hp/this.definition.hp),color=this.definition.boss?0xd89557:0xbb6550;
+      const fraction=Math.max(0,Math.min(1,this.hp/this.definition.hp)),color=this.definition.boss?0xd89557:0xbb6550;
+      // DOT/refill HP changes every tick. The raster has finite pixels: redraw
+      // only when a half-pixel of its fill actually changes, retaining a visible
+      // sliver for a living target instead of uploading identical tiny canvases.
+      const fillWidth=this.hp>0?Math.max(.5,Math.round(width*fraction*2)/2):0;
       const statusColor=this.weaponStatus.active?this.weaponStatus.color:null;
-      if(fraction!==this.healthFraction||width!==this.healthWidth||color!==this.healthColor||statusColor!==this.healthStatusColor){
-        this.healthFraction=fraction;this.healthWidth=width;this.healthColor=color;this.healthStatusColor=statusColor;
+      if(fillWidth!==this.healthFillWidth||width!==this.healthWidth||color!==this.healthColor||statusColor!==this.healthStatusColor){
+        this.healthFillWidth=fillWidth;this.healthWidth=width;this.healthColor=color;this.healthStatusColor=statusColor;
         this.healthBar.clear().fillStyle(0x16110c,.85).fillRoundedRect(-width/2-2,-1,width+4,6,2);
-        this.healthBar.fillStyle(color,1).fillRect(-width/2,1,width*fraction,3);
+        this.healthBar.fillStyle(color,1).fillRect(-width/2,1,fillWidth,3);
         if(statusColor!==null)this.healthBar.fillStyle(statusColor,1).fillCircle(width/2+6,2,3);
       }
     }
