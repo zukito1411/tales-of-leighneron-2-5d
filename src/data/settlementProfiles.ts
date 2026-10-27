@@ -43,7 +43,9 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
   oakmere: {
     id: 'oakmere', architecture: 'Trandum farmstead timber and limewash',
     defenses: 'Low orchard fencing with a broad crown-road gate',
-    bounds: { width: 2200, height: 2000 }, wallStyle: 'timber', wallFrame: 3, wallTint: 0xffffff,buildingTint:0xffffff,
+    // Room for full-depth houses and their open front courts. This shared
+    // survey also moves the enclosing fences/gates and outer-ward streets.
+    bounds: { width: 2200, height: 2400 }, wallStyle: 'timber', wallFrame: 3, wallTint: 0xffffff,buildingTint:0xffffff,
     wallScale: 1.35, wallSpacing: 104, gateTexture: 'bridges', gateFrame: 8, gateWidth: 250, gateScale: 1,
     watchtowerFrame: 2, buildingFrames: [0, 1, 5, 6, 7],
     decorations: [{ frame: 4, x: 510, y: -110, scale: .52 }, { frame: 6, x: -470, y: -30, scale: .65 }],

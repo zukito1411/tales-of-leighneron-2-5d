@@ -20,6 +20,7 @@ import {BUILDING_PRESENTATION_GROWTH} from './environmentPresentation';
 import occupancy from './settlementOccupancy.json';
 import {coreSettlementDressing} from './settlementDressing';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
+import {ELARION_LIFE_TREE_CLEARING,ELARION_LIFE_TREE_LOCAL} from './elarionLifeTree';
 
 export interface LandParcel { id: string; purpose: string; x: number; y: number; width: number; height: number; terrain: TerrainKind }
 export interface Street { id: string; width: number; points: Vec2[]; surface?:'stone'|'dirt' }
@@ -288,6 +289,12 @@ export function buildingBounds(lot:BuildingLot) {
   return propPlacementBounds(lot.appearance?.texture??'world_buildings',lot.appearance?.frame??lot.frame,
     buildingRenderScale(lot),lot.x,lot.y);
 }
+/** Standing/turning space outside a south-facing village entrance. This is
+ * public circulation, not part of the house's solid collision volume. */
+export function buildingForecourt(lot:BuildingLot):Rect {
+  const bounds=buildingBounds(lot);
+  return {left:bounds.left-24,right:bounds.right+24,top:lot.y+2,bottom:lot.y+180};
+}
 function closestPoint(p:Vec2,a:Vec2,b:Vec2):Vec2 {
   const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
   const t=length ? Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/length)) : 0;
@@ -357,6 +364,12 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     return anchors.map(p=>({left:p.x-32,right:p.x+32,top:p.y-70,bottom:p.y+35}));
   });
   const elvenShrine=shrine.townId==='elarion';
+  if(town.id==='elarion'){
+    const grove=ELARION_LIFE_TREE_CLEARING;
+    reserved.push(grove);
+    layout.parcels.push(parcel('life-tree-grove','Tree of Life lawn beside the Whitebough approach','grass',
+      ELARION_LIFE_TREE_LOCAL.x,ELARION_LIFE_TREE_LOCAL.y,grove.right-grove.left,grove.bottom-grove.top));
+  }
   reserved.push(spriteBounds(elvenShrine?'elven_villas':'world_buildings',elvenShrine?4:3,
     shrine.scale,shrine.world.x-town.world.x,shrine.world.y-town.world.y));
   for(const p of layout.parcels.filter(p=>p.terrain==='farmland' || p.terrain==='water')) reserved.push({left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2});
@@ -369,6 +382,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
       defense.world.x-town.world.x,defense.world.y-town.world.y));
   }
   const occupied:Rect[]=[];
+  const forecourts:Rect[]=[];
   const within=(r:Rect)=>r.left>=-layout.bounds.width/2+32 && r.right<=layout.bounds.width/2-32
     && r.top>=layout.bounds.y-layout.bounds.height/2+32 && r.bottom<=layout.bounds.y+layout.bounds.height/2-32;
   const enclosed=(r:Rect)=>[r.left,r.right].every(x=>[r.top,r.bottom].every(y=>insideDefense(town.id,town.world.x+x,town.world.y+y,-80)));
@@ -407,6 +421,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
       const searchRadius=refit?1280:lot.wardId?160:town.id==='elarion'&&lot.appearance?.texture==='elven_villas'&&lot.frame===2?800:960;
       for(const point of nearbySlots(lot,searchRadius,lot.wardId&&!refit?16:32)) {
         const candidate={ ...lot,...point },rect=buildingBounds(candidate);
+        const forecourt=town.id==='oakmere'?buildingForecourt(candidate):undefined;
         const plot=lot.plot;
         const localPlot=Boolean(plot&&rect.left>=plot.left&&rect.right<=plot.right&&rect.top>=plot.top&&rect.bottom<=plot.bottom);
         // If the original tiny plot cannot contain a complete house, fit the
@@ -420,6 +435,11 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
         if(citadel&&!castle&&overlaps(rect,citadel,56))continue;
         if(!validSite||!riverFree(rect)||!highmereRiverFree(rect)||layout.streets.some(s=>rectTouchesStreet(rect,s,12))
           ||[...reserved,...occupied].some(r=>overlaps(rect,r,56))) continue;
+        // Check both directions: an earlier house's doorway cannot face the
+        // back of a later house, nor can a new frontage consume an earlier
+        // footprint. Shared open forecourts may meet; buildings may not.
+        if(forecourts.some(r=>overlaps(rect,r,24))
+          ||forecourt&&(!enclosed(forecourt)||occupied.some(r=>overlaps(forecourt,r,24))))continue;
         const door={ x:point.x,y:point.y+34 };
         const connections=layout.streets.flatMap(s=>s.points.slice(1).map((end,i)=>closestPoint(door,s.points[i],end)))
           .filter(p=>p.y>=door.y).sort((a,b)=>Math.hypot(a.x-door.x,a.y-door.y)-Math.hypot(b.x-door.x,b.y-door.y));
@@ -428,6 +448,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
         Object.assign(lot,point);
         if(refit)lot.plot={left:rect.left-12,right:rect.right+12,top:rect.top-12,bottom:rect.bottom+12};
         occupied.push(rect);
+        if(forecourt)forecourts.push(forecourt);
         layout.streets.push({id:'frontage:'+index,width:40,points:[connection,door]});placed=true;break;
       }
       if(placed)break;
@@ -443,6 +464,8 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
       else throw new Error('No clear authored parcel for '+town.id+'/'+lot.label);
     }
   }
+  // Preserve these entrances when fitting shade trees and courtyard props.
+  reserved.push(...forecourts);
   if(citadel){
     const t=town.id==='highmere'?44:24;
     reserved.push({left:citadel.left-t,right:citadel.right+t,top:citadel.top-t,bottom:citadel.top+t},
