@@ -839,7 +839,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           if(this.time.now<(this.regionalNpcRetryAt.get(definition.id)??0))return false;
           const npc=NPC_BY_ID[definition.npcId];
           const regional=Boolean(npc.settlementResident||citizenModel(npc)!==undefined);
-          const preferred=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime:definition.world;
+          const questReturned=npc.id==='tovin-reed'
+            &&(useGameStore.getState().quests['shadows-highmere']?.objectiveProgress.escort??0)>=1;
+          const preferred=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime
+            :questReturned?this.escortArrival()
+            :npcMayPatrol(npc)||npc.formation||npc.id==='tovin-reed'?runtime:definition.world;
           const point=this.safeNpcSpawn(preferred,npc,regional);
           if(point){this.regionalNpcSlots.set(definition.id,point);this.regionalNpcRetryAt.delete(definition.id);}
           else this.regionalNpcRetryAt.set(definition.id,this.time.now+1000);
