@@ -375,8 +375,17 @@ WORLD_CONTENT.push({id:'sign:pirate-flagship',kind:'interactable',world:shipPoin
   description:'The Salt King’s flagship is moored west of this shore. Cross the eastern gangplank on foot; armed deckhands guard the cargo. The harbor ferry remains at Tidewatch’s civilian quay.',
   repeatText:'The pirate flagship lies west across the wooden gangplank. The Salt King commands his crew from the aft deck.'});
 const elarion=TOWN_BY_ID.elarion;
-WORLD_CONTENT.push({id:'landmark:elarion-tree-of-life',kind:'prop',
-  world:{x:elarion.world.x+1120,y:elarion.world.y-1260},texture:'elarion_tree',frame:0,scale:.8,solid:true,
+// Tree of Life now roots in the open grass east of the Whitebough palace
+// approach and north of the central stone road (the marked Elarion courtyard).
+// Keep the existing model, world ID, trunk collider and asset registrations.
+export const ELARION_LIFE_TREE_ID='landmark:elarion-tree-of-life';
+const elarionCourt=citadelPlanning(elarion.id)!;
+export const ELARION_LIFE_TREE_POSITION={
+  x:elarion.world.x+elarionCourt.x+400,
+  y:elarion.world.y-440,
+};
+WORLD_CONTENT.push({id:ELARION_LIFE_TREE_ID,kind:'prop',
+  world:{...ELARION_LIFE_TREE_POSITION},texture:'elarion_tree',frame:0,scale:.8,solid:true,
   footprint:{width:78,height:62},streamRadiusChunks:2});
 WORLD_CONTENT.push({id:'landmark:darkav-cinderpeak',kind:'prop',world:{...LAVA_FLOW[0]},texture:'darkav_volcano',frame:0,
   scale:3.2,solid:true,streamRadiusChunks:2,label:'Cinderpeak Volcano'});
