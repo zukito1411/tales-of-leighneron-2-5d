@@ -73,7 +73,7 @@ export class ExteriorPlacement {
     if(fortificationBlocksPoint(p.x,p.y,30))return true;
     const feet={left:p.x-24,right:p.x+24,top:p.y-28,bottom:p.y+8};
     const person={left:p.x-30,right:p.x+30,top:p.y-96,bottom:p.y+8};
-    return this.index.query(person).some(o=>o.id!==excludeId&&(
+    return this.index.any(person,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(feet,s))||
       Boolean(o.front&&o.footY>p.y&&overlaps(person,o.front!))));
   }
@@ -82,7 +82,7 @@ export class ExteriorPlacement {
   blocksQuestItem(p:Vec2,excludeId:string){
     if(fortificationBlocksPoint(p.x,p.y,34))return true;
     const item={left:p.x-23,right:p.x+23,top:p.y-43,bottom:p.y+12};
-    return this.index.query(item).some(o=>o.id!==excludeId&&(
+    return this.index.any(item,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(item,s))||
       Boolean(o.front&&o.footY>p.y&&overlaps(item,o.front!))));
   }
