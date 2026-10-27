@@ -374,7 +374,9 @@ export class ContentChunkManager<Actor> {
     const definition=this.definitions.get(id);
     if(definition?.kind!=='npc')return undefined;
     const state=this.getState(id);
-    if(!state||state.defeated)return undefined;
+    if(!state||state.defeated||this.host.canActivate&&!this.host.canActivate(definition,state))return undefined;
+    // Forced dialogue/cinematic activation uses the same geometric admission
+    // rules; it must never bypass wall checks for a named quest character.
     const actor=this.host.create(definition,{...state});
     this.active.set(id,actor);
     return actor;
