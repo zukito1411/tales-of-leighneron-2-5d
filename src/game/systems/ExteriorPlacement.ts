@@ -1,6 +1,7 @@
 import type {ContentDefinition,Vec2} from '../types';
 import {StaticBoundsIndex} from './StaticBoundsIndex';
-import {architectureProfile} from '../../data/architecture';
+import {architectureProfile,architecturePassageFootprints} from '../../data/architecture';
+import {artFrameSize,ART_BY_KEY} from '../../data/art';
 import {propFoundation,propPlacementBounds,spriteBounds,overlaps,type Rect} from '../../data/settlementGeometry';
 import {worldSpriteProfile} from '../../data/worldSpriteGeometry';
 import {fortificationBlocksPoint} from '../../data/fortifications';
@@ -27,11 +28,24 @@ export class ExteriorPlacement {
       if(!solid)continue;
       const source=spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center');
       const wall=('wallSegment' in d&&d.wallSegment)?d.wallSegment:undefined;
-      // These are intentional passage openings, not solid rectangles. The
-      // exact curtain/wall line blocker still protects their supporting runs.
-      if(architecture?.opening?.length||architecture?.curtain)continue;
+      // Curved curtain walls are checked against their surveyed endpoints in
+      // fortificationBlocksPoint(). A gate's opening must remain traversable,
+      // but its physical left and right supports still block quest characters.
+      if(architecture?.curtain)continue;
       let solids:Rect[];
-      if(wall)solids=[propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,false,wall)];
+      if(architecture?.opening?.length){
+        const regions=ART_BY_KEY[texture],src=regions.regions?.[d.frame];
+        const mark=regions.groundPoints?.[d.frame];
+        const anchor=src&&mark?(mark[0]-src[0])/src[2]:.5;
+        const width=artFrameSize(texture,d.frame).width*scale;
+        solids=(architecturePassageFootprints(architecture)??[]).map(part=>({
+          left:d.world.x+(part.left-anchor)*width,
+          right:d.world.x+(part.right-anchor)*width,
+          top:d.world.y+part.back*width,
+          bottom:d.world.y+part.front*width,
+        }));
+      }
+      else if(wall)solids=[propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,false,wall)];
       else if(architecture&&!architecture.board)solids=[propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center')];
       else if(profile?.solids.length)solids=profile.solids.map(points=>({
         left:source.left+Math.min(...points.map(p=>p[0]))*(source.right-source.left),
@@ -44,7 +58,10 @@ export class ExteriorPlacement {
         solids=[{left:d.world.x-size.width/2,right:d.world.x+size.width/2,
           top:source.bottom-size.height,bottom:source.bottom}];
       }
-      const front=architecture&&!architecture.board?source:undefined;
+      if(!solids.length)continue;
+      // Roof silhouettes matter for houses/towers; gates are pass-through
+      // scenery, so their hanging arch must not close the actual aperture.
+      const front=architecture&&!architecture.board&&!architecture.opening?.length?source:undefined;
       const bounds=solids.reduce((a,b)=>union(a,b),front??solids[0]);
       entries.push({id:d.id,bounds,solids,front,footY:d.world.y});
     }
