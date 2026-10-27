@@ -34,6 +34,7 @@ import { BOSSES,BOSS_BY_ID, ENEMIES, ENEMY_BY_ID,isWolfFamily,enemyAppearanceMul
 import { BOSS_RESPAWN_MS, encounterRewardFactor } from '../../data/enemyTiers';
 import {restoredEnemyHealth} from '../systems/enemyHealth';
 import {authoredRoofs} from '../systems/authoredRoofs';
+import {ExteriorPlacement} from '../systems/ExteriorPlacement';
 import { LEIGNERON } from '../../data/player';
 import { NPCS, NPC_BY_ID } from '../../data/npcs';
 import {npcWorldPosition,npcEscortArrival} from '../../data/npcPositions';
@@ -126,6 +127,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   player!: Player;
   targeting!:TargetingSystem;
   private readonly worldGenerator = new WorldGenerator();
+  // Authored structure collision is available even before its scenery chunk streams.
+  private readonly exteriorPlacement=new ExteriorPlacement(WORLD_CONTENT);
+  private readonly questObjectSlots=new Map<string,Vec2>();
   private chunkManager!: ChunkManager;
   private dayNight!: DayNightSystem;
   private weather!:WeatherSystem;
@@ -605,7 +609,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return actor?{x:actor.x,y:actor.y-35}:undefined;
   }
   prepareStoryActors(){for(const npc of this.npcs)if(!npc.definition.formation)npc.storyRest();}
-  escortArrival(){return npcEscortArrival();}
+  escortArrival(){return this.safeExteriorNpcDestination(npcEscortArrival())??npcEscortArrival();}
   recordTraining(targetId:string) {
     if(this.inInterior)return;
     const target=this.contentManager.getActor('training:highmere-target');
@@ -657,10 +661,57 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return point;
   }
   npcCanStandAt(x:number,y:number,exclude?:Npc,regional=false):boolean {
-    return this.worldGenerator.isWalkable(x,y)&&!this.isBlockedByBuilding(x,y)
+    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y})
+      &&!this.isBlockedByBuilding(x,y)
       &&!this.isNpcObscured(x,y,regional||Boolean(exclude?.usesRegionalPresentation))
       &&this.npcs.every(n=>!n.active||n===exclude||(npcMayPatrol(n.definition)?Math.hypot(n.x-x,n.y-y)>=64:npcPersonalSpace(n,{x,y})))
       &&(!this.player?.active||Math.hypot(this.player.x-x,this.player.y-y)>=52);
+  }
+
+  /** Nearby, deterministic exterior placement; no dependency on which walls
+   * happen to have loaded. Called on admission or scheduled destination change,
+   * never on the 60 fps rendering path. */
+  private findExteriorSlot(preferred:Vec2,kind:'npc'|'quest',id?:string,actor?:Npc,offRoad=false):Vec2|null{
+    const region=this.worldGenerator.getRegionAt(preferred.x,preferred.y);
+    const fits=(p:Vec2)=>{
+      if(this.worldGenerator.getRegionAt(p.x,p.y)!==region||!this.worldGenerator.isWalkable(p.x,p.y))return false;
+      if(kind==='quest')return !this.exteriorPlacement.blocksQuestItem(p,id??'')&&!this.isBlockedByBuilding(p.x,p.y);
+      if(this.exteriorPlacement.blocksNpc(p)||this.isBlockedByBuilding(p.x,p.y)
+        ||this.isNpcObscured(p.x,p.y,Boolean(actor?.usesRegionalPresentation)))return false;
+      if(offRoad&&actor&&!npcStandingOffRoad(actor.definition,p))return false;
+      if(actor&&this.npcs.some(n=>n.active&&n!==actor&&Math.hypot(n.x-p.x,n.y-p.y)<60))return false;
+      return true;
+    };
+    if(fits(preferred))return {...preferred};
+    for(const radius of [48,72,96,128,176,224,288,352,448,576,768,960,1200,1536]){
+      const count=radius>=448?32:16;
+      for(let i=0;i<count;i++){
+        const angle=Math.PI/2+i*2*Math.PI/count;
+        const p={x:Math.round(preferred.x+Math.cos(angle)*radius),y:Math.round(preferred.y+Math.sin(angle)*radius)};
+        if(fits(p))return p;
+      }
+    }
+    return null;
+  }
+  /** NPC schedules and quest escorts must not send characters back through a
+   * wall after we have repaired their initial spawn. */
+  safeExteriorNpcDestination(target:Vec2,npc?:Npc){
+    return this.findExteriorSlot(target,'npc',undefined,npc)??(npc?{x:npc.x,y:npc.y}:null);
+  }
+  private safeNpcSpawn(preferred:Vec2,definition:NpcDefinition,regional=false):Vec2|null{
+    const actor=this.npcs.find(n=>n.active&&n.definition.id===definition.id);
+    const area=this.findExteriorSlot(preferred,'npc',undefined,actor);
+    if(!area)return null;
+    if(!regional||npcStandingOffRoad(definition,area))return area;
+    // Preserve the long-standing rule keeping regional townsfolk off streets.
+    for(const radius of [64,96,128,176,224,288,352,448,576,768,960]){
+      for(let i=0;i<16;i++){
+        const theta=Math.PI/2+i*Math.PI/8;
+        const p={x:Math.round(preferred.x+Math.cos(theta)*radius),y:Math.round(preferred.y+Math.sin(theta)*radius)};
+        if(npcStandingOffRoad(definition,p)&&this.npcCanStandAt(p.x,p.y,actor,true))return p;
+      }
+    }
+    return null;
   }
 
   create() {
@@ -675,6 +726,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.pendingRespawn=null;
     this.regionalNpcSlots.clear();
     this.regionalNpcRetryAt.clear();
+    this.questObjectSlots.clear();
     this.spearProjectiles=new SpearProjectileSystem(this);
     this.m14Art=new M14ArtResidency(this,id=>{
       for(const enemy of this.enemies)if(enemy.active&&enemy.definition.id===id)return true;
@@ -783,17 +835,22 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       canActivate: (definition, runtime) => {
         if(definition.kind==='creature'&&this.storyCombatActive)return false;
         if(definition.kind==='npc'&&NPC_INTERIOR_BY_ID[definition.npcId])return false;
-        if(definition.kind==='npc'&&(NPC_BY_ID[definition.npcId].settlementResident||citizenModel(NPC_BY_ID[definition.npcId])!==undefined)){
+        if(definition.kind==='npc'){
           if(this.time.now<(this.regionalNpcRetryAt.get(definition.id)??0))return false;
-          const npc=NPC_BY_ID[definition.npcId],home=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime:definition.world;
-          const offsets:Array<[number,number]>=[[0,0]];
-          for(const radius of [64,96,128,176,224,280,352,448,576])
-            for(const [dx,dy] of [[0,-1],[-1,0],[1,0],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]])offsets.push([dx*radius,dy*radius]);
-          const point=offsets.map(([dx,dy])=>({x:home.x+dx,y:home.y+dy}))
-            .find(p=>this.npcCanStandAt(p.x,p.y,undefined,true)&&npcStandingOffRoad(npc,p));
+          const npc=NPC_BY_ID[definition.npcId];
+          const regional=Boolean(npc.settlementResident||citizenModel(npc)!==undefined);
+          const preferred=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime:definition.world;
+          const point=this.safeNpcSpawn(preferred,npc,regional);
           if(point){this.regionalNpcSlots.set(definition.id,point);this.regionalNpcRetryAt.delete(definition.id);}
           else this.regionalNpcRetryAt.set(definition.id,this.time.now+1000);
-          return Boolean(point); // Never spawn an unchecked fallback in scenery.
+          return Boolean(point); // All exterior NPCs, including quest NPCs.
+        }
+        if(definition.kind==='interactable'&&(definition.questTargetId||definition.contractTownId)
+          &&!definition.portId&&!definition.townShrineId){
+          const preferred={x:runtime.x,y:runtime.y};
+          const point=this.findExteriorSlot(preferred,'quest',definition.id);
+          if(!point)return false; // Never spawn a quest item inside a closed wall.
+          this.questObjectSlots.set(definition.id,point);
         }
         if(definition.kind!=='creature')return true;
         // Read actual authored quotas; a 15-kill mission cannot disappear at
@@ -1936,7 +1993,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       // Don't visibly teleport a rescued person. Return once their departure
       // is offscreen, preserving their logical identity, trust and quest IDs.
       if(!position||this.inInterior||Math.hypot(position.x-this.player.x,position.y-this.player.y)<1800)continue;
-      const town=TOWN_BY_ID[npc.townId],p={x:town.world.x+rule.position.x,y:town.world.y+rule.position.y};
+      const town=TOWN_BY_ID[npc.townId],preferred={x:town.world.x+rule.position.x,y:town.world.y+rule.position.y};
+      const p=this.safeNpcSpawn(preferred,npc);
+      if(!p)continue; // Retry without losing the rescued NPC or story state.
       this.contentManager.patchState(id,p);store.setStoryFlag('relocated:'+id);
     }
     const affinityState=useGameStore.getState();
@@ -2047,8 +2106,16 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private onFocus() { this.focused = true;this.screenTransition.setPaused(false);this.player?.resetInput(); }
 
   private createContentActor(definition: ContentDefinition, state: ContentState): ContentActor {
-    const { x, y } = definition.kind==='interactable'&&definition.portId
+    let { x, y } = definition.kind==='interactable'&&definition.portId
       ?PORT_BY_ID[definition.portId].quay:state;
+    if(definition.kind==='interactable'&&(definition.questTargetId||definition.contractTownId)
+      &&!definition.portId&&!definition.townShrineId){
+      const moved=this.questObjectSlots.get(definition.id)??this.findExteriorSlot({x,y},'quest',definition.id);
+      this.questObjectSlots.delete(definition.id);
+      if(!moved)throw new Error('No valid exterior position for quest object '+definition.id);
+      if(moved.x!==x||moved.y!==y){x=moved.x;y=moved.y;
+        this.contentManager.patchState(definition.id,{x,y});}
+    }
     if (definition.kind === 'npc') {
       const npcDefinition = NPC_BY_ID[definition.npcId];
       // Repair older keeper positions behind the shrine roof. Keep trust and
@@ -2065,20 +2132,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         : obscuredKeeper || this.isNpcObscured(x,y) || this.isBlockedByBuilding(x,y) ? definition.world : { x,y };
       // Validate every town against loaded GPU-derived scenery and neighbors.
       // Fixed residents use audited courts, rather than stale saved positions.
-      let npcPosition=position;
       const admitted=this.regionalNpcSlots.get(definition.id);
-      if(admitted){npcPosition=admitted;this.regionalNpcSlots.delete(definition.id);}
-      else if(!this.npcCanStandAt(position.x,position.y)){
-        const home=position;
-        const offsets:Array<[number,number]>=[[0,0]];
-        for(const radius of [32,64,96,128,176,224,280,352,448,576])
-          for(const [dx,dy] of [[0,-1],[-1,0],[1,0],[0,1],[-1,-1],[1,-1],[-1,1],[1,1]])
-            offsets.push([dx*radius,dy*radius]);
-        const clear=offsets.map(([dx,dy])=>({x:home.x+dx,y:home.y+dy}))
-          .find(candidate=>this.npcCanStandAt(candidate.x,candidate.y)&&(npcDefinition.formation||npcStandingOffRoad(npcDefinition,candidate)));
-        npcPosition=clear??npcWorldPosition(npcDefinition);
-      }
-      const npc = new Npc(this, npcDefinition, npcPosition.x, npcPosition.y, npcWorldPosition(npcDefinition,'home'));
+      this.regionalNpcSlots.delete(definition.id);
+      const regional=Boolean(npcDefinition.settlementResident||citizenModel(npcDefinition)!==undefined);
+      const npcPosition=admitted??this.safeNpcSpawn(position,npcDefinition,regional);
+      if(!npcPosition)throw new Error('No valid exterior position for NPC '+definition.id);
+      const authoredHome=npcWorldPosition(npcDefinition,'home');
+      const safeHome=this.safeExteriorNpcDestination(authoredHome)??npcPosition;
+      const npc = new Npc(this, npcDefinition, npcPosition.x, npcPosition.y, safeHome);
       if(this.cinematicDirector?.active&&!npc.definition.formation)npc.storyRest();
       this.groundShadows.register(npc);
       this.npcBodies.add(npc);
