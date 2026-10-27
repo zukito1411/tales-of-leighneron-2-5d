@@ -71,7 +71,9 @@ export class GpuShadows {
         const art=caster.texture?scene.textures.getFrame(caster.texture,caster.frame):actor.frame;
         if(!art?.source?.image)continue;
         const width=art.cutWidth,height=art.cutHeight,projection=caster.projection??1;
-        const reachPx=(width+height*(house?.riseScale??1)*(projection+1))*Math.max(Math.abs(actor.scaleX),Math.abs(actor.scaleY));
+        const reachPx=house?.segment
+          ?Math.hypot(house.segment.dx,house.segment.dy)+house.segment.thickness+house.segment.height*(projection+1)
+          :(width+height*(house?.riseScale??1)*(projection+1))*Math.max(Math.abs(actor.scaleX),Math.abs(actor.scaleY));
         if(owner.x+reachPx<bounds.left||owner.x-reachPx>bounds.right||owner.y+reachPx<bounds.top||owner.y-reachPx>bounds.bottom)continue;
         const rightX=house?Math.cos(actor.rotation):wall?(wall.axis==='x'?1:0):viewRightX;
         const rightZ=house?Math.sin(actor.rotation):wall?(wall.axis==='y'?1:0):viewRightZ;

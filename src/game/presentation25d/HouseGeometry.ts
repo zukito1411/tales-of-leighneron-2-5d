@@ -4,13 +4,12 @@ import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {createAuthoredArchitecture} from './ArchitectureGeometry';
 import {createMagusTowerGeometry} from './MagusTowerGeometry';
 import {createInteriorWallGeometry,type InteriorWallPanel} from './InteriorWallGeometry';
-import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import type {Matrix4} from 'three';
 
 export type {HouseProfile} from '../../data/architecture';
 import {architectureProfile,house,tower,type HouseProfile,type Point,type Patch} from '../../data/architecture';
 
-export interface WallSegment {dx:number;dy:number}
+export interface WallSegment {dx:number;dy:number;height?:number;thickness?:number}
 export interface HouseShape {
   profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;ground?:number;
   /** Height only: retain the surveyed X/Z lot, entry and collider footprint. */
@@ -51,25 +50,10 @@ export function towerOfMightShape():HouseShape{
  * scale, so changing source/frame aspect cannot turn a tower into an ellipse. */
 export function towerDiameter(profile:HouseProfile){return Math.max(...(profile.tiers??[]).map(t=>t.right-t.left),profile.hip?profile.hip.right-profile.hip.left:0);}
 
-/** Enlarge the complete elevation around its foot. Roofs, windows and upper
- * floors keep their proportions instead of lifting only the roof over a huge door.
- * X/Z comes from the fitted lot, so this never expands collision into a neighbor. */
-export function sizeHouseForPlayer(shape:HouseShape,displayHeight:number){
-  const profile=shape.profile;
-  if(shape.segment||profile.board||/^panel$/.test(profile.id))return;
-  const visibleHeight=Math.max(1,displayHeight*shape.height);
-  if(profile.opening?.length){
-    const openingHeight=Math.max(...profile.opening.map(p=>p[1]))-Math.min(...profile.opening.map(p=>p[1]));
-    shape.riseScale=Math.max(1,HERO_BODY_HEIGHT*1.45/(visibleHeight*openingHeight));return;
-  }
-  if(profile.tiers){shape.riseScale=Math.max(1,HERO_BODY_HEIGHT*4.5/visibleHeight);return;}
-  if(/^masonry-/.test(profile.id)){
-    shape.riseScale=Math.max(1,HERO_BODY_HEIGHT*1.8/visibleHeight);return;
-  }
-  const doorway=/cottage/.test(profile.id)?.34:/inn|manor|estate/.test(profile.id)?.24:/smithy|stable/.test(profile.id)?.30:.25;
-  shape.doorHeight=shape.height*doorway;
-  shape.floorLift=0;
-  shape.riseScale=Math.max(1,HERO_BODY_HEIGHT*1.25/(visibleHeight*doorway));
+/** Model dimensions are chosen uniformly in the shared content/layout data.
+ * Keep every roof, floor, window and carving in the authored proportions. */
+export function sizeHouseForPlayer(shape:HouseShape,_displayHeight:number){
+  shape.riseScale=1;shape.floorLift=0;shape.doorHeight=undefined;
 }
 
 /** Apply at submission so different lot sizes still share one prefab. Keep

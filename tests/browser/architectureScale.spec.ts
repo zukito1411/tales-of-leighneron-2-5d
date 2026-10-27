@@ -30,3 +30,27 @@ test('production architecture fits a standing player and gates block their full-
     await page.close();
   }
 });
+
+test('expanded keep courtyards and nearby resident cutaways render with production models',async({page},testInfo)=>{
+  test.setTimeout(150000);
+  const errors:string[]=[];page.on('pageerror',error=>errors.push(error.message));
+  try{
+    await page.goto('/tests/browser/architectureScaleReview.html');
+    await page.waitForFunction(()=>window.__architectureScaleReview?.ready||window.__architectureScaleReview?.error,null,{timeout:120000});
+    expect(await page.evaluate(()=>window.__architectureScaleReview.error)).toBe('');
+    await page.evaluate(()=>window.__architectureScaleReview.scene.revealResident(true));
+    await expect.poll(()=>page.evaluate(()=>window.__architectureScaleReview.cutaway.cutawayTarget.value.w)).toBeGreaterThan(0);
+    await page.screenshot({path:testInfo.outputPath('resident-cutaway.png')});
+    await page.evaluate(()=>window.__architectureScaleReview.scene.revealResident(false));
+    await expect.poll(()=>page.evaluate(()=>window.__architectureScaleReview.cutaway.cutawayTarget.value.w)).toBe(0);
+    for(const town of ['highmere','elarion','deepford','blackspire']){
+      expect(await page.evaluate(town=>window.__architectureScaleReview.scene.showSettlement(town),town)).toMatchObject({forecourt:980});
+      await page.waitForTimeout(350);
+      await page.screenshot({path:testInfo.outputPath(town+'-courtyard.png')});
+    }
+    expect(errors).toEqual([]);
+  }finally{
+    await page.evaluate(()=>window.__architectureScaleReview?.game.destroy(true)).catch(()=>{});
+    await page.close();
+  }
+});

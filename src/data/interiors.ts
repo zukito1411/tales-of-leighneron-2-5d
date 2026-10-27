@@ -5,6 +5,7 @@ import {spriteBounds} from './settlementGeometry';
 import type {ArtTextureKey} from './art';
 import {NPC_BY_ID,NPC_NAME_ALIASES} from './npcs';
 import {rewriteNpcMentions} from './npcPresentation';
+import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {CASTLE_GUARD_POSTS} from './castleResidents';
 import type {InteriorArtKey} from './interiorArt';
 import {TOWER_ROOM_SIZE,TOWER_ROUND_FLOOR,TOWER_SOUTH_ENTRY} from './towerRoom';
@@ -44,24 +45,9 @@ export const INTERIOR_ENTRIES:InteriorEntry[]=TOWNS.flatMap(town=>{
 });
 /** Explicit story/workplace residency. Trainers, patrols, field workers and
  * the Tovin escort remain outdoors. IDs and saved trust are never replaced. */
-const assignments:Array<[string,string]>=[
-  ['sena-marrow','Marrow Inn'],['joren-pike','Pike Smithy'],['torren-ashfield','West Cottages'],
-  ['renna-vale','Royal Archive'],['lady-adria-vale','Crown Hall'],['barric-thorne','West Barracks'],
-  ['maela-quill','Market Hall'],['osric-flint','Guild Forge'],['tamsin-reed','Westgate Inn'],
-  ['davin-bridge','River Customs'],['sevrin-hale','Counting House'],['mairin-reed','Morrow Kitchen'],
-  ['nella-harrow','Weavers Row'],['iven-harrow','Relief Warehouse'],['bela-reed','Caravan Inn'],
-  ['elarion-king','Whitebough Hall'],['elarion-lorekeeper','Lore Archive'],['elarion-bowyer','Bowyer Hall'],
-  ['moonfall-herbalist','Herbalist Cottage'],['dael-vale','Grove House'],
-  ['starhold-quartermaster','Quartermaster Stores'],['redmesa-forgewright','Clan Forge'],
-  ['deepford-runesmith','Hall Archive'],['deepford-boatwright','Boatwright Hall'],
-  ['tidewatch-harbor-master','Harbor Guild'],['tidewatch-sailmaker','Sailmaker House'],
-  ['skallheim-trader','Fish Traders Hall'],['blackspire-forgemaster','Forge Hall'],
-  ['elarion-hall-guard-west','Whitebough Hall'],['elarion-hall-guard-east','Whitebough Hall'],
-  ...CASTLE_GUARD_POSTS.map(post=>[post.npcId,post.building] as [string,string]),
-];
 export interface InteriorResident {npcId:string;entry:InteriorEntry;slot:number;guardSide?:'west'|'east'}
 export const INTERIOR_RESIDENTS:InteriorResident[]=[];
-for(const [npcId,building] of assignments){
+for(const [npcId,building] of INTERIOR_ASSIGNMENTS){
   const npc=NPC_BY_ID[npcId],localizedBuilding=rewriteNpcMentions(building,NPC_NAME_ALIASES);
   const entry=npc&&INTERIOR_ENTRIES.find(e=>e.townId===npc.townId&&(e.name===building||e.name===localizedBuilding));
   if(!entry)continue; // A retired/omitted building never strands a story actor.

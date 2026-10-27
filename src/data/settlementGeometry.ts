@@ -19,7 +19,11 @@ export function spriteBounds(texture:ArtTextureKey,frame:number,scale:number,x:n
 }
 /** Placement uses a modeled building's ground plan. Painted facade height
  * remains available through spriteBounds for streaming and screen coverage. */
-export function propPlacementBounds(texture:ArtTextureKey,frame:number,scale:number,x:number,y:number,center=false):Rect {
+export function propPlacementBounds(texture:ArtTextureKey,frame:number,scale:number,x:number,y:number,center=false,segment?:{dx:number;dy:number;thickness?:number}):Rect {
+  if(segment){
+    const pad=(segment.thickness??32)/2;
+    return {left:x-Math.abs(segment.dx)/2-pad,right:x+Math.abs(segment.dx)/2+pad,top:y-Math.abs(segment.dy)/2-pad,bottom:y+Math.abs(segment.dy)/2+pad};
+  }
   const bounds=spriteBounds(texture,frame,scale,x,y,center),profile=architectureProfile(texture,frame);
   if(!profile||profile.board||profile.curtain)return bounds;
   const width=artFrameSize(texture,frame).width*scale;

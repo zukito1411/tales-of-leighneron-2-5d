@@ -7,16 +7,21 @@ import {BootScene} from '../../src/game/scenes/BootScene';
 import {WorldSpriteSystem} from '../../src/game/systems/WorldSpriteSystem';
 import {onGround,PRESENTATION_HINT,type PresentationHint} from '../../src/game/presentation25d/plane';
 import {WORLD_CONTENT} from '../../src/data/content';
+import {TOWN_BY_ID} from '../../src/data/towns';
+import {citadelPlanning} from '../../src/data/settlementPlanning';
 import {useGameStore} from '../../src/store/gameStore';
 
-const keys=new Set<ArtTextureKey>(['world_buildings','capital_buildings','elven_villas','royal_walls','leigneron_idle','npc_guard_idle','npc_villager_idle']);
+const keys=new Set<ArtTextureKey>(['world_buildings','capital_buildings','elven_villas','royal_walls','leigneron_idle','npc_guard_idle','npc_villager_idle','flower_fence']);
 const sheets=ART_SHEETS.filter(sheet=>keys.has(sheet.key));
 const state={ready:false,error:'',game:undefined as unknown as Phaser.Game,scene:undefined as unknown as ReviewScene,
+  cutaway:undefined as unknown as {cutawayTarget:{value:{w:number}}},
   orbit:undefined as unknown as {yaw:number;targetYaw:number;pitch:number;targetPitch:number}};
 declare global{interface Window{__architectureScaleReview:typeof state}}
 window.__architectureScaleReview=state;
 class ReviewScene extends Phaser.Scene{
   readonly presentationFocus={x:0,y:30};readonly presentationControlsEnabled=false;
+  presentationInteractionTarget?:Phaser.GameObjects.Image;
+  private reviewProps:Phaser.GameObjects.Image[]=[];
   private sprites!:WorldSpriteSystem;private actor?:Phaser.GameObjects.Image;
   preload(){
     this.load.setBaseURL('/');
@@ -28,7 +33,7 @@ class ReviewScene extends Phaser.Scene{
   private async prepare(){
     useGameStore.setState({minuteOfDay:720});
     this.cameras.main.setBackgroundColor(0x34443a).setZoom(.82);
-    onGround(this.add.rectangle(0,0,1800,1800,0x34443a));
+    onGround(this.add.rectangle(0,0,9000,9000,0x34443a));
     const boot=Object.create(BootScene.prototype) as BootScene;
     Object.assign(boot,{sys:this.sys,game:this.game,textures:this.textures,registry:this.registry,startupCancelled:false});
     await boot.prepareRegisteredSheets(sheets);
@@ -40,6 +45,30 @@ class ReviewScene extends Phaser.Scene{
     this.show('world_buildings',0);
     this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.sprites.destroy());
     state.scene=this;state.ready=true;
+  }
+  revealResident(enabled:boolean){
+    const resident=this.children.list.find(o=>o instanceof Phaser.GameObjects.Image&&o.texture.key==='npc_villager_idle') as Phaser.GameObjects.Image;
+    resident.setPosition(0,-380);this.presentationFocus.y=-380;
+    this.presentationInteractionTarget=enabled?resident:undefined;
+  }
+  showSettlement(townId:string){
+    for(const actor of this.reviewProps)actor.destroy();this.reviewProps=[];
+    this.actor?.destroy();this.actor=undefined;this.presentationInteractionTarget=undefined;
+    const town=TOWN_BY_ID[townId],court=citadelPlanning(townId)!;
+    const origin={x:town.world.x+court.x,y:town.world.y+court.y+court.forecourt/2};
+    this.presentationFocus.x=this.presentationFocus.y=0;this.cameras.main.setZoom(.36);
+    for(const definition of WORLD_CONTENT){
+      if(!('frame' in definition)||!definition.texture||!keys.has(definition.texture)
+        ||Math.abs(definition.world.x-origin.x)>1900||Math.abs(definition.world.y-origin.y)>2100)continue;
+      const texture=definition.texture,frame=definition.frame,scale=definition.scale??1;
+      const anchor=worldPropOrigin(texture,frame,definition.anchor??'bottom');
+      const actor=this.add.image(definition.world.x-origin.x,definition.world.y-origin.y,texture,frame)
+        .setScale(artScale(texture)*scale).setOrigin(anchor.x,anchor.y).setName(definition.id);
+      this.sprites.register(actor,texture,frame,scale,definition.solid??false,undefined,definition.anchor==='center',false,
+        'wallSegment' in definition?definition.wallSegment:undefined);
+      this.reviewProps.push(actor);
+    }
+    return {count:this.reviewProps.length,forecourt:court.forecourt};
   }
   show(texture:ArtTextureKey,frame:number,rotation=0){
     this.actor?.destroy();
@@ -67,4 +96,5 @@ class ReviewScene extends Phaser.Scene{
 state.game=new Phaser.Game({type:Phaser.CANVAS,parent:'review',width:1280,height:720,audio:{noAudio:true},
   physics:{default:'arcade',arcade:{gravity:{x:0,y:0}}},scene:[ReviewScene],
   callbacks:{postBoot(game){const presentation=new ThreePresentation(game,document.querySelector('#review')!);
+    state.cutaway=(presentation as unknown as {cutaway:typeof state.cutaway}).cutaway;
     state.orbit=(presentation as unknown as {orbit:typeof state.orbit}).orbit;}}});

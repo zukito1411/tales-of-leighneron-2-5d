@@ -71,6 +71,7 @@ interface PresentationScene extends Phaser.Scene {
   readonly groundHeightAt?:(x:number,y:number)=>number;
   readonly presentationControlsEnabled?:boolean;
   readonly presentationLockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
+  readonly presentationInteractionTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
   readonly presentationPause?:()=>void;
   readonly presentationShadows?:GroundShadowSystem;
   readonly presentationWeather?:WeatherSystem;
@@ -285,7 +286,10 @@ export class ThreePresentation {
     this.cutaway.cutawayViewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
     if(presentation.presentationControlsEnabled)this.updateCutaway(this.cutaway.cutawaySubject.value,focus,90);
     else this.cutaway.cutawaySubject.value.w=0;
-    if(lockedTarget)this.updateCutaway(this.cutaway.cutawayTarget.value,lockedTarget,Math.max(65,Math.min(420,lockedTarget.displayHeight*.75)),lockedTarget.presentationElevation??0);
+    // Reuse the existing target cutaway for the nearby person offered by the
+    // interaction system. No extra scan, shader pass or camera lock is needed.
+    const revealTarget=lockedTarget??presentation.presentationInteractionTarget;
+    if(revealTarget)this.updateCutaway(this.cutaway.cutawayTarget.value,revealTarget,Math.max(65,Math.min(420,revealTarget.displayHeight*.75)),revealTarget.presentationElevation??0);
     else this.cutaway.cutawayTarget.value.w=0;
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     if(this.heightEnabled&&!this.elevation.initialized){

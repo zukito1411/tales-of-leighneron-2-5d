@@ -169,6 +169,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active
       ?this.player:this.cameras.main.midPoint;
   }
+  private interactionNpc?:Npc;
+  get presentationInteractionTarget(){
+    const npc=this.interactionNpc;
+    return this.player?.active&&npc?.active&&npc.visible&&Math.hypot(npc.x-this.player.x,npc.y-this.player.y)<=180?npc:undefined;
+  }
   private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
   get presentationLockedTarget(){
     const enemy=this.presentationControlsEnabled?this.targeting?.lockedTarget:null;if(!enemy)return undefined;
@@ -456,9 +461,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   addInteriorFurnitureContact(actor:Phaser.GameObjects.Image,width:number,depth:number){return this.groundShadows.interiorFurnitureContact(actor,width,depth);}
   addInteriorLight(actor:Phaser.GameObjects.Image,art:string){this.dayNight.registerInterior(actor,art);}
   lightStorySignal(id:string){
-    this.contentManager.getActor('story:signal-fire:'+id)?.setVisible(true);
+    const signal=this.contentManager.getActor('story:signal-fire:'+id);
+    if(signal instanceof Phaser.GameObjects.Sprite||signal instanceof Phaser.GameObjects.Image)this.worldSprites.setVisibility(signal,true);
+    else signal?.setVisible(true);
     const clue=id==='mountain-signal'?'story:beacon-kit':id==='winter-signal'?'story:frost-lantern':undefined;
-    if(clue)this.contentManager.getActor(clue)?.setVisible(false);
+    const kit=clue?this.contentManager.getActor(clue):undefined;
+    if(kit instanceof Phaser.GameObjects.Sprite||kit instanceof Phaser.GameObjects.Image)this.worldSprites.setVisibility(kit,false);
+    else kit?.setVisible(false);
   }
   releaseStoryEnemy(enemy:Enemy){this.forgetOrcSpears(enemy.instanceId);this.destroyContentActor(enemy);}
   storyActor(enemy:Enemy){return enemy.instanceId.startsWith('story-event:')||enemy.instanceId.startsWith('dungeon-event:');}
@@ -1976,6 +1985,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     for(const enemy of this.enemies)if(this.storyActor(enemy)&&this.targeting.eligible(enemy))markers.push({
       id:enemy.instanceId,kind:'enemy',label:enemy.definition.name,x:enemy.x,y:enemy.y});
     let interaction: string | null = null, distance = 72;
+    this.interactionNpc=undefined;
     const building=this.interiors.nearest(this.player.x,this.player.y);
     if(building){const home=PLAYER_HOME_BY_ID[building.id];interaction=home?housingFor(store.housing,home.id).owned?`Enter ${home.homeName}`:`Home for sale · Speak with ${home.agentName}`:`Enter ${building.name}`;distance=0;}
     const elarionShrine=this.nearbyElarionShrine(this.player.x,this.player.y);
@@ -1986,7 +1996,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       // the expensive talk line-of-sight probe or offer a nonfunctional prompt.
       if(npc.definition.id.startsWith('road-life:'))continue;
       const d = Phaser.Math.Distance.Between(this.player.x,this.player.y,npc.x,npc.y);
-      if (d < distance && this.hasClearPath(this.player.x,this.player.y,npc.x,npc.y)) { distance = d; interaction = `Talk to ${npc.definition.name}`; }
+      if (d < distance && this.hasClearPath(this.player.x,this.player.y,npc.x,npc.y)) { distance = d; interaction = `Talk to ${npc.definition.name}`;this.interactionNpc=npc; }
     }
     if (!interaction) for (const { definition,actor } of this.interactables.values()) {
       const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;

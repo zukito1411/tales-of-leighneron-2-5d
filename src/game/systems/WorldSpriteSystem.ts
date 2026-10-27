@@ -70,7 +70,7 @@ export class WorldSpriteSystem {
     const house=houseShape(texture,actor.frame,frame,wallSegment);
     if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
-    if(house?.segment){house.segment.height=Math.max(HERO_BODY_HEIGHT*1.8,visible.height*scale*.82);house.segment.thickness=Math.max(12,24*scale);}
+    if(house?.segment){house.segment.height=wallSegment?.height??Math.max(HERO_BODY_HEIGHT*2.4,visible.height*scale*.82);house.segment.thickness=wallSegment?.thickness??Math.max(32,32*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
       const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
@@ -211,7 +211,7 @@ export class WorldSpriteSystem {
       this.blend?.apply(actor,texture,frame,bottom);
     };
     const publish=()=>{
-      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=true;
+      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=actor.active&&actor.visible;
       for(const layer of layers)layer.setVisible(actor.visible);
     };
     if(staged){
@@ -229,6 +229,13 @@ export class WorldSpriteSystem {
     this.prepare(actor);
     const publish=this.publication.get(actor);if(!publish)return;
     this.publication.delete(actor);publish();
+  }
+  /** Story visibility and collision change together; pending scenery still
+   * waits for normal publication, and retired owners cannot become solid. */
+  setVisibility(actor:WorldActor,visible:boolean){
+    actor.setVisible(visible);
+    const enabled=visible&&actor.active&&!this.publication.has(actor);
+    for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=enabled;
   }
   /** Make retired scenery non-authoritative immediately; expensive listener/
    * physics destruction can then be spread across subsequent frames. */

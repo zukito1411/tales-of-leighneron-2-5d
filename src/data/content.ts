@@ -11,11 +11,13 @@ import { TOWNS, TOWN_BY_ID } from './towns';
 import { WORLD_ASSET_FRAMES as PROPS,artFrameSize } from './art';
 import { FARM_PLOTS } from './landmarks';
 import type {WardDetail} from './settlementWards';
-import { SETTLEMENT_BY_ID, SETTLEMENT_LAYOUTS, buildingRenderScale } from './settlements';
+import { SETTLEMENT_BY_ID, SETTLEMENT_LAYOUTS, buildingRenderScale, nearbySlots } from './settlements';
 import { TOWN_SHRINES, townShrineContent } from './townShrines';
 import { HIGHMERE_RIVER, onHighmereRiver,WILDERNESS_BRIDGES } from './rivers';
 import { spriteBounds, propPlacementBounds, overlaps, rectTouchesStreet, propFoundation, type Rect } from './settlementGeometry';
 import { ROAD_ROUTES } from './roadRoutes';
+import {citadelPlanning} from './settlementPlanning';
+import {architectureMinimumScale} from './architecture';
 import type { ArtTextureKey } from './art';
 import { ROYAL_FORTIFICATION_PROPS, fortificationBlocksPoint } from './fortifications';
 import {SETTLEMENT_DEFENSE_PROPS,insideDefense} from './settlementDefenses';
@@ -52,22 +54,28 @@ for (const town of TOWNS) {
 }
 {
   const town=TOWN_BY_ID.elarion,world=(x:number,y:number)=>({x:town.world.x+x,y:town.world.y+y});
-  const segment=230,horizontalCount=2,horizontalLength=artFrameSize('flower_fence',0).width,
-    horizontalInset=(segment*5-horizontalCount*horizontalLength)/2,horizontalRowInset=32,
-    centerX=-660,centerY=-790;
-  const left=centerX-2.5*segment,right=centerX+2.5*segment,top=centerY-1.5*segment,bottom=centerY+1.5*segment;
-  const addFence=(id:string,x:number,y:number,frame=0)=>{
+  const court=citadelPlanning(town.id)!;
+  // Repeat complete floral panels around the enlarged palace court. Their
+  // lengths are fitted uniformly; posts and ornament are never elongated.
+  const horizontal=artFrameSize('flower_fence',0),vertical=artFrameSize('flower_fence',1);
+  const addFence=(id:string,x:number,y:number,frame:number,scale:number)=>{
     WORLD_CONTENT.push({id:'elarion:whitebough-fence:'+id,kind:'prop',world:world(x,y),
-      texture:'flower_fence',frame,scale:1,solid:true,anchor:'center',
-    footprint:frame===0?{width:horizontalLength,height:32}:{width:32,height:segment}});
+      texture:'flower_fence',frame,scale,solid:true,anchor:'center'});
   };
-  for(let index=0;index<horizontalCount;index++){
-    const x=left+horizontalInset+horizontalLength*(index+.5);
-    addFence('north:'+index,x,top+horizontalRowInset);
-    addFence('south:'+index,x,bottom-horizontalRowInset);
+  const row=(side:string,a:number,b:number,y:number,start=0)=>{
+    const count=Math.max(1,Math.ceil((b-a)/(horizontal.width*.96))),span=(b-a)/count,scale=span/(horizontal.width*.96);
+    // The source's contact rail is .845 of the complete elevation.
+    for(let i=0;i<count;i++)addFence(side+':'+(start+i),a+span*(i+.5),y-horizontal.height*.345*scale,0,scale);
+    return count;
+  };
+  row('north',court.left,court.right,court.top);
+  const southCount=row('south',court.left,court.x-130,court.bottom);
+  row('south',court.x+130,court.right,court.bottom,southCount);
+  const count=Math.ceil((court.bottom-court.top)/(vertical.height*.90)),span=(court.bottom-court.top)/count,scale=span/(vertical.height*.90);
+  for(let i=0;i<count;i++)for(const [side,x] of [['west',court.left],['east',court.right]] as const){
+    // Vertical source models anchor at the left edge of their contact strip.
+    addFence(side+':'+i,x+vertical.width*.21*scale,court.top+span*(i+.5)-vertical.height*.01*scale,1,scale);
   }
-  for(let index=0;index<3;index++)addFence('west:'+index,left,top+segment*(index+.5),1);
-  for(let index=0;index<2;index++)addFence('east:'+index,right,top+segment*(index+.5),1);
 }
 for (const layout of SETTLEMENT_LAYOUTS) {
   const town = TOWN_BY_ID[layout.townId];
@@ -264,6 +272,17 @@ for (const plot of FARM_PLOTS) {
     WORLD_CONTENT.push({ id:`${plot.id}:wheat:${wheat++}`,kind:'prop',world:{ x,y },texture:'world_assets',frame:PROPS.wheat,scale:.75,solid:false });
   }
 }
+// Freestanding settlement structures share the house sizing rule before their
+// roadside fitting pass. Surveyed wall/gate scales already own their apertures.
+for(const definition of WORLD_CONTENT){
+  if(!('frame' in definition))continue;
+  const texture=definition.texture??'world_objects';if(texture==='royal_walls')continue;
+  const size=artFrameSize(texture,definition.frame),scale=Math.max(definition.scale??1,
+    architectureMinimumScale(texture,definition.frame,size.width,size.height));
+  if(scale<=(definition.scale??1))continue;
+  definition.scale=scale;
+  if('footprint' in definition)definition.footprint=propFoundation(texture,definition.frame,scale);
+}
 // Place loose objects alongside circulation, never on it. Full visible bounds
 // protect roofs, canopies, named residents, shrine forecourts and other props.
 // Optional new court dressing yields to existing story/stock/civic placements.
@@ -306,17 +325,23 @@ for(const d of WORLD_CONTENT) {
   const layout=SETTLEMENT_LAYOUTS.find(s=>{const t=TOWN_BY_ID[s.townId];return Math.abs(d.world.x-t.world.x)<s.bounds.width/2+600&&Math.abs(d.world.y-t.world.y)<s.bounds.height/2+600;});
   if(!layout) continue;
   const town=TOWN_BY_ID[layout.townId],preferred={...d.world};
-  const slots:Array<{x:number;y:number}>=[];
-  for(let dy=-512;dy<=512;dy+=32) for(let dx=-512;dx<=512;dx+=32) slots.push({x:preferred.x+dx,y:preferred.y+dy});
-  slots.sort((a,b)=>Math.hypot(a.x-preferred.x,a.y-preferred.y)-Math.hypot(b.x-preferred.x,b.y-preferred.y));
-  const position=slots.find(p=>{
-    const rect=spriteBounds(texture,d.frame,scale,p.x,p.y);
-    const local={left:rect.left-town.world.x,right:rect.right-town.world.x,top:rect.top-town.world.y,bottom:rect.bottom-town.world.y};
-    return !fortificationBlocksPoint(p.x,p.y,45) && !layout.streets.some(s=>rectTouchesStreet(local,s,12))&&!ROAD_ROUTES.some(r=>rectTouchesStreet(rect,r,12))
-      && ![rect.left,(rect.left+rect.right)/2,rect.right].some(x=>[rect.top,(rect.top+rect.bottom)/2,rect.bottom].some(y=>onHighmereRiver(x,y)))
-      && (!layout.waterway || local.right<layout.waterway.x-layout.waterway.width/2-16 || local.left>layout.waterway.x+layout.waterway.width/2+16)
-      && !placed.some(r=>overlaps(rect,r,16)) && !layout.parcels.some(p=>p.terrain==='water' && overlaps(local,{left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
-  });
+  let position:typeof preferred|undefined;
+  // Larger houses can fill the old 512-unit search area. Expand only when it
+  // is exhausted, reuse the existing bounded grids, and retain every detail.
+  for(const radius of [512,1024,1536]){
+    for(const p of nearbySlots(preferred,radius)){
+      if(radius>512&&Math.max(Math.abs(p.x-preferred.x),Math.abs(p.y-preferred.y))<=(radius===1536?1024:512))continue;
+      const rect=spriteBounds(texture,d.frame,scale,p.x,p.y);
+      const local={left:rect.left-town.world.x,right:rect.right-town.world.x,top:rect.top-town.world.y,bottom:rect.bottom-town.world.y};
+      const fits=[local.left,local.right].every(x=>[local.top,local.bottom].every(y=>insideDefense(town.id,town.world.x+x,town.world.y+y,-64)))
+        && !fortificationBlocksPoint(p.x,p.y,45) && !layout.streets.some(s=>rectTouchesStreet(local,s,12))&&!ROAD_ROUTES.some(r=>rectTouchesStreet(rect,r,12))
+        && ![rect.left,(rect.left+rect.right)/2,rect.right].some(x=>[rect.top,(rect.top+rect.bottom)/2,rect.bottom].some(y=>onHighmereRiver(x,y)))
+        && (!layout.waterway || local.right<layout.waterway.x-layout.waterway.width/2-16 || local.left>layout.waterway.x+layout.waterway.width/2+16)
+        && !placed.some(r=>overlaps(rect,r,16)) && !layout.parcels.some(p=>p.terrain==='water' && overlaps(local,{left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
+      if(fits){position=p;break;}
+    }
+    if(position)break;
+  }
   if(!position) throw new Error('No clear roadside location for '+d.id);
   d.world=position;placed.push(spriteBounds(texture,d.frame,scale,position.x,position.y));
 }

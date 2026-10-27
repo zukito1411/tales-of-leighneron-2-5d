@@ -2,7 +2,7 @@ import type { Vec2 } from '../game/types';
 import { chunkCenter, CHUNK_SIZE } from './world';
 import { ROAD_CONNECTIONS, TOWN_BY_ID } from './towns';
 import {DRAINAGE} from './worldLandscape';
-import {SETTLEMENT_PROFILES,type SettlementProfileId} from './settlementProfiles';
+import {settlementEnvelope,settlementNorthBoundary,DEEPFORD_TRADE_STREET_Y} from './settlementPlanning';
 import {stoneBridgeScale,stoneBridgeApproachSpan,stoneBridgePath} from './bridgeDeck';
 
 export interface RoadRoute { id:string; from:string; to:string; width:number; points:Vec2[]; surface:'stone'|'dirt'; hierarchy:'royal'|'regional'|'trail'; crossings:Array<Vec2 & {width:number;scale:number}> }
@@ -26,21 +26,20 @@ const corridors:Record<string,Array<[number,number]>> = {
 // This module deliberately does not import settlement layouts: those layouts
 // reserve these approaches when fitting buildings, so importing them cycles.
 function insideSurvey(id:string,p:Vec2){
-  const town=TOWN_BY_ID[id],bounds=SETTLEMENT_PROFILES[id as SettlementProfileId].bounds;
-  const dy=Math.abs(p.y-town.world.y),hy=bounds.height/2+480;
-  return dy<=hy&&Math.abs(p.x-town.world.x)<=bounds.width/2+480+2*(hy-dy);
+  const town=TOWN_BY_ID[id],bounds=settlementEnvelope(town);
+  return p.x>=town.world.x+bounds.left-320&&p.x<=town.world.x+bounds.right+320
+    &&p.y>=town.world.y+bounds.top-320&&p.y<=town.world.y+bounds.bottom+320;
 }
 function approach(id:string,toward:Vec2):Vec2[]{
-  const town=TOWN_BY_ID[id],bounds=SETTLEMENT_PROFILES[id as SettlementProfileId].bounds;
-  const hx=bounds.width/2+160,hy=bounds.height/2+160,dx=toward.x-town.world.x,dy=toward.y-town.world.y;
+  const town=TOWN_BY_ID[id],bounds=settlementEnvelope(town),dx=toward.x-town.world.x,dy=toward.y-town.world.y;
   const local=(x:number,y:number)=>({x:town.world.x+x,y:town.world.y+y});
-  if(id==='deepford'&&dx>0&&dy>0)return [town.world,local(0,620),local(hx+2*(hy-620)+480,620)];
-  if(Math.abs(dx)>Math.abs(dy))return [town.world,local(Math.sign(dx)*(hx+2*hy+480),0)];
+  if(id==='deepford'&&dx>0&&dy>0)return [town.world,local(0,DEEPFORD_TRADE_STREET_Y),local(bounds.right+480,DEEPFORD_TRADE_STREET_Y)];
+  if(Math.abs(dx)>Math.abs(dy))return [town.world,local(Math.sign(dx)*(bounds.right+480),0)];
   if(id==='highmere')return dy<0
-    ?[town.world,local(850,0),local(850,-2400),local(1400,-2400),local(1400,-hy-480)]
-    :[town.world,local(-600,0),local(-600,hy+480)];
-  if(id==='oakmere'&&dy<0)return [town.world,local(-550,0),local(-550,-hy-480)];
-  return [town.world,local(0,Math.sign(dy)*(hy+480))];
+    ?[town.world,local(850,0),local(850,-2400),local(1400,-2400),local(1400,settlementNorthBoundary(town,1400)-480)]
+    :[town.world,local(-600,0),local(-600,bounds.bottom+480)];
+  if(id==='oakmere'&&dy<0)return [town.world,local(-550,0),local(-550,bounds.top-480)];
+  return [town.world,local(0,dy<0?bounds.top-480:bounds.bottom+480)];
 }
 export const ROAD_ROUTES:RoadRoute[] = ROAD_CONNECTIONS.map(([from,to]):RoadRoute => {
  const surveyed=corridors[`${from}:${to}`].map(([x,y])=>chunkCenter(x,y))

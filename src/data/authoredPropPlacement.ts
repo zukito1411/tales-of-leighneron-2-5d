@@ -8,7 +8,7 @@ import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,type Rect} f
 import {worldSpriteProfile} from './worldSpriteGeometry';
 import {isNativePropReplacement} from './nativePropReplacements';
 import {ROAD_ROUTES} from './roadRoutes';
-import {SETTLEMENT_LAYOUTS} from './settlements';
+import {SETTLEMENT_LAYOUTS,nearbySlots} from './settlements';
 import {TOWN_BY_ID} from './towns';
 import {fortificationBlocksPoint} from './fortifications';
 import {flagshipFootprint,onFlagshipDeck} from './pirateFlagship';
@@ -85,7 +85,13 @@ export function fitAuthoredProps(content:ContentDefinition[]){
       const padded={left:r.left-16,right:r.right+16,top:r.top-16,bottom:r.bottom+16};
       return !obstacles.query(padded).some(o=>overlaps(r,o.bounds,16))&&!placed.some(b=>overlaps(r,b,16));
     };
-    const position=candidates.find(fits);
+    let position=candidates.find(fits);
+    // Admitted settlement dressing can be boxed in by the larger buildings.
+    // Sparse compass samples miss narrow garden clearings: exhaust a bounded
+    // nearby grid before considering the existing optional-scenery fallback.
+    if(!position&&d.id.startsWith('detail:')){
+      for(const p of nearbySlots(preferred,1536))if(fits(p)){position=p;break;}
+    }
     if(position)d.world=position;
     else if(d.kind==='prop'&&(!isNativePropReplacement(d.id)||d.id.startsWith('detail:'))){
       // Optional decoration may be omitted if no compatible ground is nearby.

@@ -121,10 +121,30 @@ export function architecturePassageFootprints(profile:HouseProfile):Architecture
   return [{left:profile.roof[0][0],right:left,back:-profile.depth,front:0},
     {left:right,right:profile.roof[profile.roof.length-1][0],back:-profile.depth,front:0}];
 }
-/** Ordinary houses need several people of frontage, independently of atlas size.
- * Placement reserves this full size before admitting scenery or decorations. */
+/** World-space frontage, fitted before instancing the complete model. */
+export const CASTLE_FRONTAGE=HERO_BODY_HEIGHT*22;
 export function architectureMinimumWidth(texture:ArtTextureKey,frame:number){
   const p=architectureProfile(texture,frame);
-  if(!p||p.board||p.curtain||p.tiers||p.opening||/shrine|chapel|masonry/.test(p.id))return 0;
-  return HERO_BODY_HEIGHT*(/cottage/.test(p.id)?3.8:/stable/.test(p.id)?3.6:/inn|manor|estate/.test(p.id)?4.6:4.2);
+  if(!p||p.board||p.curtain)return 0;
+  if(p.id==='castle'||p.id==='elven-palace')return CASTLE_FRONTAGE;
+  if(p.tiers)return HERO_BODY_HEIGHT*2.4;
+  if(p.opening?.length)return HERO_BODY_HEIGHT*4.5;
+  if(/^masonry-/.test(p.id))return HERO_BODY_HEIGHT*2.8;
+  return HERO_BODY_HEIGHT*(/cottage/.test(p.id)?5.2:/inn|manor|estate/.test(p.id)?6.2:/shrine|chapel/.test(p.id)?4.4:5.2);
+}
+/** One scale for X, height and depth. Doors and carved details never receive
+ * a separate vertical stretch to compensate for an undersized floor plan. */
+export function architectureMinimumScale(texture:ArtTextureKey,frame:number,width:number,height:number){
+  const p=architectureProfile(texture,frame);if(!p||p.board||p.curtain)return 0;
+  let minimumHeight=0;
+  if(p.tiers)minimumHeight=HERO_BODY_HEIGHT*4.5;
+  else if(p.opening?.length){
+    const opening=Math.max(...p.opening.map(v=>v[1]))-Math.min(...p.opening.map(v=>v[1]));
+    minimumHeight=HERO_BODY_HEIGHT*1.45/Math.max(.1,opening);
+  }else if(/^masonry-/.test(p.id))minimumHeight=HERO_BODY_HEIGHT*2.2;
+  else{
+    const door=/cottage/.test(p.id)?.28:/inn|manor|estate/.test(p.id)?.24:/smithy|stable/.test(p.id)?.28:.25;
+    minimumHeight=HERO_BODY_HEIGHT*1.25/door;
+  }
+  return Math.max(architectureMinimumWidth(texture,frame)/Math.max(1,width),minimumHeight/Math.max(1,height));
 }

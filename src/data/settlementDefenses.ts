@@ -2,16 +2,23 @@ import {TOWNS,TOWN_BY_ID} from './towns';
 import {SETTLEMENT_PROFILES,type SettlementProfileId} from './settlementProfiles';
 import {ROAD_ROUTES} from './roadRoutes';
 import {ART_BY_KEY,artFrameSize} from './art';
+import {architectureProfile,architecturePassageFootprints} from './architecture';
 import type {PropContentDefinition,Vec2} from '../game/types';
 import {HIGHMERE_RIVER} from './rivers';
+import {settlementEnvelope,settlementGroundPlan,settlementNorthBoundary,fortificationSize} from './settlementPlanning';
 import {harborBay} from './worldLandscape';
 
-export interface CurtainLine {a:Vec2;b:Vec2;townId:string;gateShoulder?:boolean;sourceIndex?:number;shorePart?:number}
+export interface CurtainLine {a:Vec2;b:Vec2;townId:string;gateShoulder?:boolean;thickness?:number;sourceIndex?:number;shorePart?:number}
 export interface DefensiveEntrance {id:string;townId:string;point:Vec2;width:number;kind:'road'|'water';northSouth:boolean;gateArtwork?:boolean}
 export interface DefensiveSurvey {townId:string;vertices:Vec2[];lines:CurtainLine[];entrances:DefensiveEntrance[];approaches:Vec2[][]}
 const fit=artFrameSize('royal_walls',0).width/ART_BY_KEY.royal_walls.regions![0][2];
 // The open artwork needs enough aperture for a road cart, not just one person.
-const gateScale=3.1,gateHalfOpening=59*fit*gateScale/2;
+const gateScale=3.1;
+const gateRegion=ART_BY_KEY.royal_walls.regions![5],gateAnchor=ART_BY_KEY.royal_walls.groundPoints![5];
+const gateSourceX=(gateAnchor[0]-gateRegion[0])/gateRegion[2],gateWidth=artFrameSize('royal_walls',5).width*gateScale;
+const gatePillars=architecturePassageFootprints(architectureProfile('royal_walls',5)!)!;
+// Curtain ends and gate supports use the same model aperture and foot anchor.
+export const ROYAL_GATE_OPENING={left:(gatePillars[0].right-gateSourceX)*gateWidth,right:(gatePillars[1].left-gateSourceX)*gateWidth};
 const distance=(p:Vec2,a:Vec2,b:Vec2)=>{
   const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy,t=length?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/length)):0;
   return Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);
@@ -22,11 +29,25 @@ function intersection(a:Vec2,b:Vec2,c:Vec2,d:Vec2) {
   const px=c.x-a.x,py=c.y-a.y,t=(px*ey-py*ex)/det,u=(px*dy-py*dx)/det;
   return t>=0&&t<=1&&u>=0&&u<=1?{x:a.x+dx*t,y:a.y+dy*t,t,u}:null;
 }
-export function curtainBlocksPath(a:Vec2,b:Vec2,line:CurtainLine,radius=0) {
-  const pad=radius+9;
-  if(Math.max(a.x,b.x)<Math.min(line.a.x,line.b.x)-pad||Math.min(a.x,b.x)>Math.max(line.a.x,line.b.x)+pad
-    ||Math.max(a.y,b.y)<Math.min(line.a.y,line.b.y)-pad||Math.min(a.y,b.y)>Math.max(line.a.y,line.b.y)+pad)return false;
-  return Boolean(intersection(a,b,line.a,line.b))||Math.min(distance(a,line.a,line.b),distance(b,line.a,line.b),distance(line.a,a,b),distance(line.b,a,b))<pad;
+/** The rendered curtain has flat ends. A capsule would extend half its
+ * thickness into every gate opening, creating invisible blocks past the mesh. */
+export function curtainBlocksPoint(x:number,y:number,line:CurtainLine,radius=0){
+  const dx=line.b.x-line.a.x,dy=line.b.y-line.a.y,length=Math.hypot(dx,dy);if(length<.001)return false;
+  const along=((x-line.a.x)*dx+(y-line.a.y)*dy)/length;
+  const across=(-(x-line.a.x)*dy+(y-line.a.y)*dx)/length;
+  return along>=-radius&&along<=length+radius&&Math.abs(across)<=(line.thickness??18)/2+radius;
+}
+export function curtainBlocksPath(a:Vec2,b:Vec2,line:CurtainLine,radius=0){
+  const dx=line.b.x-line.a.x,dy=line.b.y-line.a.y,length=Math.hypot(dx,dy);if(length<.001)return false;
+  const ux=dx/length,uy=dy/length,half=(line.thickness??18)/2+radius;
+  const x=(a.x-line.a.x)*ux+(a.y-line.a.y)*uy,y=-(a.x-line.a.x)*uy+(a.y-line.a.y)*ux;
+  const vx=(b.x-a.x)*ux+(b.y-a.y)*uy,vy=-(b.x-a.x)*uy+(b.y-a.y)*ux;
+  let enter=0,leave=1;
+  if(Math.abs(vx)<.00001){if(x< -radius||x>length+radius)return false;}
+  else{const t0=(-radius-x)/vx,t1=(length+radius-x)/vx;enter=Math.max(enter,Math.min(t0,t1));leave=Math.min(leave,Math.max(t0,t1));}
+  if(Math.abs(vy)<.00001){if(y< -half||y>half)return false;}
+  else{const t0=(-half-y)/vy,t1=(half-y)/vy;enter=Math.max(enter,Math.min(t0,t1));leave=Math.min(leave,Math.max(t0,t1));}
+  return enter<=leave;
 }
 
 function dryHarborFoundation(x:number,y:number,clearance:number){
@@ -59,13 +80,12 @@ function shoreCurtain(line:CurtainLine,sourceIndex:number):CurtainLine[]{
   return pieces;
 }
 
-/** Six-sided surveyed enclosure: real horizontal and ±1:2 diagonal source
- * sections, never rotated fake vertical walls. Expanded flank courts contain
- * the full authored rectangular settlement and its agricultural frontage. */
+/** Rectangular settlement blocks follow the same plan as roads and foundations.
+ * Source artwork supplies materials; real 3D runs can face either street axis. */
 export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
-  const profile=SETTLEMENT_PROFILES[town.id as SettlementProfileId],hx=profile.bounds.width/2+160,hy=profile.bounds.height/2+160;
+  const bounds=settlementEnvelope(town),size=fortificationSize(town);
   const point=(x:number,y:number):Vec2=>({x:town.world.x+x,y:town.world.y+y});
-  const vertices=[point(-hx,-hy),point(hx,-hy),point(hx+2*hy,0),point(hx,hy),point(-hx,hy),point(-hx-2*hy,0)];
+  const vertices=settlementGroundPlan(town).vertices.map(p=>point(p.x,p.y));
   const entrances:DefensiveEntrance[]=[],approaches:Vec2[][]=[];
   const add=(p:Vec2,width:number,kind:'road'|'water',northSouth:boolean)=>{
     const edgeOf=(q:Vec2)=>vertices.findIndex((a,i)=>distance(q,a,vertices[(i+1)%vertices.length])<2);
@@ -82,10 +102,10 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
   for(const route of ROAD_ROUTES.filter(r=>r.from===town.id||r.to===town.id))for(let i=1;i<route.points.length;i++)
     for(let edge=0;edge<vertices.length;edge++){
       const hit=intersection(route.points[i-1],route.points[i],vertices[edge],vertices[(edge+1)%vertices.length]);
-      if(hit)add(hit,route.width+88,'road',edge===0||edge===3);
+      if(hit)add(hit,route.width+88,'road',Math.abs(vertices[edge].y-vertices[(edge+1)%vertices.length].y)<1);
     }
   const northX=town.id==='highmere'?1400:town.id==='oakmere'?-550:0,southX=town.id==='highmere'?-600:0;
-  const north=point(northX,-hy),south=point(southX,hy);
+  const north=point(northX,settlementNorthBoundary(town,northX)),south=point(southX,bounds.bottom);
   const gateWidth=town.id==='highmere'?500:town.id==='blackspire'?260:170;
   add(north,gateWidth,'road',true);add(south,gateWidth,town.kind==='harbor'?'water':'road',true);
   if(town.id==='highmere'){
@@ -96,12 +116,13 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
   else {approaches.push([point(0,0),north]);if(town.kind!=='harbor')approaches.push([point(0,0),south]);}
   // Defended water ports are intentional openings, not walls across a river.
   const riverX=town.id==='highmere'?null:town.id==='willowcross'?600:town.id==='deepford'?450:null;
-  if(riverX!==null){add(point(riverX,-hy),220,'water',true);add(point(riverX,hy),220,'water',true);}
-  if(town.id==='highmere')for(const localY of [-hy,hy]){
-    const y=town.world.y+localY,i=HIGHMERE_RIVER.points.slice(1).findIndex((b,j)=>y>=Math.min(HIGHMERE_RIVER.points[j].y,b.y)&&y<=Math.max(HIGHMERE_RIVER.points[j].y,b.y));
-    if(i>=0){const a=HIGHMERE_RIVER.points[i],b=HIGHMERE_RIVER.points[i+1];add({x:a.x+(b.x-a.x)*(y-a.y)/(b.y-a.y),y},220,'water',true);}
+  if(riverX!==null){add(point(riverX,settlementNorthBoundary(town,riverX)),220,'water',true);add(point(riverX,bounds.bottom),220,'water',true);}
+  if(town.id==='highmere')for(let river=1;river<HIGHMERE_RIVER.points.length;river++)for(let edge=0;edge<vertices.length;edge++){
+    const a=vertices[edge],b=vertices[(edge+1)%vertices.length];
+    const hit=intersection(HIGHMERE_RIVER.points[river-1],HIGHMERE_RIVER.points[river],a,b);
+    if(hit)add(hit,220,'water',Math.abs(a.y-b.y)<1);
   }
-  if(town.kind==='harbor')add(point(700,hy),220,'water',true);
+  if(town.kind==='harbor')add(point(700,bounds.bottom),220,'water',true);
   const lines:CurtainLine[]=[];
   for(let edge=0;edge<vertices.length;edge++){
     const a=vertices[edge],b=vertices[(edge+1)%vertices.length],length=Math.hypot(b.x-a.x,b.y-a.y);
@@ -109,51 +130,59 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
       const center=Math.hypot(e.point.x-a.x,e.point.y-a.y)/length,half=e.width/2/length;
       return {lo:Math.max(0,center-half),hi:Math.min(1,center+half)};
     }).sort((p,q)=>p.lo-q.lo);
-    let cursor=0;const between=(lo:number,hi:number)=>{if(hi-lo<.00001)return;lines.push({townId:town.id,
+    let cursor=0;const between=(lo:number,hi:number)=>{if(hi-lo<.00001)return;lines.push({townId:town.id,thickness:size.thickness,
       a:{x:a.x+(b.x-a.x)*lo,y:a.y+(b.y-a.y)*lo},b:{x:a.x+(b.x-a.x)*hi,y:a.y+(b.y-a.y)*hi}});};
     for(const gap of gaps){between(cursor,gap.lo);cursor=Math.max(cursor,gap.hi);}between(cursor,1);
   }
   for(const entrance of entrances.filter(e=>e.gateArtwork)) {
-    lines.push({townId:town.id,gateShoulder:true,a:{x:entrance.point.x-entrance.width/2,y:entrance.point.y},b:{x:entrance.point.x-gateHalfOpening,y:entrance.point.y}},
-      {townId:town.id,gateShoulder:true,a:{x:entrance.point.x+gateHalfOpening,y:entrance.point.y},b:{x:entrance.point.x+entrance.width/2,y:entrance.point.y}});
+    lines.push({townId:town.id,gateShoulder:true,thickness:size.thickness,a:{x:entrance.point.x-entrance.width/2,y:entrance.point.y},b:{x:entrance.point.x+ROYAL_GATE_OPENING.left,y:entrance.point.y}},
+      {townId:town.id,gateShoulder:true,thickness:size.thickness,a:{x:entrance.point.x+ROYAL_GATE_OPENING.right,y:entrance.point.y},b:{x:entrance.point.x+entrance.width/2,y:entrance.point.y}});
   }
   return {townId:town.id,vertices,lines:town.kind==='harbor'?lines.flatMap(shoreCurtain):lines,entrances,approaches};
 });
 export const DEFENSE_BY_ID=Object.fromEntries(SETTLEMENT_DEFENSES.map(d=>[d.townId,d])) as Record<string,DefensiveSurvey>;
 const defenseBounds=SETTLEMENT_DEFENSES.map(defense=>({defense,
+  areas:settlementGroundPlan(TOWN_BY_ID[defense.townId]).rectangles.map(r=>{
+    const world=TOWN_BY_ID[defense.townId].world;
+    return {left:r.left+world.x,right:r.right+world.x,top:r.top+world.y,bottom:r.bottom+world.y};
+  }),
+  halfThickness:fortificationSize(TOWN_BY_ID[defense.townId]).thickness/2,
   left:Math.min(...defense.vertices.map(p=>p.x)),right:Math.max(...defense.vertices.map(p=>p.x)),
   top:Math.min(...defense.vertices.map(p=>p.y)),bottom:Math.max(...defense.vertices.map(p=>p.y))}));
+const defenseBoundsById=new Map(defenseBounds.map(bounds=>[bounds.defense.townId,bounds]));
 export function insideDefense(townId:string,x:number,y:number,buffer=0) {
-  const town=TOWN_BY_ID[townId];const profile=SETTLEMENT_PROFILES[townId as SettlementProfileId];
-  if(!town||!profile)return false;
-  const hx=profile.bounds.width/2+160+buffer,hy=profile.bounds.height/2+160+buffer,dx=Math.abs(x-town.world.x),dy=Math.abs(y-town.world.y);
-  return dy<=hy&&dx<=hx+2*(hy-dy);
+  const bounds=defenseBoundsById.get(townId);if(!bounds)return false;
+  return bounds.areas.some(area=>x>=area.left-buffer&&x<=area.right+buffer&&y>=area.top-buffer&&y<=area.bottom+buffer);
 }
 export function outerFortificationBlocksPoint(x:number,y:number,radius=12) {
-  const pad=radius+9;
-  return defenseBounds.some(bounds=>x>=bounds.left-pad&&x<=bounds.right+pad&&y>=bounds.top-pad&&y<=bounds.bottom+pad
-    &&bounds.defense.lines.some(line=>distance({x,y},line.a,line.b)<pad));
+  return defenseBounds.some(bounds=>{
+    const pad=radius+bounds.halfThickness;
+    return x>=bounds.left-pad&&x<=bounds.right+pad&&y>=bounds.top-pad&&y<=bounds.bottom+pad
+      &&bounds.defense.lines.some(line=>curtainBlocksPoint(x,y,line,radius));
+  });
 }
 export function outerFortificationBlocksPath(a:Vec2,b:Vec2,radius=0) {
-  const pad=radius+9,left=Math.min(a.x,b.x)-pad,right=Math.max(a.x,b.x)+pad,top=Math.min(a.y,b.y)-pad,bottom=Math.max(a.y,b.y)+pad;
-  return defenseBounds.some(bounds=>left<=bounds.right&&right>=bounds.left&&top<=bounds.bottom&&bottom>=bounds.top
-    &&bounds.defense.lines.some(line=>curtainBlocksPath(a,b,line,radius)));
+  return defenseBounds.some(bounds=>{
+    const pad=radius+bounds.halfThickness;
+    return Math.min(a.x,b.x)-pad<=bounds.right&&Math.max(a.x,b.x)+pad>=bounds.left
+      &&Math.min(a.y,b.y)-pad<=bounds.bottom&&Math.max(a.y,b.y)+pad>=bounds.top
+      &&bounds.defense.lines.some(line=>curtainBlocksPath(a,b,line,radius));
+  });
 }
 export const SETTLEMENT_DEFENSE_PROPS:PropContentDefinition[]=[];
 for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defense.townId)!,profile=SETTLEMENT_PROFILES[town.id as SettlementProfileId];
-  const baseScale=town.id==='highmere'?1.35:town.kind==='village' ? .75 : 1;
+  const baseScale=town.id==='highmere'?1.35:town.kind==='village' ? .75 : 1,size=fortificationSize(town);
   for(const [edge,line] of defense.lines.entries()){
     if(line.gateShoulder)continue;
-    const a=line.a.x<=line.b.x?line.a:line.b,b=line.a.x<=line.b.x?line.b:line.a;
-    const frame=Math.abs(b.y-a.y)<1?2:b.y<a.y?0:1,sourceSpan=frame===2?285:frame===0?94:90;
-    const count=Math.max(1,Math.round((b.x-a.x)/(sourceSpan*fit*baseScale))),scale=(b.x-a.x)/count/sourceSpan/fit;
+    const a=line.a,b=line.b,length=Math.hypot(b.x-a.x,b.y-a.y),frame=2,sourceSpan=285;
+    const count=Math.max(1,Math.ceil(length/(sourceSpan*fit*baseScale))),scale=length/count/sourceSpan/fit;
     const section=line.sourceIndex??edge,part=line.shorePart?`:shore:${line.shorePart}`:'';
     for(let i=0;i<count;i++)SETTLEMENT_DEFENSE_PROPS.push({id:`defense:${town.id}:curtain:${section}:${i}${part}`,kind:'prop',texture:'royal_walls',frame,scale,solid:false,anchor:'center',tint:profile.wallTint,
-      wallSegment:{dx:(b.x-a.x)/count,dy:(b.y-a.y)/count},
+      wallSegment:{dx:(b.x-a.x)/count,dy:(b.y-a.y)/count,height:size.height,thickness:size.thickness},
       world:{x:a.x+(b.x-a.x)*(i+.5)/count,y:a.y+(b.y-a.y)*(i+.5)/count}});
   }
   for(const [i,point] of defense.vertices.entries()){
-    const towerScale=baseScale*1.15,clearance=artFrameSize('royal_walls',3).width*towerScale/2+24;
+    const towerScale=size.towerDiameter/(artFrameSize('royal_walls',3).width*.78),clearance=size.towerDiameter/2+32;
     if(town.kind==='harbor'&&!dryHarborFoundation(point.x,point.y,clearance))continue;
     // Side roads can enter exactly at a perimeter vertex. The opening cuts
     // both adjacent curtains; a corner tower must not fill that opening again.

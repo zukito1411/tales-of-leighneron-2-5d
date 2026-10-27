@@ -16,6 +16,7 @@ export interface SettlementProfile {
   defenses: string;
   bounds: { width: number; height: number };
   wallStyle: 'timber' | 'stone';
+  citadel?:'castle'|'palace';
   wallFrame: number;
   wallTint: number;
   buildingTint: number;
@@ -48,7 +49,7 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
     decorations: [{ frame: 4, x: 510, y: -110, scale: .52 }, { frame: 6, x: -470, y: -30, scale: .65 }],
   },
   highmere: {
-    id: 'highmere', architecture: 'Trandum royal limestone and blue heraldry',
+    id: 'highmere',citadel:'castle', architecture: 'Trandum royal limestone and blue heraldry',
     defenses: 'High crenellated curtain wall, river gates, and crown towers',
     bounds: { width: 5600, height: 5200 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0xffffff,buildingTint:0xfff6e5,
     wallScale: 1.45, wallSpacing: 224, gateTexture: 'walls', gateFrame: 21, gateWidth: 390, gateScale: .9,
@@ -67,7 +68,7 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
     decorations: [{ frame: 4, x: 310, y: -130, scale: .5 }, { frame: 5, x: -390, y: 180, scale: .55 }],
   },
   elarion: {
-    id: 'elarion', architecture: 'Narenthil pale stone grown through ancient greenwood',
+    id: 'elarion',citadel:'palace', architecture: 'Narenthil pale stone grown through ancient greenwood',
     defenses: 'Mossed archways and low living-stone ramparts',
     bounds: { width: 3100, height: 2900 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0xbad0a4,buildingTint:0xd9e8d0,
     wallScale: 1.35, wallSpacing: 218, gateTexture: 'walls', gateFrame: 22, gateWidth: 340, gateScale: .85,
@@ -99,7 +100,7 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
     decorations: [{ frame: 3, x: -430, y: -150, scale: .68 }, { frame: 5, x: 370, y: 170, scale: .62 }],
   },
   deepford: {
-    id: 'deepford', architecture: 'Druganwoods deep granite, ironwork, and carved halls',
+    id: 'deepford',citadel:'castle', architecture: 'Druganwoods deep granite, ironwork, and carved halls',
     defenses: 'Thick cut-stone walls with defended river-road portals',
     bounds: { width: 3200, height: 2900 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0xb1aaa0,buildingTint:0xd4cec5,
     wallScale: 1.5, wallSpacing: 230, gateTexture: 'walls', gateFrame: 21, gateWidth: 400, gateScale: .9,
@@ -123,7 +124,7 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
     decorations: [{ frame: 3, x: -390, y: -160, scale: .68 }, { frame: 13, x: 360, y: 170, scale: .65 }],
   },
   blackspire: {
-    id: 'blackspire', architecture: 'Darkav black basalt, iron, and volcanic glass',
+    id: 'blackspire',citadel:'castle', architecture: 'Darkav black basalt, iron, and volcanic glass',
     defenses: 'Charcoal basalt curtain wall with heavily watched citadel gates',
     bounds: { width: 3200, height: 2900 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0x55575c,buildingTint:0x55575c,
     wallScale: 1.5, wallSpacing: 230, gateTexture: 'walls', gateFrame: 21, gateWidth: 420, gateScale: .9,

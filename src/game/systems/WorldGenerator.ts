@@ -9,6 +9,7 @@ import { CHUNK_SIZE, WORLD_SEED, WORLD_WIDTH, WORLD_HEIGHT } from '../../data/wo
 import { seededRandom } from '../../utils/seededRandom';
 import { FARM_PLOTS } from '../../data/landmarks';
 import {SETTLEMENT_LAYOUTS,settlementAt,settlementTerrain,onStreet,protectedSettlementAt} from '../../data/settlements';
+import {settlementGroundPlan} from '../../data/settlementPlanning';
 import { fortificationBlocksPoint } from '../../data/fortifications';
 import {lakeAt,lakeShoreDistance} from '../../data/landscapeFeatures';
 import {dragonLairTerrain,onDragonTrail} from '../../data/dragonLair';
@@ -19,11 +20,12 @@ import {RIVER_BED,SEA_BED} from '../../data/waterLevels';
 
 const noise2D = createNoise2D(seededRandom(WORLD_SEED));
 const mainlandRegions=REGIONS.filter(region=>!['darkav','frostlands','portquill'].includes(region.id));
-// Same hexagonal boundaries as insideDefense, with a smooth visual shoulder.
-// These immutable records are sampled only through the bounded height cache.
-const foundations=SETTLEMENT_LAYOUTS.map(layout=>({
-  ...TOWN_BY_ID[layout.townId].world,hx:layout.profile.bounds.width/2+160,hy:layout.profile.bounds.height/2+160,
-}));
+// Rectangular foundations use the same bounds as their walls and road gates.
+const foundations=SETTLEMENT_LAYOUTS.flatMap(layout=>{
+  const town=TOWN_BY_ID[layout.townId];
+  return settlementGroundPlan(town).rectangles.map(bounds=>({left:town.world.x+bounds.left,right:town.world.x+bounds.right,
+    top:town.world.y+bounds.top,bottom:town.world.y+bounds.bottom}));
+});
 
 const TERRAIN_INDEX: Record<TerrainKind, number> = {
   grass: 0,
@@ -61,9 +63,9 @@ export class WorldGenerator {
     if(bank>=0&&bank<48&&terrain!=='ice'&&terrain!=='lava')return RIVER_BED*.65*(1-bank/48)**2;
     let foundation=1;
     for(const f of foundations){
-      const dx=Math.abs(x-f.x),dy=Math.abs(y-f.y);
-      if(dy>f.hy+384||dx>f.hx+2*f.hy+384)continue;
-      const outside=Math.max(dy-f.hy,(dx+2*dy-f.hx-2*f.hy)/Math.sqrt(5));
+      const dx=Math.max(f.left-x,0,x-f.right),dy=Math.max(f.top-y,0,y-f.bottom);
+      if(dx>384||dy>384)continue;
+      const outside=Math.hypot(dx,dy);
       if(outside<=0)return 0;
       const t=Math.min(1,outside/384);foundation=Math.min(foundation,t*t*(3-2*t));
     }

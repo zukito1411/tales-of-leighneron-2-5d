@@ -1,9 +1,9 @@
 import {describe,expect,it} from 'vitest';
 import {Matrix4,Vector3} from 'three';
-import {architectureMinimumWidth,architectureProfile,architecturePassageFootprints,authoredGateOpening} from '../src/data/architecture';
+import {architectureMinimumWidth,architectureMinimumScale,architectureProfile,architecturePassageFootprints,authoredGateOpening} from '../src/data/architecture';
 import {SETTLEMENT_LAYOUTS,buildingBounds,buildingRenderScale} from '../src/data/settlements';
 import {artFrameSize} from '../src/data/art';
-import {overlaps,rectTouchesStreet,spriteBounds} from '../src/data/settlementGeometry';
+import {overlaps,rectTouchesStreet,spriteBounds,propPlacementBounds} from '../src/data/settlementGeometry';
 import occupancy from '../src/data/settlementOccupancy.json';
 import {HERO_BODY_HEIGHT} from '../src/data/heroBodyRegistration';
 import {sizeHouseForPlayer,applyHouseRise,type HouseShape} from '../src/game/presentation25d/HouseGeometry';
@@ -12,6 +12,9 @@ import {NPCS} from '../src/data/npcs';
 import {NPC_POSITIONS} from '../src/data/npcPositions';
 import {NPC_INTERIOR_BY_ID,INTERIOR_ENTRIES} from '../src/data/interiors';
 import {TOWN_BY_ID} from '../src/data/towns';
+import {citadelPlanning,settlementGroundPlan,settlementEnvelope} from '../src/data/settlementPlanning';
+import {fortificationBlocksPoint} from '../src/data/fortifications';
+import {insideDefense} from '../src/data/settlementDefenses';
 import {worldSpriteProfile} from '../src/data/worldSpriteGeometry';
 
 describe('architecture scale and clearance',()=>{
@@ -32,10 +35,56 @@ describe('architecture scale and clearance',()=>{
       for(const index of prior.buildings)expect(layout.buildings[index]?.omitted,layout.townId+'/'+index).not.toBe(true);
       expect(active.length).toBe(prior.buildings.length);
       for(const index of prior.buildings)expect(registrations.get(`town:${layout.townId}:building:${index}`)).toBe(1);
-      for(const id of [...prior.plantings,...prior.details])expect(registrations.get(`detail:${layout.townId}:${id}`),id).toBe(1);
+      expect.soft([...prior.plantings,...prior.details].filter(id=>registrations.get(`detail:${layout.townId}:${id}`)!==1),layout.townId+' retained details').toEqual([]);
       expect(layout.plantings.map(p=>p.id).sort(),layout.townId+' trees').toEqual([...prior.plantings].sort());
       expect(layout.details?.map(p=>p.id).sort(),layout.townId+' details').toEqual([...prior.details].sort());
     }
+  });
+  it('provides a real gate-to-door forecourt and removes empty rectangular corners beside keeps',()=>{
+    const gate=WORLD_CONTENT.find(d=>d.id==='fort:highmere:south-gate');
+    if(!gate||!('frame' in gate))throw new Error('Royal gate missing');
+    const door=INTERIOR_ENTRIES.find(e=>e.name==='Crown Hall')!.door;
+    const gateDepth=artFrameSize('royal_walls',5).width*(gate.scale??1)*architectureProfile('royal_walls',5)!.depth;
+    expect(gate.world.y-gateDepth-door.y).toBeGreaterThan(HERO_BODY_HEIGHT*8);
+    for(const layout of SETTLEMENT_LAYOUTS){
+      const town=TOWN_BY_ID[layout.townId],plan=settlementGroundPlan(town),bounds=settlementEnvelope(town);
+      for(const [i,p] of plan.vertices.entries()){
+        const next=plan.vertices[(i+1)%plan.vertices.length];
+        expect(p.x===next.x||p.y===next.y,layout.townId).toBe(true);
+      }
+      if(!citadelPlanning(town.id))continue;
+      const [core,precinct]=plan.rectangles;
+      const area=(core.right-core.left)*(core.bottom-core.top)+(precinct.right-precinct.left)*(core.top-precinct.top);
+      expect(area,layout.townId).toBeLessThan((bounds.right-bounds.left)*(bounds.bottom-bounds.top)*.95);
+    }
+  });
+  it('keeps admitted outdoor assets and NPC feet out of the final building volumes and walls',()=>{
+    const collisions:string[]=[];
+    for(const layout of SETTLEMENT_LAYOUTS){
+      const town=TOWN_BY_ID[layout.townId];
+      const buildings=layout.buildings.map((lot,index)=>({id:`town:${town.id}:building:${index}`,lot,bounds:buildingBounds(lot)})).filter(b=>!b.lot.omitted);
+      const props=WORLD_CONTENT.filter(d=>'frame' in d&&d.kind!=='settlement-prop'&&Math.abs(d.world.x-town.world.x)<10000&&Math.abs(d.world.y-town.world.y)<6000);
+      for(const definition of props){
+        if(!('frame' in definition)||worldSpriteProfile(definition.texture??'world_objects',definition.frame)?.floor)continue;
+        const bounds=propPlacementBounds(definition.texture??'world_objects',definition.frame,definition.scale??1,definition.world.x-town.world.x,definition.world.y-town.world.y,false,'wallSegment' in definition?definition.wallSegment:undefined);
+        for(const building of buildings)if(definition.id!==building.id&&overlaps(bounds,building.bounds))collisions.push(definition.id+'/'+building.id);
+      }
+      for(const npc of NPCS.filter(n=>n.townId===town.id&&!NPC_INTERIOR_BY_ID[n.id])){
+        const p=NPC_POSITIONS[npc.id]?.position??npc.worldOffset;
+        if(fortificationBlocksPoint(town.world.x+p.x,town.world.y+p.y,12))collisions.push('wall/'+npc.id);
+      }
+    }
+    expect(collisions).toEqual([]);
+  });
+  it('retains the constrained Tidewatch lamp in a clear position after larger houses are fitted',()=>{
+    const lamp=WORLD_CONTENT.find(d=>d.id==='detail:tidewatch:street-lamp:2');
+    expect(lamp).toBeDefined();
+    if(!lamp||!('frame' in lamp))throw new Error('Tidewatch lamp was removed');
+    const town=TOWN_BY_ID.tidewatch,layout=SETTLEMENT_LAYOUTS.find(l=>l.townId===town.id)!;
+    const bounds=spriteBounds(lamp.texture??'world_objects',lamp.frame,lamp.scale??1,lamp.world.x-town.world.x,lamp.world.y-town.world.y);
+    for(const lot of layout.buildings.filter(l=>!l.omitted))expect(overlaps(bounds,buildingBounds(lot),16),lot.label).toBe(false);
+    for(const road of layout.streets)expect(rectTouchesStreet(bounds,road,12),road.id).toBe(false);
+    expect(insideDefense(town.id,lamp.world.x,lamp.world.y,-64)).toBe(true);
   });
   it('keeps actual outdoor resident feet and building entrances outside the fitted ground volumes',()=>{
     for(const layout of SETTLEMENT_LAYOUTS){
@@ -53,12 +102,17 @@ describe('architecture scale and clearance',()=>{
       }
     }
   });
-  it('raises the complete elevation around its existing foot instead of adding a tall ground-floor extension',()=>{
+  it('fits the complete building uniformly without stretching elevations or doorway details',()=>{
     for(const frame of [0,1,2]){
       const shape:HouseShape={profile:architectureProfile('world_buildings',frame)!,left:.02,top:.04,width:.95,height:.92,depth:.665,ground:1};
       sizeHouseForPlayer(shape,180);
       expect(shape.floorLift).toBe(0);
-      expect(shape.doorHeight!*180*shape.riseScale!).toBeCloseTo(HERO_BODY_HEIGHT*1.25);
+      expect(shape.riseScale).toBe(1);
+      expect(shape.doorHeight).toBeUndefined();
+      const size=artFrameSize('world_buildings',frame),scale=architectureMinimumScale('world_buildings',frame,size.width,size.height);
+      expect(size.width*scale).toBeGreaterThanOrEqual(architectureMinimumWidth('world_buildings',frame)-.001);
+      const doorFraction=frame===1?.24:.28;
+      expect(size.height*scale*doorFraction).toBeGreaterThanOrEqual(HERO_BODY_HEIGHT*1.25-.001);
       const foot=.5-shape.top-shape.ground!*shape.height;
       const matrix=new Matrix4();applyHouseRise(matrix,shape);
       expect(new Vector3(0,foot,0).applyMatrix4(matrix).y).toBeCloseTo(foot);
