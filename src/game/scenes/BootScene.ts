@@ -6,7 +6,7 @@ import {isGameDisposing} from '../systems/gameLifetime';
 import {heroBodySource,heroGrip} from '../../data/modularHero';
 import {heroFrameData} from '../systems/heroFrameData';
 import {isolateAtlasFrames} from '../systems/AtlasFrameIsolation';
-import {SWORD_SOURCE,prepareEquippedSwords,loadAwakenedSwords} from '../systems/EquippedSwordVisual';
+import {SWORD_SOURCE,equippedSwordArtBatches,loadAwakenedSwords} from '../systems/EquippedSwordVisual';
 import {COMBAT_EFFECT_TEXTURE,DISTINCT_EFFECT_TEXTURE,prepareCombatArtEffects,prepareSlashWeaponEffect} from '../systems/CombatArtEffects';
 import {applySkillWeaponPalette,skillBodyGuard} from '../systems/WeaponSkillPalette';
 import {heroReferenceHeight} from '../../data/heroBodyRegistration';
@@ -603,7 +603,12 @@ export class BootScene extends Phaser.Scene {
     }
     await this.yieldArtworkFrame();
     if(!this.startupActive())return;
-    prepareEquippedSwords(this);
+    const swordArt=equippedSwordArtBatches(this);
+    try{
+      while(!swordArt.next().done){
+        await this.yieldArtworkFrame();if(!this.startupActive())return;
+      }
+    }finally{swordArt.return();}
 
     prepareVehicleArt(this);
     prepareDragonBreathArt(this);

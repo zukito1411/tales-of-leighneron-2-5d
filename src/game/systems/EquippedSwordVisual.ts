@@ -33,6 +33,12 @@ const SWORD_REGISTRATION:readonly (readonly [number,number,number,number])[]=[
 ];
 /** One small shared atlas for all swords; never duplicates the hero atlases. */
 export function prepareEquippedSwords(scene:Phaser.Scene){
+  const steps=equippedSwordArtBatches(scene);
+  try{while(!steps.next().done){ /* Synchronous artwork fixtures. */ }}
+  finally{steps.return();}
+}
+/** Boot yields between complete blades; pixels and registration are unchanged. */
+export function *equippedSwordArtBatches(scene:Phaser.Scene):Generator<void,void>{
   const image=scene.textures.get(SWORD_SOURCE).getSourceImage() as HTMLImageElement;
   const read=document.createElement('canvas');read.width=image.width;read.height=image.height;
   const context=read.getContext('2d',{willReadFrequently:true})!;context.drawImage(image,0,0);
@@ -41,7 +47,7 @@ export function prepareEquippedSwords(scene:Phaser.Scene){
   const awakened=AWAKENING_PROFILES.filter(p=>scene.textures.exists(awakenedSwordSource(p.slug)));
   const texture=scene.textures.createCanvas(SWORD_TEXTURE,512,Math.ceil((swords.length+awakened.length)/4)*160)!;
   const draw=texture.getContext();draw.imageSmoothingEnabled=true;
-  swords.forEach((weapon,index)=>{
+  for(const [index,weapon] of swords.entries()){
     const icon=itemIcon(weapon.id),cell=[Math.floor(icon%4*image.width/4),Math.floor(Math.floor(icon/4)*image.height/4),Math.floor(image.width/4),Math.floor(image.height/4)] as const;
     const bounds=alphaFrameBounds(rgba,image.width,cell);if(!bounds)throw new Error('Empty equipped sword artwork: '+weapon.id);
     const [x,y,w,h]=bounds,fit=Math.min(120/w,152/h),ox=index%4*128,oy=Math.floor(index/4)*160,left=(128-w*fit)/2,top=(160-h*fit)/2;
@@ -53,8 +59,9 @@ export function prepareEquippedSwords(scene:Phaser.Scene){
       gripX:(left+(handleX-x)*fit)/128,gripY:(top+(handleY-y)*fit)/160,
       nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)*fit,
     };
-  });
-  awakened.forEach((profile,slot)=>{
+    yield;
+  }
+  for(const [slot,profile] of awakened.entries()){
     const key=awakenedSwordSource(profile.slug),image=scene.textures.get(key).getSourceImage() as HTMLImageElement;
     read.width=image.width;read.height=image.height;context.drawImage(image,0,0);
     const bounds=alphaFrameBounds(context.getImageData(0,0,image.width,image.height).data,image.width,[0,0,image.width,image.height]);
@@ -66,7 +73,8 @@ export function prepareEquippedSwords(scene:Phaser.Scene){
       gripX:(left+(gx*image.width-x)*fit)/128,gripY:(top+(gy*image.height-y)*fit)/160,
       nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)*fit,
     };scene.textures.remove(key);
-  });
+    yield;
+  }
   texture.refresh();scene.textures.remove(SWORD_SOURCE);
 }
 

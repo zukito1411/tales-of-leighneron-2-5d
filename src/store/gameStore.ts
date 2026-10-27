@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type {ScreenTransitionState} from '../data/screenTransition';
 import {HOME_PRICE,FURNITURE_BY_ART,emptyHousing,parseHousing,housingFor,withHome,allHomeItems,type PlayerHousing,type HomeItem} from '../data/housing';
 import {PLAYER_HOME_BY_ID} from '../data/playerHomes';
-import type { ContentWorldState, NavigationState, QuestObjective, QuestRuntimeState, RegionId } from '../game/types';
+import type { ContentState, ContentWorldState, NavigationState, QuestObjective, QuestRuntimeState, RegionId } from '../game/types';
 import {sameNavigation} from '../utils/sameNavigation';
 import { LEIGNERON } from '../data/player';
 import { NPC_BY_ID,EDMUND_ATWOOD_ID } from '../data/npcs';
@@ -197,10 +197,11 @@ export interface GameState {
   progressQuest: (type: QuestObjective['type'], targetId: string, amount?: number,questId?:string) => void;
   addRewards: (xp: number, gold: number) => void;
   markBossDefeated: (bossId: string) => void;
-  recordEnemyDefeat: (enemyId: string, xp: number, gold: number, bossId?: string, worldContent?: ContentWorldState, contentId?:string, lootEligible?:boolean,defeatRegion?:RegionId) => void;
+  recordEnemyDefeat: (enemyId: string, xp: number, gold: number, bossId?: string, worldContent?: ContentWorldState, contentId?:string, lootEligible?:boolean,defeatRegion?:RegionId) => boolean;
   allocateAttribute: (attribute: AttributeId) => void;
   unlockSkill: (skillId: SkillId) => void;
   setContentWorld: (worldContent: ContentWorldState) => void;
+  recordContentRespawn: (id:string,runtime:ContentState) => void;
   setNavigation: (navigation: NavigationState) => void;
   hydrate: (partial: Partial<GameState>) => void;
   resetGame: () => void;
@@ -662,7 +663,9 @@ export const useGameStore = create<GameState>((set, get) => ({
     return { ...experienceProgress(state, rewards.xp), gold: state.gold + rewards.gold };
   }),
   markBossDefeated: (bossId) => set((state) => state.defeatedBosses.includes(bossId) ? {} : { defeatedBosses: [...state.defeatedBosses, bossId] }),
-  recordEnemyDefeat: (enemyId, xp, gold, bossId, worldContent, contentId, lootEligible=true,defeatRegion) => set((state) => {
+  recordEnemyDefeat: (enemyId, xp, gold, bossId, worldContent, contentId, lootEligible=true,defeatRegion) => {
+    let accepted=false;
+    set((state) => {
     const known=bossId&&state.defeatedBosses.includes(bossId);
     if(known){
       const id=`boss:${bossId}`,previous=state.worldContent.states[id],defeated=worldContent?.states[id];
@@ -670,9 +673,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       // must actually return alive in the content ledger, then transition to
       // defeated in the scene’s snapshot. Replaying a death notification (or
       // submitting the same defeated snapshot) cannot pay XP/gold again.
-      if(!BOSS_BY_ID[bossId!]?.respawns||!previous||previous.defeated||!(typeof previous.hp==='number'&&previous.hp>0)
+      if(!BOSS_BY_ID[bossId!]?.respawns||!previous||previous.defeated
+        ||!(typeof previous.hp==='number'&&(previous.hp>0||previous.hp===0&&previous.bossPhase?.refill))
         ||!defeated?.defeated||defeated.hp!==0)return {};
     }
+    accepted=true;
     const defeatedBosses = bossId&&!known ? [...state.defeatedBosses, bossId] : state.defeatedBosses;
     const result = advanceQuests(state.quests, defeatedBosses, { type: 'kill', targetId: enemyId, amount: 1,contentId },state.storyFlags,worldContent??state.worldContent);
     const rewards=earnedRewards(xp+result.xp,gold+result.gold,state.attributes,state.learnedSkills,state.armorBonuses);
@@ -733,7 +738,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       ...sceneQueue(state.pendingCinematic,state.cinematicQueue,completedStoryScenes(state.quests,result.quests,state.storyFlags),state.storyFlags),storyFlags:breakthroughKill?{...consequenceFlags,[BREAKTHROUGH_TRIAL]:true}:consequenceFlags,
       ...(breakthroughKill?{toast:'Breakthrough trial complete: report your victory to Edmund in Oakmere.'}:{}),
       ...(worldContent ? { worldContent } : {}) };
-  }),
+    });
+    return accepted;
+  },
   dismissRareLoot:id=>set(state=>({rareLootQueue:state.rareLootQueue.filter(notice=>notice.id!==id)})),
   dismissLevelUp:id=>set(state=>state.levelUpNotice?.id===id?{levelUpNotice:null}:{}),
   allocateAttribute: (attribute) => set((state) => {
@@ -756,6 +763,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       toast: `Skill learned: ${skill.name}.` };
   }),
   setContentWorld: (worldContent) => set({ worldContent }),
+  recordContentRespawn:(id,runtime)=>set(state=>({
+    worldContent:{...state.worldContent,states:{...state.worldContent.states,[id]:{...runtime}}},
+  })),
   setNavigation: (navigation) => set(state=>sameNavigation(state.navigation,navigation)?state:{navigation}),
   setActiveSkillStatus:(activeSkillStatus) => set(state=>{
     const previous=state.activeSkillStatus;

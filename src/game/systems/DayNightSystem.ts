@@ -102,7 +102,7 @@ export class DayNightSystem {
       if(fixtures){
         const p=fixtures[index];
         node.fixture={owner:actor,right:(p.x+.5-actor.originX)*Math.abs(actor.displayWidth),
-          height:(p.y+actor.originY-.5)*Math.abs(actor.displayHeight),depth:p.z*Math.abs(actor.displayWidth)};
+          height:(p.y+actor.originY-.5)*Math.abs(actor.displayHeight)*(ownerHint?.house?.riseScale??1),depth:p.z*Math.abs(actor.displayWidth)};
         (glow.getData(PRESENTATION_HINT) as PresentationHint).fixture=node.fixture;
       }
       if(spatial&&shape){

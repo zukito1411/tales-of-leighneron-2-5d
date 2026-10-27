@@ -1,8 +1,9 @@
 import type { TerrainKind, Vec2, TownDefinition } from '../game/types';
 import { TOWNS, TOWN_BY_ID } from './towns';
 import { ROAD_ROUTES } from './roadRoutes';
-import { spriteBounds, overlaps, rectTouchesStreet, type Rect } from './settlementGeometry';
+import { spriteBounds, propPlacementBounds, overlaps, rectTouchesStreet, type Rect } from './settlementGeometry';
 import { NPCS } from './npcs';
+import {NPC_POSITIONS} from './npcPositions';
 import { TOWN_SHRINE_BY_ID } from './townShrines';
 import { onHighmereRiver } from './rivers';
 import { SETTLEMENT_PROFILES, type SettlementProfile, type SettlementProfileId } from './settlementProfiles';
@@ -10,7 +11,10 @@ import {DEFENSE_BY_ID,insideDefense} from './settlementDefenses';
 import {settlementWardPlan,type WardDetail} from './settlementWards';
 import {treeScale,type TreeTexture} from './treeArt';
 import {REGION_SCENERY} from './regionScenery';
+import {artFrameSize} from './art';
+import {architectureMinimumWidth} from './architecture';
 import {BUILDING_PRESENTATION_GROWTH} from './environmentPresentation';
+import occupancy from './settlementOccupancy.json';
 import {coreSettlementDressing} from './settlementDressing';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
 
@@ -267,12 +271,19 @@ function authoredLayout(town:TownDefinition):SettlementLayout {
 }
 
 export function buildingRenderScale(lot:BuildingLot) {
-  return lot.scale * (lot.appearance?.texture === 'capital_buildings' ? lot.frame === 8 ? 1.12 : 1.45
+  const authored=lot.scale * (lot.appearance?.texture === 'capital_buildings' ? lot.frame === 8 ? 1.12 : 1.45
     : lot.appearance?.texture === 'elven_villas' ? lot.frame===2 ? 1.6
       : lot.frame===9 ? 1.75 : lot.frame===4 ? 1.5 : [7,8].includes(lot.frame) ? 1.3 : 1.08 : 1) * (lot.growth??1);
+  const texture=lot.appearance?.texture??'world_buildings',frame=lot.appearance?.frame??lot.frame;
+  const size=artFrameSize(texture,frame),minimum=architectureMinimumWidth(texture,frame)/Math.max(1,size.width);
+  // Constrained burgage plots choose their scale before placement; a larger
+  // requested garden-growth factor must not silently omit an existing home.
+  const available=lot.plot?(lot.plot.right-lot.plot.left-24)/Math.max(1,size.width):Infinity;
+  return Math.max(minimum,Math.min(authored,available));
 }
 export function buildingBounds(lot:BuildingLot) {
-  return spriteBounds(lot.appearance?.texture ?? 'world_buildings',lot.appearance?.frame ?? lot.frame,buildingRenderScale(lot),lot.x,lot.y);
+  return propPlacementBounds(lot.appearance?.texture??'world_buildings',lot.appearance?.frame??lot.frame,
+    buildingRenderScale(lot),lot.x,lot.y);
 }
 function closestPoint(p:Vec2,a:Vec2,b:Vec2):Vec2 {
   const dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
@@ -280,27 +291,46 @@ function closestPoint(p:Vec2,a:Vec2,b:Vec2):Vec2 {
   return { x:a.x+dx*t,y:a.y+dy*t };
 }
 // Search only within the authored ward, in distance order. No random scattering.
-function nearbySlots(preferred:Vec2,radius=480):Vec2[] {
-  const slots:Vec2[]=[];
-  for(let dy=-radius;dy<=radius;dy+=32) for(let dx=-radius;dx<=radius;dx+=32)
-    slots.push({ x:preferred.x+dx,y:preferred.y+dy });
-  return slots.sort((a,b)=>Math.hypot(a.x-preferred.x,a.y-preferred.y)-Math.hypot(b.x-preferred.x,b.y-preferred.y));
+const slotOffsets=new Map<number,readonly Vec2[]>();
+function *nearbySlots(preferred:Vec2,radius=480):Generator<Vec2>{
+  let offsets=slotOffsets.get(radius);
+  if(!offsets){
+    const points:Vec2[]=[];
+    for(let y=-radius;y<=radius;y+=32)for(let x=-radius;x<=radius;x+=32)points.push({x,y});
+    points.sort((a,b)=>(a.x*a.x+a.y*a.y)-(b.x*b.x+b.y*b.y));offsets=points;
+    // Fixed search radii only; retain at most eight reusable local grids.
+    if(slotOffsets.size<8)slotOffsets.set(radius,offsets);
+  }
+  for(const offset of offsets)yield {x:preferred.x+offset.x,y:preferred.y+offset.y};
+}
+function nearbySlot(preferred:Vec2,radius:number,accept:(point:Vec2)=>boolean){
+  for(const point of nearbySlots(preferred,radius))if(accept(point))return point;
 }
 function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTATION_GROWTH) {
   const town=TOWN_BY_ID[layout.townId], shrine=TOWN_SHRINE_BY_ID[town.id];
+  // Preserve the visible authored content through this scale revision. Old
+  // unfitted optional plots do not become extra world objects as a side effect.
+  const prior=occupancy[layout.townId as keyof typeof occupancy];
+  const priorBuildings=new Set<number>(prior?.buildings),priorTrees=new Set<string>(prior?.plantings),priorDetails=new Set<string>(prior?.details);
   const wards=settlementWardPlan(town);
   // Append new lots: original building indices, shrine IDs and story sites stay
   // intact. Streets are reserved before any new building/decorative placement.
   layout.streets.push(...wards.streets);
   layout.parcels.push(...wards.parcels);
   layout.buildings.push(...wards.buildings);
-  for(const lot of layout.buildings)lot.growth=requestedGrowth;
+  for(const [index,lot] of layout.buildings.entries()){
+    lot.growth=requestedGrowth;
+    if(prior&&index<prior.buildingSlots&&!priorBuildings.has(index))lot.omitted=true;
+  }
   layout.plantings.push(...wards.plantings);
   layout.streets.push(...approaches(town));
   for(const [index,points] of DEFENSE_BY_ID[town.id].approaches.entries())layout.streets.push({id:'defensive-approach:'+index,width:town.id==='highmere'?88:64,
     points:points.map(p=>({x:p.x-town.world.x,y:p.y-town.world.y}))});
   const reserved:Rect[]=NPCS.filter(n=>n.townId===town.id).flatMap(n=>{
-    const anchors=n.districtId?[n.worldOffset,n.homeLocation,...n.schedule.map(s=>s.location)].filter((p):p is Vec2=>Boolean(p)):[n.worldOffset];
+    const slots=NPC_POSITIONS[n.id];
+    const anchors=(slots?[slots.position,slots.home,...slots.schedule,slots.arrival,n.storyReturn?.position]
+      :n.districtId?[n.worldOffset,n.homeLocation,...n.schedule.map(s=>s.location),n.storyReturn?.position]:[n.worldOffset,n.storyReturn?.position])
+      .filter((p):p is Vec2=>Boolean(p));
     return anchors.map(p=>({left:p.x-32,right:p.x+32,top:p.y-70,bottom:p.y+35}));
   });
   const elvenShrine=shrine.townId==='elarion';
@@ -315,25 +345,37 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   const highmereRiverFree=(r:Rect)=>town.id!=='highmere' || ![r.left,(r.left+r.right)/2,r.right].some(x=>
     [r.top,(r.top+r.bottom)/2,r.bottom].some(y=>onHighmereRiver(town.world.x+x,town.world.y+y)));
   // Landmarks reserve their parcel first; processing order never changes IDs.
-  const lots=[...layout.buildings.entries()].sort((a,b)=>{
+  const lots=[...layout.buildings.entries()].filter(([,lot])=>!lot.omitted).sort((a,b)=>{
     // Existing civic/story lots reserve first, then the new constrained plots.
     if(Boolean(a[1].wardId)!==Boolean(b[1].wardId))return a[1].wardId?1:-1;
     const ra=buildingBounds(a[1]),rb=buildingBounds(b[1]);
     return (rb.right-rb.left)*(rb.bottom-rb.top)-(ra.right-ra.left)*(ra.bottom-ra.top);
   });
-  for(const [index,lot] of lots) {
+  // Fit original plots first. A relocated workshop must not take a home plot
+  // that has not had its first placement attempt yet.
+  const placements=lots.map(([index,lot])=>({index,lot,relocating:false}));
+  for(const {index,lot,relocating} of placements) {
     if ('town:'+town.id+':building:'+index===shrine.contentId) {
       occupied.push(buildingBounds(lot));
       layout.streets.push(street('shrine-frontage',40,[[lot.x,lot.y+64],[lot.x,lot.y+34]]));continue;
     }
     let placed=false;
-    for(const growth of [...new Set([requestedGrowth,Math.min(requestedGrowth,1.08),Math.min(requestedGrowth,1.04),1])]){
+    const texture=lot.appearance?.texture??'world_buildings',frame=lot.appearance?.frame??lot.frame;
+    const compact=architectureMinimumWidth(texture,frame)>0?0:1;
+    const sizes=[...new Set([requestedGrowth,Math.min(requestedGrowth,1.08),Math.min(requestedGrowth,1.04),1,compact])];
+    const attempts=relocating?[{growth:compact,refit:true}]:sizes.map(growth=>({growth,refit:false}));
+    for(const {growth,refit} of attempts){
       lot.growth=growth;
-      const searchRadius=lot.wardId?96:town.id==='elarion'&&lot.appearance?.texture==='elven_villas'&&lot.frame===2?800:480;
+      const searchRadius=refit?960:lot.wardId?128:town.id==='elarion'&&lot.appearance?.texture==='elven_villas'&&lot.frame===2?800:640;
       for(const point of nearbySlots(lot,searchRadius)) {
         const candidate={ ...lot,...point },rect=buildingBounds(candidate);
         const plot=lot.plot;
-        const validSite=lot.wardId?enclosed(rect)&&Boolean(plot&&rect.left>=plot.left&&rect.right<=plot.right&&rect.top>=plot.top&&rect.bottom<=plot.bottom):within(rect);
+        const localPlot=Boolean(plot&&rect.left>=plot.left&&rect.right<=plot.right&&rect.top>=plot.top&&rect.bottom<=plot.bottom);
+        // If the original tiny plot cannot contain a complete house, fit the
+        // nearest clear space in the same outer ward. Every road, resident,
+        // crop and admitted lot still reserves its space before this succeeds.
+        const inWard=Math.sign(point.x)===Math.sign(lot.x)&&Math.abs(point.x)>layout.bounds.width/2+120;
+        const validSite=lot.wardId?enclosed(rect)&&(refit?inWard:localPlot):within(rect);
         if(!validSite||!riverFree(rect)||!highmereRiverFree(rect)||layout.streets.some(s=>rectTouchesStreet(rect,s,12))
           ||[...reserved,...occupied].some(r=>overlaps(rect,r,24))) continue;
         const door={ x:point.x,y:point.y+34 };
@@ -341,7 +383,9 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
           .filter(p=>p.y>=door.y).sort((a,b)=>Math.hypot(a.x-door.x,a.y-door.y)-Math.hypot(b.x-door.x,b.y-door.y));
         const connection=connections.find(p=>![...occupied,rect].some(r=>rectTouchesStreet(r,{width:40,points:[door,p]},2)));
         if(!connection) continue;
-        Object.assign(lot,point);occupied.push(rect);
+        Object.assign(lot,point);
+        if(refit)lot.plot={left:rect.left-12,right:rect.right+12,top:rect.top-12,bottom:rect.bottom+12};
+        occupied.push(rect);
         layout.streets.push({id:'frontage:'+index,width:40,points:[connection,door]});placed=true;break;
       }
       if(placed)break;
@@ -349,7 +393,10 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     if(!placed){
       // A road/shore constrained outer plot can remain an open garden. Never
       // scatter its building elsewhere or abort boot to satisfy a house count.
-      if(lot.wardId)lot.omitted=true;
+      if(lot.wardId){
+        if(!relocating){placements.push({index,lot,relocating:true});continue;}
+        lot.omitted=true;
+      }
       else throw new Error('No clear authored parcel for '+town.id+'/'+lot.label);
     }
   }
@@ -371,7 +418,9 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     scale:1.15,purpose:'District edge shelter belt, clear of approaches',
   });
   layout.plantings=[];
+  authoredTrees.sort((a,b)=>Number(priorTrees.has(b.id))-Number(priorTrees.has(a.id)));
   for(const original of authoredTrees) {
+    if(prior&&layout.plantings.length>=prior.plantings.length)break;
     // Orchard trees are pruned; courtyard trees and woodland giants are not.
     const cold=town.regionId==='frostlands'||town.regionId==='nardorous';
     const texture:TreeTexture=original.texture??(cold?'climate_props':'world_assets');
@@ -379,7 +428,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     const height=texture==='woodland_props'?205:original.id.includes('orchard')?190:original.wardId?245:Math.min(335,REGION_SCENERY[town.regionId].treeHeight);
     const tree={...original,texture,frame,scale:treeScale(texture,frame,height)};
     if(town.regionId==='darkav'||town.regionId==='rindass'&&original.id.startsWith('shelter:'))continue;
-    const p=nearbySlots(tree,tree.wardId?128:tree.id.startsWith('shelter:')?448:1024).find(point=>{
+    const p=nearbySlot(tree,priorTrees.has(tree.id)?1024:tree.wardId?128:tree.id.startsWith('shelter:')?448:1024,point=>{
       const r=spriteBounds(texture,tree.frame,tree.scale,point.x,point.y);
       return (tree.wardId?enclosed(r):within(r))&&riverFree(r)&&highmereRiverFree(r)
         &&!layout.streets.some(s=>rectTouchesStreet(r,s,20)||onStreet(point.x,point.y,s,18))
@@ -393,8 +442,10 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   const courtDetails=coreSettlementDressing(town,layout,layout.buildings.map(buildingBounds));
   // Existing district landmarks keep their space; optional new front gardens
   // and furniture use the remaining clear courts rather than displacing them.
-  for(const detail of [...wards.details,...courtDetails]){
-    const point=nearbySlots(detail,128).find(p=>{
+  const details=[...wards.details,...courtDetails].sort((a,b)=>Number(priorDetails.has(b.id))-Number(priorDetails.has(a.id)));
+  for(const detail of details){
+    if(prior&&layout.details.length>=prior.details.length)break;
+    const point=nearbySlot(detail,priorDetails.has(detail.id)?512:128,p=>{
       const rect=spriteBounds(detail.texture,detail.frame,detail.scale,p.x,p.y);
       return enclosed(rect)&&riverFree(rect)&&highmereRiverFree(rect)
         &&!layout.streets.some(s=>rectTouchesStreet(rect,s,12))

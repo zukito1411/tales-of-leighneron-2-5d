@@ -431,9 +431,9 @@ export class ChunkManager {
       this.lighting.register(sprite,detail.texture,detail.frame,detail.scale);
       yield;
     }
-    // Enabling static bodies, habitat listeners and optional ground blending
-    // is not cheap. Stage publication work before exposing the whole chunk.
-    for(const actor of scenery){this.ground.activate(actor);yield;}
+    // Prepare habitat listeners and optional blending within the work budget.
+    // Static collision stays disabled until the corresponding art is revealed.
+    for(const actor of scenery){this.ground.prepare(actor);yield;}
     if(background){
       let ready=false;
       while(!ready){
@@ -443,7 +443,7 @@ export class ChunkManager {
         if(!ready)yield;
       }
     }
-    for(const actor of scenery)actor.setVisible(true);
+    for(const actor of scenery){actor.setVisible(true);this.ground.activate(actor);}
     for(const leaves of canopies)leaves.setVisible(true);
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
       .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);

@@ -4,7 +4,7 @@ import {WorldGenerator} from '../game/systems/WorldGenerator';
 import {propFitsHabitat} from '../game/systems/propHabitat';
 import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {bossArenaBounds} from '../game/systems/bossArenas';
-import {spriteBounds,overlaps,rectTouchesStreet,type Rect} from './settlementGeometry';
+import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,type Rect} from './settlementGeometry';
 import {worldSpriteProfile} from './worldSpriteGeometry';
 import {isNativePropReplacement} from './nativePropReplacements';
 import {ROAD_ROUTES} from './roadRoutes';
@@ -54,7 +54,7 @@ export function fitAuthoredProps(content:ContentDefinition[]){
     if(changed.has(d.id)||board(d))return [];
     if('frame' in d){
       if(worldSpriteProfile(d.texture??'world_objects',d.frame)?.floor)return [];
-      return [{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center')}];
+      return [{bounds:propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center')}];
     }
     return [{bounds:bossArenaBounds(d)??{left:d.world.x-35,right:d.world.x+35,top:d.world.y-76,bottom:d.world.y+20}}];
   }));

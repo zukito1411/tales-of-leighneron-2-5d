@@ -77,7 +77,7 @@ export function settlementWardPlan(town:TownDefinition):WardPlan {
         const frame=special?(theme.use==='forge'?5:theme.use==='quay'?7:theme.use==='military'?6:theme.use==='grove'?4:theme.use==='trade'?7:6):stoneHouse&&row===0&&col>=columns-2?1:0;
         const scale=special ? .78 : stoneHouse ? .95 : town.kind==='village'?1.05:1.15;
         const plot:Rect={left:side===1?x-spacing/2: -x-spacing/2,right:side===1?x+spacing/2:-x+spacing/2,
-          top:y-(urban?390:330),bottom:y+24};
+          top:y-(urban?390:330),bottom:y+56};
         result.buildings.push({...toPoint(x,y),frame,scale,wardId:id,plot,
           label:special?`${ward} ${theme.use==='forge'?'Workshop':theme.use==='quay'?'Stores':theme.use==='military'?'Stable':theme.use==='grove'?'Chapel':theme.use==='trade'?'Guild Store':'Farm Stable'}`:`${ward} ${row===0?'Upper':'Lower'} House ${col+1}`,
           purpose:special?theme.livelihoods[index]:'Burgage household; workshop front, dwelling and shared rear garden',

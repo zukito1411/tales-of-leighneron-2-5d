@@ -7,6 +7,8 @@ import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../pr
 import {houseShape,sizeHouseForPlayer,type WallSegment} from '../presentation25d/HouseGeometry';
 import {worldPropShape,shipShape} from '../presentation25d/WorldPropGeometry';
 import {furniturePlacement,furniturePassageFootprints} from '../presentation25d/FurnitureGeometry';
+import {architecturePassageFootprints} from '../../data/architecture';
+import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
@@ -28,6 +30,7 @@ export const WORLD_SPRITE_OWNER='worldSpriteOwner';
 export class WorldSpriteSystem {
   private readonly owned=new Map<WorldActor,Phaser.GameObjects.Rectangle[]>();
   private readonly staged=new Map<WorldActor,()=>void>();
+  private readonly publication=new Map<WorldActor,()=>void>();
   // Runtime pixel-based ground skirts are opt-in. Without them the original
   // full-quality sprite art, collision, foliage, and shadows render unchanged
   // with zero per-actor masking scans, CPU readbacks or texture uploads.
@@ -67,7 +70,7 @@ export class WorldSpriteSystem {
     const house=houseShape(texture,actor.frame,frame,wallSegment);
     if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
-    if(house?.segment){house.segment.height=visible.height*scale*.82;house.segment.thickness=Math.max(12,24*scale);}
+    if(house?.segment){house.segment.height=Math.max(HERO_BODY_HEIGHT*1.8,visible.height*scale*.82);house.segment.thickness=Math.max(12,24*scale);}
     if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
       const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
@@ -129,7 +132,18 @@ export class WorldSpriteSystem {
       // Bridge rail art is decorative; terrain bounds already constrain the crossing.
     }else{
       actor.setDepth(profile?.floor?-950:profile?point(.5,profile.sortY).y:actor.y);
-      if(solid||profile?.forceSolid){
+      const passage=this.scene.game.registry.get('presentation')==='three-2.5d'&&house
+        ?architecturePassageFootprints(house.profile):undefined;
+      if(passage&&(solid||profile?.forceSolid)){
+        const width=visible.width*scale;
+        for(const part of passage){
+          const dx=(x:number)=>(visible.left+x*visible.width-sheet.frameWidth*actor.originX)*scale;
+          const footprint:GroundPoint[]=[[dx(part.left),part.back*width],[dx(part.right),part.back*width],
+            [dx(part.right),part.front*width],[dx(part.left),part.front*width]]
+            .map(([x,y])=>[actor.x+x*cos-y*sin,actor.y+x*sin+y*cos] as GroundPoint);
+          for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
+        }
+      }else if(solid||profile?.forceSolid){
         if(profile?.solids.length){for(const polygon of profile.solids){
           const worldPolygon=polygon.map(([x,y]):GroundPoint=>{const p=point(x,y);return [p.x,p.y];});
           for(const rect of polygonGroundBands(worldPolygon))add(rect.left,rect.top,rect.right,rect.bottom);
@@ -192,21 +206,29 @@ export class WorldSpriteSystem {
     this.owned.set(actor,owned);
     actor.once('destroy',()=>this.release(actor));
     const bottom=point(.5,1);
-    const activate=()=>{
-      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=true;
-      for(const layer of layers)layer.setVisible(actor.visible);
+    const prepare=()=>{
       this.wildlife?.register(actor,texture,frame,bottom,visible.width*scale,visible.height*scale);
       this.blend?.apply(actor,texture,frame,bottom);
     };
+    const publish=()=>{
+      for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=true;
+      for(const layer of layers)layer.setVisible(actor.visible);
+    };
     if(staged){
       for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
-      this.staged.set(actor,activate);
-    }else activate();
+      this.staged.set(actor,prepare);this.publication.set(actor,publish);
+    }else {prepare();publish();}
   }
-  /** Chunk publication enables prepared collisions and habitat together. */
+  /** Expensive habitat/blend setup remains staged while collisions stay off. */
+  prepare(actor:WorldActor){
+    const prepare=this.staged.get(actor);if(!prepare)return;
+    this.staged.delete(actor);prepare();
+  }
+  /** Publish visible artwork and its prepared foot collision in the same tick. */
   activate(actor:WorldActor){
-    const activate=this.staged.get(actor);if(!activate)return;
-    this.staged.delete(actor);activate();
+    this.prepare(actor);
+    const publish=this.publication.get(actor);if(!publish)return;
+    this.publication.delete(actor);publish();
   }
   /** Make retired scenery non-authoritative immediately; expensive listener/
    * physics destruction can then be spread across subsequent frames. */
@@ -214,7 +236,7 @@ export class WorldSpriteSystem {
     for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
   }
   private release(actor:WorldActor){
-    this.staged.delete(actor);
+    this.staged.delete(actor);this.publication.delete(actor);
     const shapes=this.owned.get(actor);if(!shapes)return;this.owned.delete(actor);
     for(const shape of shapes)this.bodies.remove(shape,true,true);
   }

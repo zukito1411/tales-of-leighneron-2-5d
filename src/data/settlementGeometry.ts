@@ -1,4 +1,5 @@
 import { artFrameSize, type ArtTextureKey } from './art';
+import {architectureProfile} from './architecture';
 import type { Vec2 } from '../game/types';
 import {isTreeArt,treeFootprint} from './treeArt';
 
@@ -9,7 +10,21 @@ export function overlaps(a:Rect,b:Rect,gap = 0) {
 export function spriteBounds(texture:ArtTextureKey,frame:number,scale:number,x:number,y:number,center = false):Rect {
   const size = artFrameSize(texture,frame), width = size.width * scale, height = size.height * scale;
   const bottom = center ? y + height / 2 : y - 2 * scale;
-  return { left:x - width / 2,right:x + width / 2,top:bottom - height,bottom };
+  const architecture=architectureProfile(texture,frame);
+  // A wide model can extend farther north than its original painted facade.
+  // Reserve that ground volume in the same planners that protect roads/NPCs.
+  const depth=architecture&&!architecture.board&&!architecture.curtain
+    ?width*(architecture.tiers?Math.max(...architecture.tiers.map(t=>t.right-t.left),architecture.hip?architecture.hip.right-architecture.hip.left:0):architecture.depth):0;
+  return {left:x-width/2,right:x+width/2,top:Math.min(bottom-height,y-depth),bottom};
+}
+/** Placement uses a modeled building's ground plan. Painted facade height
+ * remains available through spriteBounds for streaming and screen coverage. */
+export function propPlacementBounds(texture:ArtTextureKey,frame:number,scale:number,x:number,y:number,center=false):Rect {
+  const bounds=spriteBounds(texture,frame,scale,x,y,center),profile=architectureProfile(texture,frame);
+  if(!profile||profile.board||profile.curtain)return bounds;
+  const width=artFrameSize(texture,frame).width*scale;
+  const depth=profile.tiers?Math.max(...profile.tiers.map(t=>t.right-t.left),profile.hip?profile.hip.right-profile.hip.left:0):profile.depth;
+  return {...bounds,top:y-width*(depth+.035)};
 }
 export function segmentTouchesRect(a:Vec2,b:Vec2,r:Rect) {
   let lo = 0, hi = 1;

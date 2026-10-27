@@ -288,6 +288,16 @@ export class ThreePresentation {
     if(lockedTarget)this.updateCutaway(this.cutaway.cutawayTarget.value,lockedTarget,Math.max(65,Math.min(420,lockedTarget.displayHeight*.75)),lockedTarget.presentationElevation??0);
     else this.cutaway.cutawayTarget.value.w=0;
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
+    if(this.heightEnabled&&!this.elevation.initialized){
+      // POST_RENDER still fires on an undrawn preparation tick. Keep the
+      // world-ready/save fence closed until the full-height view is rendered.
+      this.game.registry.set('presentationInitialViewReady',false);
+      this.game.registry.set('loadingStage','Preparing terrain relief');
+      const started=performance.now(),allowance=work.remaining('elevation',1.8);
+      this.elevation.preload(this.orbit.bounds,true,allowance);
+      work.charge('elevation',started);
+      return;
+    }
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
     const light=this.atmosphere,cover=this.interior?0:weather?.cloudCover??0;
@@ -347,6 +357,7 @@ export class ThreePresentation {
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
     this.gpuTimer.end();
     this.presentedScene=scene;
+    if(presentation.presentationFocus)this.game.registry.set('presentationInitialViewReady',true);
     camera.dirty=false;
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
     if(!this.stopped){

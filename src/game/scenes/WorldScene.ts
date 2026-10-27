@@ -1,3 +1,4 @@
+import {CombatClock} from '../systems/CombatClock';
 import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {TerrainHeightField} from '../systems/TerrainHeightField';
 import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
@@ -119,6 +120,9 @@ const oakmereTreeCanopies=WORLD_CONTENT
   .map(d=>({y:d.world.y,bounds:spriteBounds(d.texture??'world_assets',d.frame,d.scale,d.world.x,d.world.y)}));
 
 export class WorldScene extends Phaser.Scene implements EventDirectorHost {
+  private readonly combatClock=new CombatClock();
+  get combatTime(){return this.combatClock.now;}
+  advanceCombatClock(delta:number){return this.combatClock.advance(delta);}
   player!: Player;
   targeting!:TargetingSystem;
   private readonly worldGenerator = new WorldGenerator();
@@ -478,7 +482,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(!blocked)this.targeting.update();
     for(const enemy of [...this.enemies]){
       if(!this.storyEncounters.owns(enemy)&&!this.dungeons.owns(enemy)){enemy.updatePresentation(this.player.x,this.player.y,true);continue;}
-      if(!blocked){enemy.updateEnemy(time,Math.min(delta,80));if(enemy.active)this.interiors.advanceEnemy(enemy,delta);}
+      if(!blocked){enemy.updateEnemy(this.combatTime,Math.min(delta,80));if(enemy.active)this.interiors.advanceEnemy(enemy,delta);}
       if(enemy.active){enemy.setDepth(this.playerRenderDepth(enemy.y));enemy.updatePresentation(this.player.x,this.player.y,blocked);}
     }
     if(!blocked)this.spearProjectiles.update(delta);
@@ -658,6 +662,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     try {
     this.nextImpactSoundAt=0;this.nextCombatShakeAt=0;this.knockbackBudgetUntil=0;this.knockbackBudget=0;
     this.registry.set('loadingStage','Creating world actors');
+    if(this.game.registry.get('presentation')==='three-2.5d')this.registry.set('presentationInitialViewReady',false);
     this.pendingRespawn=null;
     this.regionalNpcSlots.clear();
     this.regionalNpcRetryAt.clear();
@@ -678,7 +683,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.waterSurface=new WaterSurfaceSystem(this,this.worldGenerator);
     this.groundShadows=new GroundShadowSystem(this);
     this.cinematicDirector=new CinematicDirector(this);
-    this.activePlayMs=0;
+    this.activePlayMs=0;this.combatClock.reset();
     this.eventDirector = new EventDirector(this);
     this.buildings = this.physics.add.staticGroup();
     this.treeBodies = this.physics.add.staticGroup();
@@ -844,6 +849,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       },
       canRespawn: definition => definition.id!=='boss:salt-king'&&!definition.id.startsWith('pirate:flagship:crew:')
         ||!onFlagshipBoarding(this.player.x,this.player.y)&&Math.hypot(this.player.x-FLAGSHIP.topLeft.x-530,this.player.y-FLAGSHIP.topLeft.y-900)>1200,
+      respawned:(definition,runtime)=>{
+        // Reward replay protection reads this same ledger. A respawn is a
+        // semantic transition even when no checkpoint or other kill occurs.
+        useGameStore.getState().recordContentRespawn(definition.id,runtime);
+      },
       create: (definition, runtime) => this.createContentActor(definition, runtime),
       position: actor => actor,
       capture: (definition, actor) => ({ ...(definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID
@@ -924,7 +934,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private onFirstWorldRender(){
       // Do not consume readiness on an inactive frame, or announce a world
       // whose game has already been scheduled for disposal by React/retry.
-      if(this.shuttingDown||isGameDisposing(this.game)||!this.sys.isActive()||this.registry.get('presentationProgramsReady')===false)return;
+      if(this.shuttingDown||isGameDisposing(this.game)||!this.sys.isActive()||this.registry.get('presentationProgramsReady')===false||this.registry.get('presentationInitialViewReady')===false)return;
       this.game.events.off(Phaser.Core.Events.POST_RENDER,this.onFirstWorldRender,this);
       this.registry.set('worldReady',true);
       // Optional sound effects must not prevent the first playable frame.
@@ -950,6 +960,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
   private updateWorld(time: number, delta: number) {
     this.resolveGroundAfterPhysics=false;
+    if(this.registry.get('presentationInitialViewReady')===false){
+      this.physics.world.pause();this.player.discardActions();return;
+    }
     if(this.pendingRespawn){
       const death=this.pendingRespawn;this.pendingRespawn=null;
       this.respawnPlayer(death);
@@ -1022,8 +1035,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
     if (!uiBlocked) {
       this.activePlayMs+=Math.min(delta,250);
+      this.advanceCombatClock(delta);
       this.targeting.update();
-      this.player.updatePlayer(time, delta);
+      this.player.updatePlayer(this.combatTime, delta);
       if(this.interiors.active)return;
       const store=useGameStore.getState();
       if(objectiveIsCurrent(store.quests,'escort','tovin-reed')) {
@@ -1032,7 +1046,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       }
       for (const npc of this.npcs) if (npc.active) npc.updatePatrol(time,delta);
       for (const enemy of this.enemies) {
-        if (enemy.active) enemy.updateEnemy(time,delta);
+        if (enemy.active) enemy.updateEnemy(this.combatTime,delta);
       }
       this.spearProjectiles.update(delta);
       const body=this.player.body as Phaser.Physics.Arcade.Body;
@@ -1647,12 +1661,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     }
     const factor=encounterRewardFactor(enemy.level,state.level,summoned);
     const rewardXp=Math.max(1,Math.round(definition.xp*factor)),rewardGold=Math.round(gold*factor);
-    state.recordEnemyDefeat(definition.id,rewardXp,rewardGold,bossId,this.contentManager.snapshot(),enemy.instanceId,!summoned,this.worldGenerator.getRegionAt(enemy.x,enemy.y));
+    const rewarded=state.recordEnemyDefeat(definition.id,rewardXp,rewardGold,bossId,this.contentManager.snapshot(),enemy.instanceId,!summoned,this.worldGenerator.getRegionAt(enemy.x,enemy.y));
+    if(rewarded){
     const reward=earnedRewards(rewardXp,rewardGold,state.attributes,state.learnedSkills,state.armorBonuses);
     const anchor={x:enemy.x,y:enemy.y};
     const rewardText=`+${reward.xp} XP`+(reward.gold>0?`  +${reward.gold} gold`:'');
     const gained=onWorldLabel(this.add.text(anchor.x,anchor.y-64,rewardText,{fontFamily:'Georgia,serif',fontSize:'15px',fontStyle:'bold',color:'#f8dc8c',stroke:'#23160b',strokeThickness:4}).setResolution(2).setOrigin(.5,1),anchor);
     this.tweens.add({targets:gained,y:anchor.y-128,alpha:0,duration:1450,ease:'Sine.easeOut',onComplete:()=>gained.destroy()});
+    }
 
     if (enemy.instanceId.startsWith('boss:')) {
       useGameStore.getState().setBossEncounter(null);
@@ -1882,10 +1898,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return Phaser.Geom.Intersects.LineToRectangle(line,this.pathObstacleBounds);
   }
 
-  syncState() {
+  syncHudState() {
     if (!this.player?.active) return;
     this.player.syncInventoryVitals();
-    this.reconcileStoryAffinity();
     const position=this.arrivalView?.safe??authoritativeSavePosition(this.player,this.interiors,this.cinematicDirector?.active??false,this.passage);
     const town = this.worldGenerator.getTownAt(position.x, position.y);
     const store = useGameStore.getState();
@@ -1893,7 +1908,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     store.setVitals(this.player.hp, this.player.stamina);
     store.setActiveSkillStatus(this.player.skills.snapshot());
     this.dayNight.syncState();
-    if (this.contentManager) store.setContentWorld(this.contentManager.snapshot());
+  }
+
+  syncState() {
+    if (!this.player?.active) return;
+    this.reconcileStoryAffinity();
+    this.syncHudState();
+    if (this.contentManager) useGameStore.getState().setContentWorld(this.contentManager.snapshot());
   }
 
   private reconcileStoryAffinity() {

@@ -36,7 +36,8 @@ const ALLY_STEERING_OFFSETS=[0,.45,-.45,.9,-.9,1.35,-1.35] as const;
 export class Enemy extends DepthSortedSprite {
   readonly weaponStatus=new WeaponStatusSystem();
   private statusAttackRate=1;
-  private attackWindupTimer:Phaser.Time.TimerEvent|null=null;
+  private attackWindup:{delay:number;elapsed:number;timeScale:number;impact:()=>void}|null=null;
+  private get combatTime(){return (this.scene as WorldScene).combatTime??this.scene.time.now;}
   private attackTimingActive=false;
   private hitFlashUntil=0;
   definition: EnemyDefinition;
@@ -165,7 +166,7 @@ export class Enemy extends DepthSortedSprite {
     return channel(16)<<16|channel(8)<<8|channel(0);
   }
   private applyStatusTint(){
-    if(!this.active||this.scene.time.now<this.hitFlashUntil)return;
+    if(!this.active||this.combatTime<this.hitFlashUntil)return;
     const tint=this.presentationTint;
     const apply=(sprite:Phaser.GameObjects.Sprite|null|undefined)=>{
       if(!sprite?.active)return;
@@ -192,14 +193,14 @@ export class Enemy extends DepthSortedSprite {
       if(this.leapVisual?.active)this.leapVisual.anims.timeScale/=remainingScale;
       if(this.leapTween)this.leapTween.timeScale=rate;
     }
-    if(this.attackWindupTimer){
-      this.attackWindupTimer.timeScale=rate;
-      this.attackTelegraphStartedAt=time-this.attackWindupTimer.elapsed/rate;
-      this.attackTelegraphWindup=this.attackWindupTimer.delay/rate;
+    if(this.attackWindup){
+      this.attackWindup.timeScale=rate;
+      this.attackTelegraphStartedAt=time-this.attackWindup.elapsed/rate;
+      this.attackTelegraphWindup=this.attackWindup.delay/rate;
     }
     this.statusAttackRate=rate;
   }
-  get isStaggered(){return !this.bossRegenerating&&(this.flurrySuppressed||this.scene.time.now<this.hitStunUntil);}
+  get isStaggered(){return !this.bossRegenerating&&(this.flurrySuppressed||this.combatTime<this.hitStunUntil);}
   get facingLeft(){return this.visualDirection==='left';}
   get isRangedAttacker(){return this.definition.combatStyle==='spear-thrower'||this.definition.combatStyle==='stone-thrower';}
   private get directionalCombat(){return this.isRangedAttacker||this.definition.combatStyle==='boatswain'||['hedge-goblin','blighted-thornling','grove-spider','redmesa-chieftain','rootfather','frost-wyrm','ashen-seer','grand-magus'].includes(this.definition.id);}
@@ -249,8 +250,8 @@ export class Enemy extends DepthSortedSprite {
     this.instanceId = instanceId;
     // Separate seed: animation variation must not consume combat/wander RNG.
     this.pirateWalkProgress=seededRandom(instanceId+':stride')();
-    this.lastDamagedAt = scene.time.now;
-    this.lastEngagedAt = scene.time.now;
+    this.lastDamagedAt = scene.combatTime??scene.time.now;
+    this.lastEngagedAt = scene.combatTime??scene.time.now;
     this.rng = seededRandom(instanceId);
     this.lastSafe = { x, y };
     scene.add.existing(this);
@@ -302,6 +303,12 @@ export class Enemy extends DepthSortedSprite {
       if(!this.isAlive){this.clearRoots();this.weaponStatus.clear();this.interruptAttack();(this.scene as WorldScene).handleEnemyDefeated(this);return;}
     }
     this.syncStatusAttackSpeed(time);this.applyStatusTint();
+    const windup=this.attackWindup;
+    if(windup){
+      windup.elapsed+=Math.max(0,Math.min(delta,250))*windup.timeScale;
+      if(windup.elapsed>=windup.delay){this.attackWindup=null;windup.impact();}
+    }
+    if(!this.active||!this.isAlive)return;
     this.updateEnemyBehavior(time,delta);
     if(this.active&&this.isRooted)(this.body as Phaser.Physics.Arcade.Body).setVelocity(0,0);
   }
@@ -699,8 +706,8 @@ export class Enemy extends DepthSortedSprite {
     this.visualUntil=time+(windup+recovery)/rate;
     if (attackStyle === 'pounce' && this.definition.spriteFrame === 0) this.playWolfLeap(attackAnimation);
     if(this.leapTween)this.leapTween.timeScale=rate;
-    this.attackWindupTimer=scene.time.delayedCall(windup, () => {
-      this.attackWindupTimer=null;
+    this.attackWindup={delay:windup,elapsed:0,timeScale:rate,impact:() => {
+      this.attackWindup=null;
       if(epoch!==this.attackEpoch)return;
       this.attackTelegraph?.destroy();
       this.attackTelegraph = null;
@@ -708,7 +715,7 @@ export class Enemy extends DepthSortedSprite {
       if (epoch!==this.attackEpoch || !this.active || !player.active
         ||(ambient?scene.ambientOpponentFor(this)!==player:!scene.canEnemyTargetPlayer(this))
         || useGameStore.getState().panel || useGameStore.getState().dialogue || useGameStore.getState().cinematic) return;
-      if (!ambient&&this.encounterBehavior && scene.encounterDecision(this,scene.time.now,false,scene.canEnemyTargetPlayer(this))!=='pursue') {
+      if (!ambient&&this.encounterBehavior && scene.encounterDecision(this,scene.combatTime??scene.time.now,false,scene.canEnemyTargetPlayer(this))!=='pursue') {
         this.interruptAttack();return;
       }
       if(recoveryClip){
@@ -734,13 +741,12 @@ export class Enemy extends DepthSortedSprite {
       scene.playEffect('hit', player.x, player.y, toPlayer);
       if(ambient)scene.damageRoadNpc(player as Npc,this.definition.damage);
       else scene.damagePlayer(this.definition.damage);
-    });
-    this.attackWindupTimer.timeScale=rate;
+    }};
   }
 
   private updateAttackTelegraph(time:number){
     const image=this.attackTelegraph;
-    const progress=this.attackWindupTimer?.getProgress()??Phaser.Math.Clamp((time-this.attackTelegraphStartedAt)/Math.max(1,this.attackTelegraphWindup),0,1);
+    const progress=(this.attackWindup?Math.min(1,this.attackWindup.elapsed/Math.max(1,this.attackWindup.delay)):undefined)??Phaser.Math.Clamp((time-this.attackTelegraphStartedAt)/Math.max(1,this.attackTelegraphWindup),0,1);
     const depth=(this.scene as WorldScene).playerRenderDepth(Math.min(this.y,(this.scene as WorldScene).player.y))-2;
     this.attackShade?.draw({kind:this.isRangedAttacker?'line':this.attackTelegraphStyle==='slam'?'circle':'cone',x:this.x,y:this.y,
       angle:this.attackTelegraphAngle,radius:this.isRangedAttacker?12:this.attackTelegraphRadius,range:this.definition.attackRange,
@@ -781,7 +787,7 @@ export class Enemy extends DepthSortedSprite {
       :species===4?attack.frames[3]
       :species===5||species===6?attack.frames[1]:attack.frames[0];
     this.setFrame(frame).setFlipX(this.directionalCombat?false:actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX));
-    this.attackTimingActive=false;this.visualUntil=this.scene.time.now+BOSS_PHASE_TWO_TRANSITION_MS;
+    this.attackTimingActive=false;this.visualUntil=this.combatTime+BOSS_PHASE_TWO_TRANSITION_MS;
   }
   playBossWindup(windup:number,recovery:number,angle:number,spell=false){
     this.faceAttack(angle);
@@ -789,14 +795,14 @@ export class Enemy extends DepthSortedSprite {
     if(this.definition.id==='grand-magus'){
       this.magusSpell=spell;const row=['down','left','right','up'].indexOf(this.visualDirection);
       this.anims.stop();this.setFlipX(false).setFrame(spell?44+row*2:20+row*6);
-      this.attackTimingActive=true;this.visualUntil=this.scene.time.now+(windup+recovery)/this.attackSpeedMultiplier;return;
+      this.attackTimingActive=true;this.visualUntil=this.combatTime+(windup+recovery)/this.attackSpeedMultiplier;return;
     }
     const animation=enemyAnimation(this.definition.spriteFrame,'attack',this.directionalCombat?this.visualDirection:undefined);
     const clip=pirateAttackPhase(this.definition.spriteFrame,'windup')??m14BossAttackPhase(this.definition.spriteFrame,this.visualDirection,'windup');
     if(clip){this.anims.play(clip.key);this.anims.timeScale=piratePhaseDuration(clip)/windup*this.attackSpeedMultiplier;}
     else this.anims.timeScale=animationDuration(animation)/(windup+recovery)*this.attackSpeedMultiplier;
     if(this.definition.combatStyle==='troll')this.anims.timeScale=(animation.frames.length-1)*1000/(animation.frameRate*windup)*this.attackSpeedMultiplier;
-    this.attackTimingActive=true;this.visualUntil=this.scene.time.now+(windup+recovery)/this.attackSpeedMultiplier;
+    this.attackTimingActive=true;this.visualUntil=this.combatTime+(windup+recovery)/this.attackSpeedMultiplier;
   }
   finishBossWindup(recovery:number,angle?:number){
     if(angle!==undefined){
@@ -844,7 +850,7 @@ export class Enemy extends DepthSortedSprite {
   }
 
   private refreshActionView(){
-    if(this.scene.time.now>=this.visualUntil&&!this.bossCombat?.isAttacking)return;
+    if(this.combatTime>=this.visualUntil&&!this.bossCombat?.isAttacking)return;
     if(!this.directionalCombat){
       const flipped=actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX);
       this.setFlipX(flipped);this.leapVisual?.setFlipX(flipped);return;
@@ -912,7 +918,7 @@ export class Enemy extends DepthSortedSprite {
     const animation = enemyAnimation(this.definition.spriteFrame,state,directional?this.visualDirection:undefined);
     this.useVisualTexture(animation.texture as ArtTextureKey);
     this.setFlipX(directional?false:actorViewFlip(this.scene,this.facing.x,this.facing.y,this.flipX));
-    this.visualUntil = this.scene.time.now + animationDuration(animation);
+    this.visualUntil = this.combatTime + animationDuration(animation);
     this.anims.play(animation.key);
     this.anims.timeScale=1;
   }
@@ -988,7 +994,7 @@ export class Enemy extends DepthSortedSprite {
 
   private interruptAttack(){
     this.attackEpoch++;
-    this.attackWindupTimer?.remove(false);this.attackWindupTimer=null;this.attackTimingActive=false;
+    this.attackWindup=null;this.attackTimingActive=false;
     this.attackTelegraph?.destroy();this.attackTelegraph=null;
     this.attackShade?.destroy();this.attackShade=null;
     this.bossCombat?.cancel();
@@ -996,7 +1002,7 @@ export class Enemy extends DepthSortedSprite {
   }
   private stagger(forced:boolean){
     if(this.bossRegenerating)return false;
-    const now=this.scene.time.now;
+    const now=this.combatTime;
     if((!forced||this.poiseProfile?.resistFlurry)&&now<this.staggerImmuneUntil)return false;
     const directional=this.directionalCombat;
     const duration=animationDuration(enemyAnimation(this.definition.spriteFrame,'hurt',directional?this.visualDirection:undefined));
@@ -1032,7 +1038,7 @@ export class Enemy extends DepthSortedSprite {
     if(!support)scene.confirmedPlayerImpact(impact);
     if(!support)scene.targeting.engage(this);
     scene.playEnemyVocal(this.definition,this.instanceId,!this.isAlive?'death':'hurt',this.x,this.y);
-    this.lastDamagedAt=this.scene.time.now;
+    this.lastDamagedAt=this.combatTime;
     const fatal=!this.isAlive;
     if(fatal)this.ambientDefeat=options.source==='ambient-ally';
     // Small NPC support hits must not interrupt telegraphs or stun-lock a foe.
@@ -1047,7 +1053,7 @@ export class Enemy extends DepthSortedSprite {
       const attackPower=weapon.damage*stats.damageMultiplier*playerDamageGrowth(state.level)*WEAPON_STATUS_ATK_SCALE;
       const improvedProc={...awakenedProc(options.weaponId!,proc,state.awakenedWeapons),chance:enhancedProcChance(options.weaponId!,proc.chance,state.weaponUpgrades,state.attributes.luck,state.awakenedWeapons,state.armorBonuses.allStats??0)};
       if(this.weaponStatus.tryApply(improvedProc,attackPower,this.definition.id,this.isBossEncounter,Math.random,options.procHitWeight??1))
-        this.syncStatusAttackSpeed(this.scene.time.now);
+        this.syncStatusAttackSpeed(this.combatTime);
     }
     scene.playEffect('hit', this.x, this.y);
     const body = this.body as Phaser.Physics.Arcade.Body;
@@ -1062,7 +1068,7 @@ export class Enemy extends DepthSortedSprite {
       body.setVelocity(this.dragonCombat?0:knockback.x*force,
         this.dragonCombat?0:knockback.y*force);
     }
-    this.hitFlashUntil=this.scene.time.now+70;this.setTintFill(0xffffff);
+    this.hitFlashUntil=this.combatTime+70;this.setTintFill(0xffffff);
     this.scene.time.delayedCall(70, () => this.applyStatusTint());
     if (fatal) (this.scene as WorldScene).handleEnemyDefeated(this);
     return applied;

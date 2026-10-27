@@ -1,4 +1,5 @@
 import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
+import {AUTHORED_GATE} from '../../data/architecture';
 import type {HouseShape} from './HouseGeometry';
 
 const BUILDINGS=new Set(['old-cottage','cottage','old-inn','inn','hall','manor','smithy','capital-smithy','stable','storehouse','castle','chapel','road-shrine','old-shrine',
@@ -86,7 +87,8 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     m.extrude(points,z+.004*W,z-.004*W,gold);beam([cx,y,z+.007*W],[cx,y+size*.92,z+.007*W],.0025,timber);
   };
   const door=(cx:number,z:number,w=.16,h=.28*H,pointed=elf,bottom=ground)=>{
-    h=Math.max(h,shape.doorHeight??0);w=Math.max(w,Math.min(.31,h/W*.52));
+    h=Math.max(h,shape.doorHeight??0);
+    if(!/castle|palace/.test(id))w=Math.min(w,h/W*.60);
     const x=X(cx),path=arch(pointed),p=(u:number,v:number,out=0):V3=>[x+u*w*W,bottom+v*h,z+out*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,bottom+v*h] as const),z+.005*W,z-.012*W,woodDoor);
     for(let i=0;i<path.length;i++)beam(p(...path[i],.018),p(...path[(i+1)%path.length],.018),.014,stone);
@@ -225,7 +227,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     }
   };
   const gate=(l:number,r:number,eave:number,peak:number,z=0,back=-D)=>{
-    const mid=(l+r)/2,opening=arch(elf),w=(r-l)*.55*W,h=(eave-ground)*.85;
+    const mid=(l+r)/2,opening=arch(elf),w=(r-l)*AUTHORED_GATE.openingRatio*W,h=(eave-ground)*.85;
     const notch=[...opening.slice(1),opening[0]];
     const loop:P2[]=[[X(l),ground],[X(l),eave],[X(r),eave],[X(r),ground],...notch.map(([x,y])=>[X(mid)+x*w,ground+y*h] as const)];
     m.extrude(loop,z,back,stone);
@@ -268,7 +270,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     for(const x of [.35,.65])for(let i=0;i<3;i++)box(x-.02,x+.02,ground,ground+H*(.16+i*.07),.008*W-i*.018*W,.045*W-i*.010*W,stone);
     sideWindows(.13,.87,wing,-D*.12,-D*.92,3);
   }else if(id==='gatehouse'||id==='elven-gate'){
-    const eave=Y(.49);gate(.15,.85,eave,Y(.29),0,-D*.78);
+    const eave=Y(.49);gate(AUTHORED_GATE.left,AUTHORED_GATE.right,eave,Y(.29),0,-D*.78);
     for(const x of [.18,.82]){
       if(elf)tower(x,-D*.35,W*.10,Y(.35),Y(.08));
       else{body(x-.085,x+.085,-D*.86,.015*W,Y(.26),false);for(let i=0;i<3;i++)box(x-.095+i*.065,x-.055+i*.065,Y(.27),Y(.15),-D*.89,.03*W,stone);}

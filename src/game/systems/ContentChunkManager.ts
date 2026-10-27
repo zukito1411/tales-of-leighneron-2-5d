@@ -62,6 +62,8 @@ export interface ContentHost<Actor> {
   initialState(definition: ContentDefinition): ContentState;
   canActivate?(definition: ContentDefinition, state: ContentState): boolean;
   canRespawn?(definition:ContentDefinition):boolean;
+  /** Publish semantic returns before their actors can fight again. */
+  respawned?(definition:ContentDefinition,state:ContentState):void;
   /** Check the complete pending group against shared capacity before creating
    * any of its actors. Existing active members already consume their slots. */
   canActivateGroup?(members: readonly CreatureActivation[]): boolean;
@@ -176,6 +178,7 @@ export class ContentChunkManager<Actor> {
         ...(definition.kind==='creature'&&definition.bossId&&!state.summonWave?.members.length?{summonWave:undefined}:{})};
       this.states.set(id,restored);this.index(id,contentChunkKey(restored.x,restored.y));
       this.returns.delete(id);changed=true;
+      this.host.respawned?.(definition,{...restored});
     }
     }
     // Destroying an entire streamed settlement in one frame can create

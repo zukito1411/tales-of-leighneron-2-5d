@@ -688,13 +688,14 @@ export class InteriorSession {
       if(this.homeItems!==housingFor(useGameStore.getState().housing,this.entry.id).items)this.refreshHomeFurniture();
     }
     const player=this.scene.player,body=player.body as Phaser.Physics.Arcade.Body;
+    if(!blocked)this.scene.advanceCombatClock(Math.min(delta,80));
     this.scene.updateInteriorStoryCombat(time,delta,blocked);
     if(!this.entry||!this.plan)return; // A combat hit may have caused a respawn.
     if(blocked){this.guide?.setVisible(false);this.guideMarker?.setVisible(false);this.navigationMs=150;player.discardActions();body.setVelocity(0,0);return;}
     this.guide?.setVisible(true);
     this.guideMarker?.setVisible(true);
     const startingEntry=this.entry;
-    player.updatePlayer(time,Math.min(delta,80));
+    player.updatePlayer(this.scene.combatTime,Math.min(delta,80));
     if(this.entry!==startingEntry)return; // Interact may have exited the room.
     const dx=body.velocity.x*Math.min(delta,80)/1000,dy=body.velocity.y*Math.min(delta,80)/1000;
     const velocity=body.velocity.clone(),steps=Math.max(1,Math.ceil(Math.hypot(dx,dy)/6));
@@ -754,7 +755,7 @@ export class InteriorSession {
       this.guideMarker.setPosition(target.x,target.y).lineStyle(2,0xffd976,.8).strokeEllipse(0,2,28,10);
     }
     this.syncMs+=Math.min(delta,80);
-    if(this.syncMs>=500){this.syncMs=0;this.scene.syncState();}
+    if(this.syncMs>=500){this.syncMs=0;this.scene.syncHudState();}
   }
   private nearEntrance(x:number,y:number){
     if(!this.plan)return false;

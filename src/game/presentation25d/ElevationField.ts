@@ -9,7 +9,7 @@ const CELL=ELEVATION_CELL_SIZE,TEXTURE_SIZE=129;
  * illustrated terrain still supplies every visible ground pixel. */
 /** A camera-rotation-independent field. A square centered on the player
  * covers the entire 2,400-unit visible radius in every viewing direction.
- * Subsequent center changes prepare a complete second buffer incrementally:
+ * Initial and subsequent views prepare a complete second buffer incrementally:
  * terrain never sees half-written samples or a moving view-edge clamp. */
 export class ElevationField {
   private field=new TerrainHeightField();
@@ -29,6 +29,7 @@ export class ElevationField {
     this.sample=sample;this.field=field??new TerrainHeightField(sample);this.left=this.centerX=this.centerY=Infinity;
     this.columns=0;this.pending=undefined;
   }
+  get initialized(){return this.columns>0;}
   private vertex(x:number,y:number){
     return this.field.vertex(x,y);
   }
@@ -65,17 +66,11 @@ export class ElevationField {
     if(!enabled){this.pending=undefined;return;}
     const point=focus??{x:(bounds.left+bounds.right)/2,y:(bounds.top+bounds.bottom)/2};
     const target=this.center(point);
-    if(this.columns===0){
-      // First frame is normally covered by the initial scene transition.
-      const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length);
-      const steps=this.build(target.x-half,target.y-half,pixels);
-      while(!steps.next().done){ /* Initial terrain needs a complete first buffer. */ }
-      this.publish(target.x,target.y,pixels);
-      return;
-    }
+    // Initial terrain uses the same bounded job as later travel. The renderer
+    // keeps startup covered until a complete buffer has actually been drawn.
     // Rotation cannot move the texture; only meaningful player travel does.
     // Half-extent is 4,096 units, with >1,400 units beyond the view radius.
-    if(Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024){
+    if(this.initialized&&Math.abs(point.x-this.centerX)<=1024&&Math.abs(point.y-this.centerY)<=1024){
       this.pending=undefined;return;
     }
     // Teleporting again must not finish/publish an obsolete region first.
@@ -92,7 +87,7 @@ export class ElevationField {
    * never rebuild a texture synchronously in response to yaw or pitch. */
   preload(_bounds:{left:number;top:number;right:number;bottom:number},enabled:boolean,budgetMs:number){
     if(!enabled){this.pending=undefined;return;}
-    const job=this.pending;if(!job)return;
+    const job=this.pending;if(!job||budgetMs<=0)return;
     const deadline=performance.now()+budgetMs;
     for(let i=0;i<64;i++){
       if(job.steps.next().done){

@@ -23,7 +23,7 @@ import {HousingPanel} from './components/HousingPanel';
 import {TowerExitPanel} from './components/TowerExitPanel';
 import {TowerPracticePanel} from './components/TowerPracticePanel';
 import {TitleArtwork} from './components/TitleArtwork';
-import { allowExplicitNewGame, getSaveRecoveryNotice, hasSavedGame, hasStoredSave, loadGame, saveGame, watchProgressSaves } from './utils/save';
+import { allowExplicitNewGame, getSaveRecoveryNotice, hasSavedGame, hasStoredSave, loadGame, saveGame, saveProgressCheckpoint, watchProgressSaves } from './utils/save';
 import {RareLootPopup} from './components/RareLootPopup';
 import {LevelUpNotice} from './components/LevelUpNotice';
 import {ContractBoard} from './components/ContractBoard';
@@ -104,7 +104,7 @@ export default function App() {
     if (!playing || !worldReady) return;
     // Periodic autosave, plus progress-triggered saves and a checkpoint
     // whenever the player opens the pause menu.
-    const interval = window.setInterval(saveGame, 12000);
+    const interval = window.setInterval(saveProgressCheckpoint, 12000);
     const unsubscribe = watchProgressSaves();
     const unsubscribePause = useGameStore.subscribe((next,previous)=>{
       if(next.panel==='pause'&&previous.panel!=='pause')saveGame();

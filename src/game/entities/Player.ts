@@ -384,7 +384,7 @@ export class Player extends DepthSortedSprite {
     if(this.skills.isInvulnerable)return;
     const scene = this.scene as WorldScene;
     if(!Number.isFinite(amount)||amount<=0||this.hp<=0)return;
-    const now=scene.time.now;
+    const now=scene.combatTime??scene.time.now;
     if(now<this.invulnerableUntil)return;
     const state=useGameStore.getState(),stats=progressionStats(state.attributes,state.learnedSkills,state.armorBonuses);
     if(!this.unlimitedVitals&&Math.random()<stats.evasionChance){

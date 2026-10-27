@@ -2,7 +2,7 @@ import {applyNativePropReplacements} from './nativePropReplacements';
 import {fitAuthoredProps} from './authoredPropPlacement';
 import {propFitsHabitat} from '../game/systems/propHabitat';
 import {WorldGenerator} from '../game/systems/WorldGenerator';
-import type { ContentDefinition, ContentState } from '../game/types';
+import type { ContentDefinition, ContentState, PropContentDefinition, TownDefinition } from '../game/types';
 import { BOSSES, ENEMY_BY_ID } from './enemies';
 import { NPCS, NPC_BY_ID, NPC_NAME_ALIASES } from './npcs';
 import {npcWorldPosition} from './npcPositions';
@@ -10,10 +10,11 @@ import { rewriteNpcMentions } from './npcPresentation';
 import { TOWNS, TOWN_BY_ID } from './towns';
 import { WORLD_ASSET_FRAMES as PROPS,artFrameSize } from './art';
 import { FARM_PLOTS } from './landmarks';
+import type {WardDetail} from './settlementWards';
 import { SETTLEMENT_BY_ID, SETTLEMENT_LAYOUTS, buildingRenderScale } from './settlements';
 import { TOWN_SHRINES, townShrineContent } from './townShrines';
 import { HIGHMERE_RIVER, onHighmereRiver,WILDERNESS_BRIDGES } from './rivers';
-import { spriteBounds, overlaps, rectTouchesStreet, propFoundation, type Rect } from './settlementGeometry';
+import { spriteBounds, propPlacementBounds, overlaps, rectTouchesStreet, propFoundation, type Rect } from './settlementGeometry';
 import { ROAD_ROUTES } from './roadRoutes';
 import type { ArtTextureKey } from './art';
 import { ROYAL_FORTIFICATION_PROPS, fortificationBlocksPoint } from './fortifications';
@@ -268,25 +269,39 @@ for (const plot of FARM_PLOTS) {
 // Optional new court dressing yields to existing story/stock/civic placements.
 // Reserve the fitted furniture here too: the later append must not let the
 // loose-object pass unknowingly move a sign or cache into the same footprint.
+function fixedSettlementPlacement(d:ContentDefinition){
+  if(!('frame' in d))return true;
+  return d.kind==='settlement-prop'||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
+    ||d.id.endsWith('harbor-pier')||d.id.startsWith('elarion:whitebough-fence:')
+    ||isTreeArt(d.texture??'',d.frame)&&d.id.startsWith('detail:');
+}
+function layoutDetailContent(town:TownDefinition,detail:WardDetail):PropContentDefinition {
+  return {id:`detail:${town.id}:${detail.id}`,kind:'prop',world:{x:town.world.x+detail.x,y:town.world.y+detail.y},
+    texture:detail.texture,frame:detail.frame,scale:detail.scale,solid:detail.solid,
+    footprint:propFoundation(detail.texture,detail.frame,detail.scale),...(detail.label?{label:detail.label}:{})};
+}
+const deferredCourtDetails=new Map<string,{detail:WardDetail;town:TownDefinition}>();
 const fittedDetailBounds:Rect[]=[];
 for(const layout of SETTLEMENT_LAYOUTS){
   const town=TOWN_BY_ID[layout.townId];
-  const originals=WORLD_CONTENT.filter(d=>'frame' in d&&Math.abs(d.world.x-town.world.x)<layout.bounds.width&&Math.abs(d.world.y-town.world.y)<layout.bounds.height)
-    .map(d=>'frame' in d?spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y):{left:0,right:0,top:0,bottom:0});
-  layout.details=(layout.details??[]).filter(detail=>{
+  const originals=WORLD_CONTENT.filter(d=>'frame' in d&&fixedSettlementPlacement(d)&&Math.abs(d.world.x-town.world.x)<layout.bounds.width&&Math.abs(d.world.y-town.world.y)<layout.bounds.height)
+    .map(d=>'frame' in d?propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y):{left:0,right:0,top:0,bottom:0});
+  for(const detail of layout.details??[]){
     const rect=spriteBounds(detail.texture,detail.frame,detail.scale,town.world.x+detail.x,town.world.y+detail.y);
-    if(detail.id.startsWith('court:')&&originals.some(r=>overlaps(rect,r,12)))return false;
-    fittedDetailBounds.push(rect);return true;
-  });
+    if(detail.id.startsWith('court:')&&originals.some(r=>overlaps(rect,r,12))){
+      const definition=layoutDetailContent(town,detail);
+      deferredCourtDetails.set(definition.id,{detail,town});WORLD_CONTENT.push(definition);
+      continue; // The shared loose-object fitter below relocates it safely.
+    }
+    fittedDetailBounds.push(rect);
+  }
 }
-const placed:Rect[] = WORLD_CONTENT.filter(d=>d.kind==='settlement-prop' || d.kind==='npc' || 'townShrineId' in d || 'portId' in d || d.id.startsWith('detail:') && 'frame' in d && isTreeArt(d.texture??'',d.frame))
+const placed:Rect[] = WORLD_CONTENT.filter(d=>d.kind==='npc'||'frame' in d&&fixedSettlementPlacement(d))
   .map(d=>d.kind==='npc' ? {left:d.world.x-32,right:d.world.x+32,top:d.world.y-76,bottom:d.world.y+35}
-    : 'frame' in d ? spriteBounds(d.texture??'world_objects',d.frame,'scale' in d?d.scale??1:1,d.world.x,d.world.y) : {left:0,right:0,top:0,bottom:0});
+    : 'frame' in d ? propPlacementBounds(d.texture??'world_objects',d.frame,'scale' in d?d.scale??1:1,d.world.x,d.world.y) : {left:0,right:0,top:0,bottom:0});
 placed.push(...fittedDetailBounds);
 for(const d of WORLD_CONTENT) {
-  if(!('frame' in d)||d.kind==='settlement-prop'||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
-    ||d.id.endsWith('harbor-pier')||d.id.startsWith('elarion:whitebough-fence:')
-    ||isTreeArt(d.texture??'',d.frame)&&d.id.startsWith('detail:')) continue;
+  if(!('frame' in d)||fixedSettlementPlacement(d)) continue;
   const texture:ArtTextureKey=d.texture??'world_objects',scale=d.scale??1;
   const layout=SETTLEMENT_LAYOUTS.find(s=>{const t=TOWN_BY_ID[s.townId];return Math.abs(d.world.x-t.world.x)<s.bounds.width/2+600&&Math.abs(d.world.y-t.world.y)<s.bounds.height/2+600;});
   if(!layout) continue;
@@ -305,13 +320,18 @@ for(const d of WORLD_CONTENT) {
   if(!position) throw new Error('No clear roadside location for '+d.id);
   d.world=position;placed.push(spriteBounds(texture,d.frame,scale,position.x,position.y));
 }
-// Ward furniture was fitted against complete street/roof/tree bounds in the
-// shared layout, not scattered by the older core-only roadside repair pass.
-for(const layout of SETTLEMENT_LAYOUTS){const town=TOWN_BY_ID[layout.townId];
-  for(const detail of layout.details??[])WORLD_CONTENT.push({id:`detail:${town.id}:${detail.id}`,kind:'prop',
-    world:{x:town.world.x+detail.x,y:town.world.y+detail.y},texture:detail.texture,frame:detail.frame,
-    scale:detail.scale,solid:detail.solid,footprint:propFoundation(detail.texture,detail.frame,detail.scale),...(detail.label?{label:detail.label}:{})});
+// Relocated court furniture keeps the same ID and registration; publish its
+// final coordinates back to the layout instead of silently dropping detail.
+for(const d of WORLD_CONTENT){
+  const deferred=deferredCourtDetails.get(d.id);if(!deferred)continue;
+  deferred.detail.x=d.world.x-deferred.town.world.x;deferred.detail.y=d.world.y-deferred.town.world.y;
 }
+for(const layout of SETTLEMENT_LAYOUTS){const town=TOWN_BY_ID[layout.townId];
+  for(const detail of layout.details??[]){
+    const d=layoutDetailContent(town,detail);if(!deferredCourtDetails.has(d.id))WORLD_CONTENT.push(d);
+  }
+}
+deferredCourtDetails.clear();
 for(const bridge of WILDERNESS_BRIDGES)WORLD_CONTENT.push({id:bridge.id,kind:'prop',world:{x:bridge.x,y:bridge.y},texture:'bridges',frame:ROAD_BRIDGE_FRAME,scale:bridge.scale,solid:false,anchor:'center'});
 for(const site of WILDERNESS_SITES){
   WORLD_CONTENT.push({id:'discovery:'+site.id,kind:'interactable',world:site.world,texture:'others',frame:11,scale:.58,name:site.name,
