@@ -402,8 +402,13 @@ export class Npc extends DepthSortedSprite {
       const period=(routine?.startHour??0)+':'+returned+':'+Boolean(council);
       if(period!==this.routineKey) {
         this.routineKey=period;const location=returned?toLocal(scene.escortArrival()):council?{x:this.definition.id==='maela-quill'?160:-180,y:140}:npcSchedulePosition(this.definition,this.definition.schedule.findIndex(p=>p.startHour===routine?.startHour));
-        this.routineAnchor=toWorld(location);this.target=null;this.npcDetour=null;this.returningHome=false;
-        this.route=npcStreetRoute(this.definition.townId,toLocal(this),location,(a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+        const desired=toWorld(location),safe=scene.inInterior?desired:scene.safeExteriorNpcDestination(desired,this);
+        // A repainted/rebuilt gate can invalidate yesterday's authored home or
+        // schedule anchor. Stay on clear ground if no nearby route is available.
+        this.routineAnchor=safe??{x:this.x,y:this.y};
+        this.target=null;this.npcDetour=null;this.returningHome=false;
+        this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
+          (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
       }
     }
     if(!this.target&&this.route.length)this.target=this.route.shift()!;
