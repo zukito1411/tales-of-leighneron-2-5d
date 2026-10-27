@@ -122,10 +122,9 @@ export class ContentChunkManager<Actor> {
       const npc=d.kind==='npc'?NPC_BY_ID[d.npcId]:undefined;
       const fixedNpc=npc&&!npcMayPatrol(npc);
       const escortedNpc=d.kind==='npc'&&d.npcId==='tovin-reed';
-      // Preserve health, drops, respawn timers, and quest history, but use
-      // repaired authored boss arenas rather than old saved tree-bound positions.
-      this.states.set(id,{...state,...(fixedNpc&&!escortedNpc&&!npc?.storyReturn||(d.kind!=='npc'&&d.kind!=='creature')
-        ||d.kind==='creature'&&Boolean(d.bossId)?d.world:{})});
+      // Creature coordinates were geometry-validated before this constructor.
+      // Do not overwrite repaired boss positions with an obstructed authored anchor.
+      this.states.set(id,{...state,...(fixedNpc&&!escortedNpc&&!npc?.storyReturn||(d.kind!=='npc'&&d.kind!=='creature')?d.world:{})});
       if(state.defeated&&state.respawnAt!==undefined){
         this.returns.add(id);this.nextReturnAt=Math.min(this.nextReturnAt,state.respawnAt);
       }

@@ -285,6 +285,17 @@ for(const definition of WORLD_CONTENT){
   definition.scale=scale;
   if('footprint' in definition)definition.footprint=propFoundation(texture,definition.frame,scale);
 }
+// Varr guards the forecourt, not the old tower anchor stored by early saves.
+// Derive clearance after the shared structure sizing pass, before reservations.
+{
+  const boss=WORLD_CONTENT.find(d=>d.id==='boss:captain-varr')!;
+  const tower=WORLD_CONTENT.find(d=>d.id==='prop:east-watchtower')!;
+  if('frame' in tower){
+    const bounds=propPlacementBounds(tower.texture??'world_objects',tower.frame,tower.scale??1,tower.world.x,tower.world.y);
+    const radius=ENEMY_BY_ID['bandit-captain'].bodyRadius??24;
+    boss.world={x:tower.world.x,y:Math.max(boss.world.y,bounds.bottom+radius*2+96,tower.world.y+180)};
+  }
+}
 // Place loose objects alongside circulation, never on it. Full visible bounds
 // protect roofs, canopies, named residents, shrine forecourts and other props.
 // Optional new court dressing yields to existing story/stock/civic placements.

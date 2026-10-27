@@ -4,13 +4,14 @@ import {architectureProfile,architecturePassageFootprints} from '../../data/arch
 import {artFrameSize,ART_BY_KEY} from '../../data/art';
 import {propFoundation,propPlacementBounds,spriteBounds,overlaps,type Rect} from '../../data/settlementGeometry';
 import {worldSpriteProfile} from '../../data/worldSpriteGeometry';
-import {fortificationBlocksPoint} from '../../data/fortifications';
+import {fortificationBlocksPoint,fortificationBlocksPath} from '../../data/fortifications';
+import {segmentTouchesRect} from '../../data/settlementGeometry';
 
 /** Immutable geometry from *all* authored outdoor scenery. Unlike Arcade bodies
  * it is valid before chunks load, and never changes when the camera turns.
  * Structures with genuine gate/opening geometry keep their public passage;
  * wall curtains are covered by the dedicated exact fortification collision. */
-interface Obstacle {id:string; bounds:Rect; solids:Rect[]; front?:Rect; footY:number}
+interface Obstacle {id:string; bounds:Rect; solids:Rect[]; front?:Rect; cover?:Rect; footY:number}
 const union=(a:Rect,b:Rect):Rect=>({
   left:Math.min(a.left,b.left),right:Math.max(a.right,b.right),
   top:Math.min(a.top,b.top),bottom:Math.max(a.bottom,b.bottom),
@@ -63,7 +64,7 @@ export class ExteriorPlacement {
       // scenery, so their hanging arch must not close the actual aperture.
       const front=architecture&&!architecture.board&&!architecture.opening?.length?source:undefined;
       const bounds=solids.reduce((a,b)=>union(a,b),front??solids[0]);
-      entries.push({id:d.id,bounds,solids,front,footY:d.world.y});
+      entries.push({id:d.id,bounds:architecture?union(bounds,source):bounds,solids,front,cover:architecture&&!architecture.board?source:undefined,footY:d.world.y});
     }
     this.index=new StaticBoundsIndex(entries);
   }
@@ -76,6 +77,23 @@ export class ExteriorPlacement {
     return this.index.any(person,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(feet,s))||
       Boolean(o.front&&o.footY>p.y&&overlaps(person,o.front!))));
+  }
+  /** Hostile feet use their real diameter, including bosses and alpha wolves.
+   * Spawn clearance also excludes concealed positions under building artwork;
+   * movement uses only solids so genuine arches stay traversable. */
+  blocksEnemy(p:Vec2,radius:number,spawn=false){
+    if(fortificationBlocksPoint(p.x,p.y,radius+3))return true;
+    const feet={left:p.x-radius-2,right:p.x+radius+2,top:p.y-radius*2-2,bottom:p.y+2};
+    const person={...feet,top:p.y-Math.max(96,radius*3)};
+    return this.index.any(spawn?person:feet,o=>o.solids.some(s=>overlaps(feet,s))
+      ||Boolean(spawn&&o.cover&&p.y<=o.footY+radius*2&&overlaps(person,o.cover)));
+  }
+  blocksEnemyPath(from:Vec2,to:Vec2,radius:number){
+    if(fortificationBlocksPath(from,to,radius+3))return true;
+    const bounds={left:Math.min(from.x,to.x)-radius-2,right:Math.max(from.x,to.x)+radius+2,
+      top:Math.min(from.y,to.y)-radius*2-2,bottom:Math.max(from.y,to.y)+2};
+    return this.index.any(bounds,o=>o.solids.some(s=>segmentTouchesRect(from,to,{
+      left:s.left-radius-2,right:s.right+radius+2,top:s.top-2,bottom:s.bottom+radius*2+2})));
   }
   /** Quest items need reachable space around the object, not only a free
    * anchor pixel. Skip the object's own authored collider when relocating it. */

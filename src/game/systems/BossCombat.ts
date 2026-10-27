@@ -388,20 +388,25 @@ export class BossCombat {
     const desired=Math.min(this.profile.preferredRange,move.range*.76);
     const radial=Phaser.Math.Clamp((distance-desired)/65,-.65,1);
     const strafe=distance<desired+100?this.profile.strafe*(this.sequence%2===0?1:-1):0;
-    const vx=dx/distance*radial-dy/distance*strafe,vy=dy/distance*radial+dx/distance*strafe;
+    let vx=dx/distance*radial-dy/distance*strafe,vy=dy/distance*radial+dx/distance*strafe;
+    const navigation=this.scene.enemyNavigationPoint(e,player);
+    if(Math.hypot(navigation.x-player.x,navigation.y-player.y)>24){
+      const gap=Math.max(1,Math.hypot(navigation.x-e.x,navigation.y-e.y));
+      vx=(navigation.x-e.x)/gap;vy=(navigation.y-e.y)/gap;
+    }
     const length=Math.hypot(vx,vy);
     if(length<.06){body.setVelocity(0,0);return;}
     const heading=Math.atan2(vy,vx),speed=e.movementSpeed*Math.min(1,length);
     for(const offset of [0,.5,-.5,1,-1]){
       const x=Math.cos(heading+offset),y=Math.sin(heading+offset);
-      if(this.scene.canEnemyOccupy(e.x+x*28,e.y+y*28,e)&&this.scene.hasClearPath(e.x,e.y,e.x+x*28,e.y+y*28,e)){
+      if(this.scene.canEnemyTravel(e,e,{x:e.x+x*28,y:e.y+y*28})){
         body.setVelocity(x*speed,y*speed);return;
       }
     }
     // Keep the existing navigation path around scenery when direct steering fails.
     const waypoint=this.scene.enemyNavigationPoint(e,player),angle=Math.atan2(waypoint.y-e.y,waypoint.x-e.x);
     const x=e.x+Math.cos(angle)*Math.min(24,e.movementSpeed*delta/1000),y=e.y+Math.sin(angle)*Math.min(24,e.movementSpeed*delta/1000);
-    if(this.scene.canEnemyOccupy(x,y,e)&&this.scene.hasClearPath(e.x,e.y,x,y,e))body.setVelocity(Math.cos(angle)*speed,Math.sin(angle)*speed);
+    if(this.scene.canEnemyTravel(e,e,{x,y}))body.setVelocity(Math.cos(angle)*speed,Math.sin(angle)*speed);
     else body.setVelocity(0,0);
   }
   cancel(delay=700){

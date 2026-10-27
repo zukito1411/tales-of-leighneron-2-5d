@@ -57,7 +57,7 @@ import { mobileInput } from '../input';
 import { Enemy } from '../entities/Enemy';
 import { Npc } from '../entities/Npc';
 import { Player } from '../entities/Player';
-import type { ContentDefinition, ContentState, EnemyDefinition, InteractableContentDefinition, NavigationMarker, NpcDefinition, PropContentDefinition, QuestTarget, RegionId, Vec2, WeaponDefinition, WorldPropTexture } from '../types';
+import type { ContentDefinition, ContentState, CreatureContentDefinition, EnemyDefinition, InteractableContentDefinition, NavigationMarker, NpcDefinition, PropContentDefinition, QuestTarget, RegionId, Vec2, WeaponDefinition, WorldPropTexture } from '../types';
 import { ChunkManager } from '../systems/ChunkManager';
 import { DayNightSystem } from '../systems/DayNightSystem';
 import { EventDirector, type EventDirectorHost } from '../systems/EventDirector';
@@ -70,7 +70,8 @@ import {FLAGSHIP,FLAGSHIP_CONTENT,flagshipFootprint,flagshipWalkable,flagshipNav
 import {tidewatchGullHabitat} from '../systems/wildlifeCover';
 import { resolveQuestTarget, questBearing } from '../systems/questNavigation';
 import { artScale, artFrameSize, worldPropOrigin } from '../../data/art';
-import { repairCreaturePlacements } from '../systems/creaturePlacement';
+import { repairCreaturePlacements,findCreaturePlacement } from '../systems/creaturePlacement';
+import {EnemyNavigation} from '../systems/EnemyNavigation';
 import {normalizePirateCrews} from '../systems/pirateCrewMigration';
 import {normalizeGoblinCrews} from '../systems/goblinCrewMigration';
 import {M14ArtResidency} from '../systems/M14ArtResidency';
@@ -278,6 +279,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private readonly encounters=new EncounterCoordinator();
   private readonly combatEnemyList:Enemy[]=[];
   private combatEnemyListDirty=true;
+  private readonly enemyNavigation=new EnemyNavigation();
+  private readonly enemyPlacementRetryAt=new Map<string,number>();
   private readonly shipPaths=new WeakMap<Enemy,{until:number;target:Vec2;point:Vec2}>();
   private playerTerritoryFrame=-1;private playerTerritoryX=NaN;private playerTerritoryY=NaN;
   private playerTerritoryRoadOpen=false;private playerTerritoryAllowed=false;
@@ -422,7 +425,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   storySpawnClear(p:Vec2,enemyId:string,from:Vec2=this.player,radiusScale=1){
     const radius=(ENEMY_BY_ID[enemyId].bodyRadius??11)*radiusScale;
     return this.inInterior?this.interiors.combatFeet(p.x,p.y,radius)&&this.interiors.combatPath(from,p,radius)
-      :this.worldGenerator.isWalkable(p.x,p.y)&&!this.isBlockedByBuilding(p.x,p.y)
+      :this.worldGenerator.isWalkable(p.x,p.y)&&!this.exteriorPlacement.blocksEnemy(p,radius,true)&&!this.isBlockedByBuilding(p.x,p.y)
         &&!this.worldSprites.blocksPath({x:p.x-radius,y:p.y},{x:p.x+radius,y:p.y},radius*2,radius*2)
         &&[-radius,radius].every(dx=>[-radius*2,0].every(dy=>this.worldGenerator.isWalkable(p.x+dx,p.y+dy)))
         &&this.hasClearPath(from.x,from.y,p.x,p.y)&&this.worldGenerator.isWalkablePath(from,p)
@@ -767,7 +770,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.creatureBodies = this.physics.add.group();
     this.chunkManager = new ChunkManager(this,this.worldGenerator,this.treeSway,this.dayNight,this.worldSprites);
     this.enemies.clear();this.combatEnemyListDirty=true; this.npcs.length = 0; this.interactables.clear();
-    this.storyCampRetryAt.clear();
+    this.storyCampRetryAt.clear();this.enemyPlacementRetryAt.clear();this.enemyNavigation.clear();
     this.spawnAttempts = 0; this.spawnAccumulator = 0; this.hudAccumulator = 0;
     this.nextAmbientIntervalMs = 11000; this.nextRoadBanditsAt=0; this.encounters.clear();
     this.focused = true; this.wasBlocked = false;
@@ -831,7 +834,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       }
     }
     logical = restoreLegacySummonWaves(WORLD_CONTENT,logical);
-    logical = repairCreaturePlacements(WORLD_CONTENT,logical,this.worldGenerator);
+    logical = repairCreaturePlacements(WORLD_CONTENT,logical,this.worldGenerator,(d,p)=>this.creatureSpawnClear(d,p));
     logical=normalizePirateCrews(logical,this.worldGenerator,(x,y)=>this.canEnemyOccupy(x,y));
     logical=normalizeGoblinCrews(logical,this.worldGenerator,(x,y)=>this.canEnemyOccupy(x,y)
       &&creatureFitsHabitat(ENEMY_BY_ID['goblin-stone-slinger'],this.habitatAt(x,y)));
@@ -874,6 +877,19 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           const story=useGameStore.getState();
           if((story.quests[mission.questId]?.objectiveProgress[mission.objective.id]??0)>=mission.objective.amount)return false;
         }
+        if(!this.creatureSpawnClear(definition,runtime)){
+          if(this.time.now<(this.enemyPlacementRetryAt.get(definition.id)??0))return false;
+          this.enemyPlacementRetryAt.set(definition.id,this.time.now+2000);
+          const safe=findCreaturePlacement(runtime,{canCreatureOccupy:(x,y)=>this.creatureSpawnClear(definition,{x,y})});
+          if(safe){
+            const prior=runtime.encounterPlacement??definition.encounterBehavior;
+            const home=prior&&this.creatureSpawnClear(definition,prior.home)?prior.home:safe;
+            this.contentManager.patchState(definition.id,{...safe,
+              ...(prior?{encounterPlacement:{home:{...home},station:{...safe}}}:{})});
+          }
+          return false; // Re-read the repaired ledger before actor construction.
+        }
+        this.enemyPlacementRetryAt.delete(definition.id);
         const m14=!ENEMY_BY_ID[definition.enemyId].boss&&(definition.enemyId==='hedge-goblin'||M14_ART.some(spec=>spec.id===definition.enemyId));
         // A native pack may chase briefly beyond its home habitat. Restoring
         // its surviving actors must not strand them dormant on a meadow edge.
@@ -1918,15 +1934,55 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     &&!WILDERNESS_SITES.some(s=>((s.style==='camp'&&!s.hostile)||s.id==='royal-waystone'||s.id==='greenward-ruin')&&Math.hypot(s.world.x-x,s.world.y-y)<300); }
   canEnemyOccupy(x: number, y: number,enemy?:Enemy) {
     if(enemy&&this.storyActor(enemy))return (this.dungeons?.owns(enemy)?this.dungeons.allows({x,y}):this.storyEncounters.owns(enemy)&&this.storyEncounters.allows({x,y}))
-      &&(this.inInterior?this.interiors.combatFeet(x,y,enemy.definition.bodyRadius??12,undefined,true):this.worldGenerator.isWalkable(x,y)&&!this.isBlockedByBuilding(x,y));
+      &&(this.inInterior?this.interiors.combatFeet(x,y,enemy.navigationRadius,undefined,true):this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksEnemy({x,y},enemy.navigationRadius)&&!this.enemyFeetBlocked({x,y},enemy.navigationRadius));
     if(this.inInterior)return false;
+    if(enemy?.instanceId==='boss:varkhul'&&!inDragonArena(x,y,-enemy.navigationRadius))return false;
     if(enemy&&isFlagshipCombatant(enemy.instanceId,enemy.encounterKey,enemy.encounterBehavior?.home)
       &&(!onFlagshipDeck(x,y)||!flagshipWalkable(x,y,enemy.definition.bodyRadius??(enemy.definition.boss?24:11))))return false;
-    return this.isEnemyTerritory(x,y) && !this.isBlockedByBuilding(x,y);
+    const radius=enemy?.navigationRadius??12;
+    return this.isEnemyTerritory(x,y)&&!this.exteriorPlacement.blocksEnemy({x,y},radius)
+      &&!this.enemyFeetBlocked({x,y},radius);
   }
+  private enemyFeetBlocked(p:Vec2,radius:number){
+    const feet={left:p.x-radius,right:p.x+radius,top:p.y-radius*2,bottom:p.y};
+    return this.physics.overlapRect(feet.left,feet.top,radius*2,radius*2,false,true)
+      .some(body=>body.enable&&overlaps(feet,body));
+  }
+  private creatureSpawnClear(definition:CreatureContentDefinition,p:Vec2){
+    const base=ENEMY_BY_ID[definition.enemyId];
+    const radius=(base.bodyRadius??(base.boss?24:11))*(definition.wolfAlpha?1.18:1);
+    if(!this.isEnemyTerritory(p.x,p.y)||this.exteriorPlacement.blocksEnemy(p,radius,true)
+      ||this.enemyFeetBlocked(p,radius))return false;
+    if(isFlagshipCombatant(definition.id,definition.encounterId,definition.encounterBehavior?.home)
+      &&(!onFlagshipDeck(p.x,p.y)||!flagshipWalkable(p.x,p.y,radius)))return false;
+    return [-radius,radius].every(dx=>[-radius*2,0].every(dy=>this.worldGenerator.isWalkable(p.x+dx,p.y+dy)));
+  }
+  /** Swept movement, separate from projectile visibility. Big bosses cannot
+   * thread a slit or cut across a river between two otherwise clear endpoints. */
+  canEnemyTravel(enemy:Enemy,from:Vec2,to:Vec2){
+    const radius=enemy.navigationRadius;
+    if(!this.canEnemyOccupy(to.x,to.y,enemy))return false;
+    if(this.inInterior)return this.interiors.combatPath(from,to,radius);
+    if(this.exteriorPlacement.blocksEnemyPath(from,to,radius)
+      ||this.worldSprites.blocksPath(from,to,radius*2,radius*2)
+      ||!this.worldGenerator.isWalkablePath(from,to)||!surfacePathWalkable(this.groundHeightAt,from,to))return false;
+    const steps=Math.max(1,Math.ceil(Math.hypot(to.x-from.x,to.y-from.y)/32));
+    for(let i=1;i<steps;i++)if(!this.canEnemyOccupy(from.x+(to.x-from.x)*i/steps,from.y+(to.y-from.y)*i/steps,enemy))return false;
+    return true;
+  }
+  recoverEnemyPosition(enemy:Enemy,lastSafe:Vec2):Vec2|null{
+    if(this.canEnemyOccupy(lastSafe.x,lastSafe.y,enemy))return lastSafe;
+    for(const radius of [24,48,80,128,176,256,384])for(let i=0;i<16;i++){
+      const p={x:enemy.x+Math.cos(i*Math.PI/8)*radius,y:enemy.y+Math.sin(i*Math.PI/8)*radius};
+      if(this.canEnemyOccupy(p.x,p.y,enemy))return p;
+    }
+    return null; // Never kill, heal or reward a creature merely for being blocked.
+  }
+  forgetEnemyNavigation(enemy:Enemy){this.enemyNavigation.forget(enemy);this.shipPaths.delete(enemy);}
   enemyNavigationPoint(enemy:Enemy,target:Vec2):Vec2 {
     if(this.inInterior)return this.interiors.navigationPoint(enemy,target);
-    if(!isFlagshipCombatant(enemy.instanceId,enemy.encounterKey,enemy.encounterBehavior?.home))return target;
+    if(!isFlagshipCombatant(enemy.instanceId,enemy.encounterKey,enemy.encounterBehavior?.home))
+      return this.enemyNavigation.point(enemy,enemy,target,this.time.now,this.game.loop.frame,(a,b)=>this.canEnemyTravel(enemy,a,b));
     const cached=this.shipPaths.get(enemy);
     if(cached&&this.time.now<cached.until&&Math.hypot(cached.target.x-target.x,cached.target.y-target.y)<48
       &&Math.hypot(cached.point.x-enemy.x,cached.point.y-enemy.y)>24)return cached.point;
@@ -2167,21 +2223,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       return npc;
     }
     if (definition.kind === 'creature') {
-      // Authored bosses must begin where both the terrain and the currently
-      // streamed physical scenery permit a real fight. Preserve the logical
-      // boss identity/HP/timer; only repair coordinates when obstructed.
-      let spawn={x,y};
-      if(definition.bossId&&definition.bossId!=='salt-king'&&definition.bossId!=='varkhul'
-        &&!this.canEnemyOccupy(x,y)){
-        const candidates=[64,96,128,176,224,288,352,448].flatMap(radius=>
-          Array.from({length:16},(_,i)=>({x:definition.world.x+Math.cos(i*Math.PI/8)*radius,
-            y:definition.world.y+Math.sin(i*Math.PI/8)*radius})));
-        const clear=(p:Vec2)=>this.canEnemyOccupy(p.x,p.y)
-          &&[0,Math.PI/2,Math.PI,Math.PI*1.5].every(angle=>
-            this.canEnemyOccupy(p.x+Math.cos(angle)*55,p.y+Math.sin(angle)*55));
-        const safe=candidates.find(clear)??candidates.find(p=>this.canEnemyOccupy(p.x,p.y));
-        if(safe){spawn=safe;this.contentManager.patchState(definition.id,safe);}
-      }
+      const spawn={x,y}; // Geometry was validated before admitting this actor.
       const behavior=definition.encounterBehavior&&state.encounterPlacement?
         {...definition.encounterBehavior,home:state.encounterPlacement.home,station:state.encounterPlacement.station}:definition.encounterBehavior;
       const enemy = new Enemy(this,ENEMY_BY_ID[definition.enemyId],spawn.x,spawn.y,definition.id,definition.eventSpawn,
@@ -2546,6 +2588,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('terrain chunks',()=>this.chunkManager?.destroy());
     release('tree sway',()=>this.treeSway?.destroy());
     release('water surface',()=>this.waterSurface?.destroy());
+    release('enemy navigation',()=>this.enemyNavigation.clear());this.enemyPlacementRetryAt.clear();
     release('world sprites',()=>this.worldSprites?.destroy());
     release('flagship art',()=>this.flagshipArt?.destroy());
   }

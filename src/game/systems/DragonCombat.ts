@@ -158,16 +158,17 @@ export class DragonCombat {
     this.updateAftershock(dt);
     if(this.phase==='rest'){
       const goal=engaged?{x:player.x,y:player.y}:{x:this.home.x+Math.cos(this.clock*.00018)*150,y:this.home.y+Math.sin(this.clock*.00018)*110};
-      const dx=goal.x-e.x,dy=goal.y-e.y,length=Math.hypot(dx,dy);
+      const waypoint=this.scene.enemyNavigationPoint(e,goal);
+      const dx=waypoint.x-e.x,dy=waypoint.y-e.y,length=Math.hypot(dx,dy);
       if(length>(engaged?170:35)){
         const speed=e.movementSpeed*(2/3)*(engaged?1:.45);
         const vx=dx/length*speed,vy=dy/length*speed;
         const ahead={x:e.x+vx*.7,y:e.y+vy*.7};
-        if(this.inArena(ahead.x,ahead.y)&&this.scene.canEnemyOccupy(ahead.x,ahead.y,e)&&this.scene.hasClearPath(e.x,e.y,ahead.x,ahead.y,e)){
+        if(this.inArena(ahead.x,ahead.y)&&this.scene.canEnemyTravel(e,e,ahead)){
           // playLocomotion owns all four authored facings (including diagonal
           // hysteresis and the shared side-cycle mirror).
           body.setVelocity(vx,vy);this.groundAnimation('walk');
-        }else this.groundAnimation('idle');
+        }else {body.setVelocity(0,0);this.groundAnimation('idle');}
       }else this.groundAnimation('idle');
       if(engaged&&distance<650&&this.clock>=this.nextAttack&&this.scene.hasClearPath(e.x,e.y,player.x,player.y)){
         body.setVelocity(0,0);this.aim.set(player.x-e.x,player.y-e.y).normalize();

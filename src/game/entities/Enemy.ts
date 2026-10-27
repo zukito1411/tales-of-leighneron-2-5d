@@ -65,6 +65,7 @@ export class Enemy extends DepthSortedSprite {
   private occupancyY=NaN;
   private occupancyValid=true;
   private nextOccupancyCheckAt=0;
+  private nextRecoveryAt=0;
   private wander = new Phaser.Math.Vector2();
   private readonly facing = new Phaser.Math.Vector2(0, 1);
   private readonly rng: () => number;
@@ -157,6 +158,7 @@ export class Enemy extends DepthSortedSprite {
   get isAirborne(){return Boolean(this.dragonCombat?.airborne||this.bossCombat?.airborne);}
   get presentationElevation(){return this.bossCombat?.elevation??0;}
   get presentationLockVisual():Phaser.GameObjects.Sprite{return this.dragonCombat?.visual??(this.leapVisual?.active?this.leapVisual:this);}
+  get navigationRadius(){return (this.definition.bodyRadius??(this.definition.boss?24:11))*(this.wolfAlpha?1.18:1);}
   get movementSpeed(){return this.isRooted?0:this.definition.moveSpeed*this.weaponStatus.movementMultiplier;}
   get attackSpeedMultiplier(){return this.weaponStatus.attackSpeedMultiplier;}
   /** Multiply a light status wash into the species tint, preserving its art. */
@@ -286,6 +288,7 @@ export class Enemy extends DepthSortedSprite {
       const state=useGameStore.getState();if(!state.panel&&!state.dialogue&&!state.cinematic)scene.targeting.select(this);
     });
     this.once('destroy', () => {
+      scene.forgetEnemyNavigation(this);
       this.clearRoots();
       this.interruptAttack();this.targetIndicator.destroy();this.targetRing.destroy();this.healthBar.destroy(); this.nameLabel.destroy(); this.clearWolfLeap(); this.attackTelegraph?.destroy();
       (this.scene as WorldScene).forgetEnemySound(this.instanceId);
@@ -361,7 +364,6 @@ export class Enemy extends DepthSortedSprite {
       // after the existing twelve-second out-of-combat recovery condition.
       if(this.hp>=this.definition.hp&&this.bossPhase===2){this.bossCombat?.resetPhase();this.dragonCombat?.resetPhase();}
     }
-    if(this.dragonCombat){this.dragonCombat.update(delta);return;}
 
     const distance = Phaser.Math.Distance.Between(this.x, this.y, player.x, player.y);
     const body = this.body as Phaser.Physics.Arcade.Body;
@@ -373,18 +375,23 @@ export class Enemy extends DepthSortedSprite {
     }
 
     const sameFeet=Math.abs(this.x-this.occupancyX)<.1&&Math.abs(this.y-this.occupancyY)<.1;
-    if(!sameFeet||time>=this.nextOccupancyCheckAt||Boolean(this.boss||this.encounterBehavior)){
+    if(!this.isAirborne&&(!sameFeet||time>=this.nextOccupancyCheckAt||Boolean(this.boss||this.encounterBehavior))){
       this.occupancyX=this.x;this.occupancyY=this.y;
       this.occupancyValid=scene.canEnemyOccupy(this.x,this.y,this);
       this.nextOccupancyCheckAt=time+200;
     }
-    if (!this.occupancyValid) {
+    if (!this.isAirborne&&!this.occupancyValid) {
       this.bossCombat?.cancel();
-      body.reset(this.lastSafe.x,this.lastSafe.y);
+      let safe:{x:number;y:number}|null=null;
+      if(time>=this.nextRecoveryAt){safe=scene.recoverEnemyPosition(this,this.lastSafe);this.nextRecoveryAt=time+400;}
+      if(safe){body.reset(safe.x,safe.y);this.lastSafe={...safe};this.occupancyValid=true;}
+      scene.forgetEnemyNavigation(this);
       body.setVelocity(0,0); this.nextWanderAt = 0;
       this.updateVisual(time);
       return;
     }
+
+    if(this.dragonCombat){this.dragonCombat.update(delta);if(!this.isAirborne&&scene.canEnemyOccupy(this.x,this.y,this))this.lastSafe={x:this.x,y:this.y};return;}
 
     const roadOpponent=scene.ambientOpponentFor(this);
     if(roadOpponent){
@@ -394,14 +401,15 @@ export class Enemy extends DepthSortedSprite {
       else {
         this.facing.set(roadOpponent.x-this.x,roadOpponent.y-this.y).normalize();
         const gap=Math.hypot(roadOpponent.x-this.x,roadOpponent.y-this.y);
-        if(gap<=Math.max(this.definition.attackRange,this.definition.attackRadius??0)){
+        if(gap<=Math.max(this.definition.attackRange,this.definition.attackRadius??0)&&scene.hasClearPath(this.x,this.y,roadOpponent.x,roadOpponent.y)){
           body.setVelocity(0,0);
           if(time>=this.nextAttackAt&&scene.hasClearPath(this.x,this.y,roadOpponent.x,roadOpponent.y))this.beginAttack(scene,roadOpponent,time);
         }else{
-          const step=Math.min(22,gap),next={x:this.x+this.facing.x*step,y:this.y+this.facing.y*step};
-          if(scene.canEnemyOccupy(next.x,next.y,this)&&scene.canTraverseGround(this,next))
-            body.setVelocity(this.facing.x*this.definition.moveSpeed*.75*this.weaponStatus.movementMultiplier,
-              this.facing.y*this.definition.moveSpeed*.75*this.weaponStatus.movementMultiplier);
+          const waypoint=scene.enemyNavigationPoint(this,roadOpponent),length=Math.max(1,Math.hypot(waypoint.x-this.x,waypoint.y-this.y));
+          const dx=(waypoint.x-this.x)/length,dy=(waypoint.y-this.y)/length;
+          const step=Math.min(22,gap),next={x:this.x+dx*step,y:this.y+dy*step};
+          if(scene.canEnemyTravel(this,this,next))
+            body.setVelocity(dx*this.movementSpeed*.75,dy*this.movementSpeed*.75);
           else body.setVelocity(0,0);
         }
       }
@@ -469,12 +477,14 @@ export class Enemy extends DepthSortedSprite {
       const homeDistance=this.bossHome?Math.hypot(this.x-this.bossHome.x,this.y-this.bossHome.y):0;
       if(this.bossHome&&homeDistance>180){
         // Keep idle bosses close to their clearings; pursuit remains unchanged.
-        this.wander.set((this.bossHome.x-this.x)/homeDistance*this.definition.moveSpeed*.6,
-          (this.bossHome.y-this.y)/homeDistance*this.definition.moveSpeed*.6);
+        const point=scene.enemyNavigationPoint(this,this.bossHome),gap=Math.max(1,Math.hypot(point.x-this.x,point.y-this.y));
+        this.wander.set((point.x-this.x)/gap*this.definition.moveSpeed*.6,
+          (point.y-this.y)/gap*this.definition.moveSpeed*.6);
         this.nextWanderAt=time+650;
       }else if(alpha&&alphaDistance>108&&alphaDistance<(this.wolfPackId?540:900)){
-        this.wander.set((alpha.x-this.x)/alphaDistance*this.definition.moveSpeed*.68,
-          (alpha.y-this.y)/alphaDistance*this.definition.moveSpeed*.68);
+        const point=scene.enemyNavigationPoint(this,alpha),gap=Math.max(1,Math.hypot(point.x-this.x,point.y-this.y));
+        this.wander.set((point.x-this.x)/gap*this.definition.moveSpeed*.68,
+          (point.y-this.y)/gap*this.definition.moveSpeed*.68);
         this.nextWanderAt=time+850;
       }else if (time >= this.nextWanderAt) {
         this.nextWanderAt = time + 1600 + this.rng() * 2400;
@@ -487,9 +497,9 @@ export class Enemy extends DepthSortedSprite {
       const speed=this.wander.length(),ahead={x:this.x+this.wander.x/Math.max(1,speed)*24,y:this.y+this.wander.y/Math.max(1,speed)*24};
       // An already stationary wanderer should not raycast toward its feet.
       if(speed<.001&&body.velocity.lengthSq()<.01)body.setVelocity(0,0);
-      else if(scene.canEnemyOccupy(ahead.x,ahead.y,this)&&scene.hasClearPath(this.x,this.y,ahead.x,ahead.y))
+      else if(scene.canEnemyTravel(this,this,ahead))
         body.setVelocity(approachVelocity(body.velocity.x,this.wander.x*this.weaponStatus.movementMultiplier,delta,120),approachVelocity(body.velocity.y,this.wander.y*this.weaponStatus.movementMultiplier,delta,120));
-      else {body.setVelocity(0,0);this.nextWanderAt=time+1000;this.wander.set(0,0);}
+      else {body.setVelocity(0,0);this.nextWanderAt=time+120;this.wander.set(0,0);}
     }
     if(!this.directionalCombat&&Math.abs(body.velocity.x)>Math.max(2,Math.abs(body.velocity.y)*.3)) this.setFlipX(body.velocity.x<0);
     this.setDepth((this.scene as WorldScene).playerRenderDepth(this.y));
@@ -561,7 +571,7 @@ export class Enemy extends DepthSortedSprite {
     for(const offset of ALLY_STEERING_OFFSETS){
       const sx=Math.cos(heading+offset),sy=Math.sin(heading+offset);
       const nextX=this.x+sx*24,nextY=this.y+sy*24;
-      if(!scene.canEnemyOccupy(nextX,nextY,this)||!scene.hasClearPath(this.x,this.y,nextX,nextY))continue;
+      if(!scene.canEnemyTravel(this,this,{x:nextX,y:nextY}))continue;
       let clear=true;
       for(const other of actors){
         if(other===this||!other.active||other.hp<=0
@@ -582,7 +592,8 @@ export class Enemy extends DepthSortedSprite {
 
   private returnToEncounter(scene:WorldScene,body:Phaser.Physics.Arcade.Body,delta:number) {
     const station=this.encounterBehavior!.station,home=this.encounterBehavior!.home;
-    const target=scene.canEnemyOccupy(station.x,station.y,this)?station:home;
+    const target=scene.canEnemyOccupy(station.x,station.y,this)?station:scene.canEnemyOccupy(home.x,home.y,this)?home:scene.recoverEnemyPosition(this,this.lastSafe);
+    if(!target){body.setVelocity(0,0);return;}
     if (Math.hypot(target.x-this.x,target.y-this.y)<=40) {
       body.setVelocity(0,0);scene.encounterArrived(this);return;
     }
@@ -592,7 +603,7 @@ export class Enemy extends DepthSortedSprite {
     // Bounded local steering, never teleport or cross a blocked foundation.
     for(const offset of [0,-.6,.6,-1.2,1.2]) {
       const dx=Math.cos(angle+offset),dy=Math.sin(angle+offset),x=this.x+dx*24,y=this.y+dy*24;
-      if(scene.canEnemyOccupy(x,y,this)&&scene.hasClearPath(this.x,this.y,x,y)) {
+      if(scene.canEnemyTravel(this,this,{x,y})) {
         vx=dx*this.movementSpeed*.75;vy=dy*this.movementSpeed*.75;break;
       }
     }
@@ -621,8 +632,10 @@ export class Enemy extends DepthSortedSprite {
     const preferredRadius=lunge?(this.wolfAlpha?40:46):(this.wolfAlpha?64:74);
     let goalX=player.x+Math.cos(desiredBearing)*preferredRadius;
     let goalY=player.y+Math.sin(desiredBearing)*preferredRadius;
-    let vx=goalX-this.x,vy=goalY-this.y;
-    if(distance<185&&distance>1){
+    const waypoint=scene.enemyNavigationPoint(this,{x:goalX,y:goalY});
+    const detouring=Math.hypot(waypoint.x-goalX,waypoint.y-goalY)>24;
+    let vx=waypoint.x-this.x,vy=waypoint.y-this.y;
+    if(!detouring&&distance<185&&distance>1){
       const angle=Math.atan2(this.y-player.y,this.x-player.x);
       const diff=Math.atan2(Math.sin(desiredBearing-angle),Math.cos(desiredBearing-angle));
       // Travel around the outside of the player, not straight across center.
@@ -648,8 +661,7 @@ export class Enemy extends DepthSortedSprite {
     const speed=Math.hypot(vx,vy);
     const velocity=speed<5?0:this.movementSpeed*(this.wolfAlpha?.97:1);
     const headingX=speed>0?vx/speed:0,headingY=speed>0?vy/speed:0;
-    const canStep=(sx:number,sy:number)=>scene.canEnemyOccupy(this.x+sx*30,this.y+sy*30,this)
-      &&scene.hasClearPath(this.x,this.y,this.x+sx*30,this.y+sy*30);
+    const canStep=(sx:number,sy:number)=>scene.canEnemyTravel(this,this,{x:this.x+sx*30,y:this.y+sy*30});
     let steerX=headingX,steerY=headingY;
     if(velocity>0&&!canStep(steerX,steerY)){
       // Attempt the two short tangents before giving up; never phase through walls.
