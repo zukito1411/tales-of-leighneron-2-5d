@@ -628,7 +628,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     for (let i = 0; i <= steps; i++) {
       const x = Phaser.Math.Linear(from.x, to.x, i / steps);
       const y = Phaser.Math.Linear(from.y, to.y, i / steps);
-      if (!this.worldGenerator.isWalkable(x, y) || this.isBlockedByBuilding(x, y) || this.isNpcObscured(x,y)) return false;
+      if (!this.worldGenerator.isWalkable(x, y) || this.exteriorPlacement.blocksNpc({x,y})
+        || this.isBlockedByBuilding(x, y) || this.isNpcObscured(x,y)) return false;
     }
     return !this.worldSprites.blocksPath(from,to)&&this.hasClearPath(from.x, from.y, to.x, to.y);
   }
@@ -679,7 +680,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       if(this.exteriorPlacement.blocksNpc(p)||this.isBlockedByBuilding(p.x,p.y)
         ||this.isNpcObscured(p.x,p.y,Boolean(actor?.usesRegionalPresentation)))return false;
       if(offRoad&&actor&&!npcStandingOffRoad(actor.definition,p))return false;
-      if(actor&&this.npcs.some(n=>n.active&&n!==actor&&Math.hypot(n.x-p.x,n.y-p.y)<60))return false;
+      if(this.npcs.some(n=>n.active&&n!==actor&&Math.hypot(n.x-p.x,n.y-p.y)<60))return false;
+      if(this.player?.active&&Math.hypot(this.player.x-p.x,this.player.y-p.y)<52)return false;
       return true;
     };
     if(fits(preferred))return {...preferred};
