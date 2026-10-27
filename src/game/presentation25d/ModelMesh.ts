@@ -1,4 +1,9 @@
 import {BufferGeometry,Color,Float32BufferAttribute,ShapeUtils,Vector2} from 'three';
+import {getEffectsQuality} from '../systems/effectsQuality';
+
+// Geometry is prepared and cached once. Keep square timbers and intentional
+// low-sided ornaments; refine only curved surfaces in the High preset.
+const curveSides=(sides:number,high:boolean)=>high&&sides>=12&&sides<64?Math.min(64,Math.ceil(sides*1.5)):sides;
 
 export type V3=readonly [number,number,number];
 export type Patch=readonly [number,number,number,number];
@@ -35,6 +40,7 @@ export function roofMaterial(id:string):ModelMaterial {
  * to a closed part. Material swatches are textures, never complete object art.
  * All topology, triangulation and normals are prepared once, outside animation. */
 export class ModelMesh {
+  private readonly highDetail=getEffectsQuality()==='high';
   private readonly positions:number[]=[];private readonly normals:number[]=[];
   private readonly uvs:number[]=[];private readonly rects:number[]=[];private readonly repeats:number[]=[];
   private readonly pivots:number[]=[];private cutoutPivot:readonly number[]=[0,0,0,0];
@@ -131,6 +137,7 @@ export class ModelMesh {
     for(let i=0;i<sides;i++){const aa=p(a,i),ab=p(a,i+1),ba=p(b,i),bb=p(b,i+1);this.quad(aa,ab,ba,bb,mat);this.triangle(a,ab,aa,mat);this.triangle(b,ba,bb,mat);}
   }
   cylinder(x:number,z:number,b:number,t:number,r:number,s:number,mat:ModelMaterial,sides=16,caps=true){
+    sides=curveSides(sides,this.highDetail);
     const slope=(r-s)/Math.max(.0001,t-b),length=Math.hypot(1,slope);
     const p=(a:number,y:number,radius:number):V3=>[x+Math.sin(a)*radius,y,z+Math.cos(a)*radius];
     for(let i=0;i<sides;i++){
@@ -143,6 +150,7 @@ export class ModelMesh {
     }
   }
   ring(x:number,z:number,b:number,t:number,r:number,inner:number,mat:ModelMaterial,sides=20){
+    sides=curveSides(sides,this.highDetail);
     const p=(angle:number,radius:number,y:number):V3=>[x+Math.sin(angle)*radius,y,z+Math.cos(angle)*radius];
     for(let i=0;i<sides;i++){
       const a=i/sides*Math.PI*2,c=(i+1)/sides*Math.PI*2;

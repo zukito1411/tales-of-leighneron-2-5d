@@ -5,14 +5,14 @@ import {getGraphicEffects,setGraphicEffect,resetGraphicEffects,type GraphicEffec
 // LEIGHNERON_MOBILE_GRAPHICS_NPC_FIX_V1
 const OPTIONS:ReadonlyArray<{key:GraphicEffectKey;title:string;description:string}>=[
  {key:'adaptiveResolution',title:'Adaptive render resolution',description:'Reduces render resolution during sustained slow frames while retaining artwork and effects.'},
- {key:'depthOfField',title:'Depth of field',description:'Optional two-pass cinematic blur on Normal. Low skips the blur to prioritize smooth movement and camera control.'},
+ {key:'depthOfField',title:'Depth of field',description:'Softens distant scenery on High and Normal while keeping nearby ground clear. Low skips this effect.'},
  {key:'depthHaze',title:'Distance haze',description:'Subtle atmospheric separation between nearby and distant scenery.'},
  {key:'cinematicColor',title:'Scenery colour and contrast',description:'Warm highlights, cool shadows and gentle detail contrast. Menus stay unchanged.'},
  {key:'combatShake',title:'Combat camera shake',description:'Brief, limited shakes on confirmed heavy hits and dodges. Respects reduced-motion preferences.'},
  {key:'nightMist',title:'Nighttime mist / fog',description:'Animated nighttime mist. On by default.'},
  {key:'daytimeFog',title:'Daytime mist / fog',description:'Morning haze and foggy-weather effects.'},
  {key:'nightDarkness',title:'Night darkness mask (extra GPU)',description:'Dynamic nighttime darkness and moving lantern cutouts. On by default.'},
- {key:'lightBloom',title:'Lantern bloom / magical glow',description:'Animated lantern halos, lit windows and magical glow. Off by default to improve nighttime FPS.'},
+ {key:'lightBloom',title:'Lantern bloom / magical glow',description:'Painted lantern halos, lit windows and magical glow. High and Normal also add a subtle highlight bloom.'},
  {key:'weatherParticles',title:'Weather particles',description:'Animated rain, snow, wind, dust and volcanic ash.'},
  {key:'cloudShadows',title:'Moving cloud shadows',description:'Soft shadows drifting over daytime landscapes.'},
  {key:'sunRays',title:'Sun rays',description:'Subtle light shafts during suitable daylight.'},
@@ -31,7 +31,7 @@ export function GraphicsEffectsControl(){
    Advanced graphics — individual effects {expanded?'▴':'▾'}
   </button>
   {expanded&&<div className="graphics-effects-options">
-   <p className="graphics-effects-note">Only Lantern bloom / magical glow and Ground-color blending are off by default. All other effects default to on. You can change each effect independently without removing character or scenery assets. Reopen the game after changing ground-color blending.</p>
+   <p className="graphics-effects-note">Ground-color blending is off by default. Other effects default to on; the selected quality controls their cost. You can change each effect independently without removing character or scenery assets. Reopen the game after changing ground-color blending.</p>
    {OPTIONS.map(option=><label className="graphics-effect-toggle" key={option.key}>
     <input type="checkbox" checked={effects[option.key]} onChange={e=>{
      setGraphicEffect(option.key,e.target.checked);setEffects({...getGraphicEffects()});

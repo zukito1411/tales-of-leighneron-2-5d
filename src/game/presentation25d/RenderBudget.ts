@@ -1,4 +1,5 @@
 import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from '../systems/effectsQuality';
+import {VISUAL_QUALITY} from './VisualQuality';
 
 /** Stable GPU backing dimensions are more important than chasing instantaneous
  * FPS. Resizing every few seconds invalidates all world/depth/blur/night FBOs,
@@ -18,8 +19,8 @@ export class RenderBudget {
   };
   constructor(){window.addEventListener(EFFECTS_QUALITY_EVENT,this.changed);}
   scale(width:number,height:number,density:number,delta:number,adaptive:boolean,active:boolean,gpuMs:number|null=null){
-    const low=this.quality==='low';
-    const base=Math.min(1,(low?1.1:1.5)/density,Math.sqrt((low?1200000:2400000)/(width*height)),2048/Math.max(width,height));
+    const profile=VISUAL_QUALITY[this.quality];
+    const base=Math.min(1,profile.density/density,Math.sqrt(profile.pixels/(width*height)),profile.maxEdge/Math.max(width,height));
     if(!adaptive){
       this.factor=1;this.average=16.7;this.elapsed=0;this.reduced=false;
     }else if(active&&!this.reduced&&!document.hidden&&delta>0&&delta<180&&gpuMs!==null&&gpuMs>0){
@@ -31,7 +32,7 @@ export class RenderBudget {
       // upscaling/reallocation cycle while the player moves or turns.
       if(this.elapsed>=8000){
         if(this.average>20){
-          this.factor=Math.max(.85,Math.min(1,1.25/(density*base)));
+          this.factor=Math.max(.85,Math.min(1,(this.quality==='high'?1.7:1.25)/(density*base)));
           this.reduced=true;
         }else this.elapsed=0;
       }

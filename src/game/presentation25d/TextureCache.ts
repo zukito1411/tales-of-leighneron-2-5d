@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLRenderer} from 'three';
 import type {FrameWorkBudget} from './FrameWorkBudget';
+import {getEffectsQuality} from '../systems/effectsQuality';
+import {VISUAL_QUALITY} from './VisualQuality';
 // Canvas-mode Phaser Text resizes its frame/canvas without updating the
 // TextureSource dimensions. GPU allocation and UVs must use the actual image.
 export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
@@ -17,6 +19,9 @@ const MAX_IDLE_ENTRIES=MOBILE?48:80;
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
+  // Sampler policy is fixed for this renderer lifetime. Changing a menu preset
+  // must not dirty/reupload every resident terrain and model atlas at once.
+  private readonly profile=VISUAL_QUALITY[getEffectsQuality()];
   private readonly entries=new Map<Phaser.Textures.TextureSource,Entry>();
   private bytes=0;
   private readonly pending=new Set<Phaser.Textures.TextureSource>();
@@ -38,7 +43,7 @@ export class TextureCache {
       const ground=source.texture.key.startsWith('chunk:')||source.texture.key==='shared-ocean-chunk';
       const materials=source.texture.key.startsWith('painted-model-');
       texture.generateMipmaps=ground||materials;
-      if(ground||materials){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=ground?4:2;}
+      if(ground||materials){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=ground?this.profile.groundAnisotropy:this.profile.modelAnisotropy;}
       texture.needsUpdate=true;
       texture.onUpdate=()=>{const current=this.entries.get(source);if(current){current.uploadedVersion=texture.version;this.pending.delete(source);}};
       const original=source.update;

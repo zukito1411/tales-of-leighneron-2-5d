@@ -6,6 +6,7 @@ import {
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from '../systems/effectsQuality';
 import type {GpuSky} from './GpuSky';
+import {VISUAL_QUALITY} from './VisualQuality';
 import {FOG_START,VIEW_DISTANCE,type WeatherPresentation} from './environment';
 
 const vertexShader=`
@@ -40,8 +41,9 @@ float circleOfConfusion(vec2 uv,float depth){
   // Empty background pixels do not belong to a distant wall or landscape.
   if(depth>clipRange.y-1.0)return 0.0;
   float delta=depth-focusDistance;
-  float amount=delta>=0.0?smoothstep(focusRange,focusRange+focusFalloff,delta)
-    :0.8*smoothstep(focusRange*1.25,focusRange*1.25+focusFalloff*1.4,-delta);
+  // Ground under the player and nearby furniture must remain readable.
+  // Cinematic softness belongs behind the playable area, never in front.
+  float amount=smoothstep(focusRange,focusRange+focusFalloff,max(0.0,delta));
   // Protect the playable area around the subject, including nearby warnings.
   float distanceFromSubject=length((uv-focusUV)*vec2(aspect,1.0));
   return amount*smoothstep(0.17,0.38,distanceFromSubject)*(1.0-lockedProtection(uv,depth));
@@ -58,7 +60,7 @@ float highlight(vec3 color,float depth){
   float peak=max(color.r,max(color.g,color.b));
   float chroma=peak-min(color.r,min(color.g,color.b));
   // Soft-knee highlights, excluding the sky and ordinary pale masonry.
-  return smoothstep(.58,.96,peak)*(.25+.75*smoothstep(.06,.32,chroma));
+  return smoothstep(.72,.98,peak)*(.25+.75*smoothstep(.06,.32,chroma));
 }
 void main(){
   float depth=eyeDepth(vUv),blur=circleOfConfusion(vUv,depth);
@@ -111,7 +113,7 @@ void main(){
   float protection=lockedProtection(vUv,depth);
   float blur=dofEnabled*circleOfConfusion(vUv,depth);
   vec3 color=original;
-  if(gradingEnabled>0.5||edgeSmoothing>0.5){
+  if(edgeSmoothing>0.5){
     vec3 east=texture2D(sourceColor,vUv+vec2(sourceTexel.x,0.0)).rgb;
     vec3 west=texture2D(sourceColor,vUv-vec2(sourceTexel.x,0.0)).rgb;
     vec3 north=texture2D(sourceColor,vUv+vec2(0.0,sourceTexel.y)).rgb;
@@ -121,9 +123,11 @@ void main(){
     float center=dot(original,luma),e=dot(east,luma),w=dot(west,luma),n=dot(north,luma),s=dot(south,luma);
     float high=max(center,max(max(e,w),max(n,s))),low=min(center,min(min(e,w),min(n,s)));
     float contrast=high-low;
-    // Render-target edges bypass default framebuffer MSAA. Reuse these four
-    // existing detail taps and filter only strong silhouette edges in this pass.
-    if(edgeSmoothing>.5&&contrast>max(.035,high*.12)){
+    // Depth gates distinguish silhouettes from painted grain and roof tiles.
+    // High uses world-target MSAA; Normal smooths silhouettes in this pass.
+    float edgeDepth=max(max(abs(eyeDepth(vUv+vec2(sourceTexel.x,0.0))-depth),abs(eyeDepth(vUv-vec2(sourceTexel.x,0.0))-depth)),
+      max(abs(eyeDepth(vUv+vec2(0.0,sourceTexel.y))-depth),abs(eyeDepth(vUv-vec2(0.0,sourceTexel.y))-depth)));
+    if(edgeDepth>max(3.0,depth*.012)&&contrast>max(.045,high*.16)){
       // FXAA direction follows the edge, using the existing four luma taps.
       // No multisample depth buffer, history, extra world render or FXAA pass.
       vec2 gradient=vec2(w-e,s-n);
@@ -144,13 +148,13 @@ void main(){
   }
   if(dofEnabled>0.5||bloomStrength>.001){
     vec4 filtered=texture2D(blurredColor,vUv);
-    if(dofEnabled>0.5)color=mix(color,filtered.rgb,blur*0.45);
+    if(dofEnabled>0.5)color=mix(color,filtered.rgb,blur*0.30);
     // Screen-like blending retains highlight detail rather than clipping it.
     float peak=max(filtered.r,max(filtered.g,filtered.b));
     vec3 glowColor=mix(vec3(1.0,.94,.85),filtered.rgb/max(.001,peak),.75);
     color+=glowColor*filtered.a*bloomStrength*(1.0-clamp(color,0.0,1.0))*(1.0-protection*.8);
   }
-  float distanceHaze=smoothstep(focusRange*0.5,focusRange+focusFalloff*1.8,depth-focusDistance);
+  float distanceHaze=smoothstep(max(650.0,focusRange),max(1800.0,focusRange+focusFalloff*1.8),depth-focusDistance);
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
   color=mix(color,hazeColor,distanceHaze*hazeStrength*(1.0-protection));
   float surfaceFade=0.0;
@@ -256,11 +260,12 @@ export class WorldPostFX {
     finally{scene.clear();}
   }
   setNight(mask:Texture|null,darkness:number){this.composite.uniforms.nightMask.value=mask;this.composite.uniforms.nightOpacity.value=mask?darkness:0;}
-  prepareWorld(width:number,height:number){
+  prepareWorld(width:number,height:number,samples=0){
+    if(this.targets&&this.targets.world.samples!==samples)this.releaseTargets();
     if(!this.targets){
       const depth=new DepthTexture(width,height,UnsignedIntType);depth.name='world-focus-depth';
       const world=new WebGLRenderTarget(width,height,{minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false,
-        depthBuffer:true,stencilBuffer:false,depthTexture:depth});
+        depthBuffer:true,stencilBuffer:false,depthTexture:depth,samples,resolveDepthBuffer:true});
       world.texture.name='world-focus-color';this.targets={world};
     }
     if(this.targets.world.width!==width||this.targets.world.height!==height)this.targets.world.setSize(width,height);
@@ -272,30 +277,32 @@ export class WorldPostFX {
     // Loading/asset preparation scenes do not allocate or compile world FX.
     const focus=frame.focus,effects=focus?getGraphicEffects():undefined;
     const environmental=Boolean(!frame.interior&&(effects?.sunRays||frame.weather&&(frame.weather.mist>.001||frame.weather.cloudCover>.001)));
-    if(!focus||!effects||!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor&&!(effects.lightBloom&&this.quality!=='low')){
+    if(!focus||!effects||this.quality!=='high'&&!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor&&!(effects.lightBloom&&this.quality!=='low')){
       this.releaseTargets();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);return;
     }
-    const low=this.quality==='low',cssWidth=frame.width/frame.density,cssHeight=frame.height/frame.density;
+    const low=this.quality==='low',profile=VISUAL_QUALITY[this.quality],cssWidth=frame.width/frame.density,cssHeight=frame.height/frame.density;
+    const mobile=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
+    const samples=this.quality==='high'?Math.min(mobile?2:4,renderer.capabilities.maxSamples):0;
     // Mobile Low must prioritize player input and camera smoothness over two
     // optional fullscreen blur passes. Depth, lighting, haze and silhouettes
-    // stay enabled. Normal quality retains authored depth of field.
+    // stay enabled. High and Normal retain distant depth of field.
     const blurEnabled=effects.depthOfField&&!low;
     // Normal packs bloom into the existing bounded focus buffers. Low keeps
     // the painted lamp/window halos without introducing fullscreen blur work.
     const bloomEnabled=effects.lightBloom&&!low;
     const filterEnabled=blurEnabled||bloomEnabled;
-    const scale=Math.min(low ? .5 : .7,960/cssWidth,960/cssHeight,Math.sqrt(650000/(cssWidth*cssHeight)));
+    const scale=Math.min(profile.blurScale,profile.blurEdge/cssWidth,profile.blurEdge/cssHeight,Math.sqrt(profile.blurPixels/(cssWidth*cssHeight)));
     const bw=Math.max(1,Math.floor(cssWidth*scale)),bh=Math.max(1,Math.floor(cssHeight*scale));
-    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,filterEnabled);
+    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,filterEnabled,samples);
     this.common.sceneDepth.value=targets.world.depthTexture;
     this.common.clipRange.value.set(frame.camera.near,frame.camera.far);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
     this.common.focusDistance.value=-this.focusPoint.z;
     const depthSpan=this.common.focusDistance.value*.9;
-    this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(200,depthSpan*.32);
-    this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(500,depthSpan*.70);
+    this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(600,depthSpan*.65);
+    this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(700,depthSpan*.85);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
     this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
     this.common.aspect.value=frame.width/frame.height;
@@ -317,12 +324,12 @@ export class WorldPostFX {
     this.composite.uniforms.blurredColor.value=targets.vertical?.texture??targets.world.texture;
     this.composite.uniforms.sourceTexel.value.set(1/frame.width,1/frame.height);
     this.composite.uniforms.dofEnabled.value=Number(blurEnabled);
-    this.composite.uniforms.bloomStrength.value=bloomEnabled ? .12+frame.night*.04 : 0;
-    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .13+(frame.weather?.mist??0)*.12)*(1-frame.night*.45):0;
+    this.composite.uniforms.bloomStrength.value=bloomEnabled ? .08+frame.night*.04 : 0;
+    this.composite.uniforms.hazeStrength.value=effects.depthHaze?(frame.interior ? .035 : .08+(frame.weather?.mist??0)*.10)*(1-frame.night*.45):0;
     this.composite.uniforms.hazeColor.value.copy(this.hazeDay).lerp(this.hazeNight,frame.night);
     if(frame.sky)this.composite.uniforms.hazeColor.value.copy(frame.sky.horizon);
     this.composite.uniforms.gradingEnabled.value=Number(effects.cinematicColor);
-    this.composite.uniforms.edgeSmoothing.value=Number(!low);
+    this.composite.uniforms.edgeSmoothing.value=Number(!low&&samples===0);
     const weather=frame.interior?undefined:frame.weather;
     const shafts=this.composite.uniforms;shafts.sunShafts.value=0;shafts.shaftSamples.value=low?4:8;
     if(effects.sunRays&&!frame.interior&&frame.sky&&frame.sky.sunlight.y>.02){
@@ -366,8 +373,8 @@ export class WorldPostFX {
     }finally{renderer.setRenderTarget(previous);}
   }
 
-  private prepareTargets(width:number,height:number,bw:number,bh:number,dof:boolean):Targets {
-    this.prepareWorld(width,height);
+  private prepareTargets(width:number,height:number,bw:number,bh:number,dof:boolean,samples:number):Targets {
+    this.prepareWorld(width,height,samples);
     const targets=this.targets!;
     if(dof){
       if(!targets.horizontal)targets.horizontal=new WebGLRenderTarget(bw,bh,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});

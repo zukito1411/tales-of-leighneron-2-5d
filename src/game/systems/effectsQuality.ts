@@ -1,4 +1,4 @@
-export type EffectsQuality = 'low' | 'normal';
+export type EffectsQuality = 'low' | 'normal' | 'high';
 const KEY = 'leighneron:effects-quality';
 export const EFFECTS_QUALITY_EVENT = 'leighneron-effects-quality';
 let cached:EffectsQuality|undefined;
@@ -7,7 +7,7 @@ export function getEffectsQuality(): EffectsQuality {
   if(cached)return cached;
   try {
     const setting = localStorage.getItem(KEY);
-    if (setting === 'low' || setting === 'normal') return cached=setting;
+    if (setting === 'low' || setting === 'normal' || setting === 'high') return cached=setting;
   } catch { /* Restricted storage: use device defaults. */ }
   // Touch input does not imply a weak GPU. Keep full detail by default;
   // explicitly chosen Low remains available and is never overwritten.
