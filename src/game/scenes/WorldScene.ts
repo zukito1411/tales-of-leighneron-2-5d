@@ -45,7 +45,7 @@ import {nearestRespawnTown,respawnArrivalCandidates} from '../systems/respawnLoc
 import { ROAD_ROUTES } from '../../data/roadRoutes';
 import { TOWN_SHRINE_BY_ID } from '../../data/townShrines';
 import { PORT_BY_ID,PORTS,onPortDeck } from '../../data/ports';
-import { WORLD_CONTENT, CONTENT_BY_ID, initialContentState } from '../../data/content';
+import { WORLD_CONTENT, CONTENT_BY_ID, ELARION_LIFE_TREE_ID, ELARION_LIFE_TREE_POSITION, initialContentState } from '../../data/content';
 import {enhancedWeapon} from '../../data/weaponUpgrades';
 import { CHUNK_SIZE, STREAM_RADIUS, WORLD_HEIGHT, WORLD_WIDTH } from '../../data/world';
 import { useGameStore } from '../../store/gameStore';
@@ -803,6 +803,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.physics.add.collider(this.npcBodies, this.npcBodies);
     this.registry.set('loadingStage','Restoring saved encounters');
     let logical = { ...state.worldContent, states: { ...state.worldContent.states } };
+    // This is an immutable landmark, not player-movable furniture. Existing
+    // saves contain its old x/y; update only those coordinates, preserving the
+    // actor ID and any other saved state. The tree must not duplicate or
+    // reappear at its old coordinates after streaming/continued games.
+    const oldLifeTree=logical.states[ELARION_LIFE_TREE_ID];
+    if(oldLifeTree&&(oldLifeTree.x!==ELARION_LIFE_TREE_POSITION.x
+      ||oldLifeTree.y!==ELARION_LIFE_TREE_POSITION.y))
+      logical.states[ELARION_LIFE_TREE_ID]={...oldLifeTree,...ELARION_LIFE_TREE_POSITION};
     // Defeat history remains permanent for quests; the content ledger, not
     // defeatedBosses, controls the 20-minute battle respawn timer.
     for (const bossId of state.defeatedBosses) {
