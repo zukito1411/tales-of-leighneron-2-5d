@@ -1,10 +1,9 @@
-import {addCapitalShopfront} from './CapitalDetailsGeometry';
+import {AUTHORED_BUILDINGS,architectureEntryDoor,architectureEntryTreads} from './ArchitectureEntry';
+import {addCapitalShopfront,paintCapitalTradeBadge} from './CapitalDetailsGeometry';
 import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
 import {AUTHORED_GATE} from '../../data/architecture';
 import type {HouseShape} from './HouseGeometry';
 
-const BUILDINGS=new Set(['old-cottage','cottage','old-inn','inn','hall','manor','smithy','capital-smithy','stable','storehouse','castle','chapel','road-shrine','old-shrine',
-  'gatehouse','elven-cottage','elven-manor','elven-gate','elven-chapel','elven-smithy','elven-stable','elven-guildhall','elven-estate','elven-palace']);
 type P2=readonly [number,number];
 
 /** Closed service buildings share dimensions with their lights and signage.
@@ -33,7 +32,7 @@ export function architectureLightFixtures(shape:HouseShape){
  * a slab. Roofs are closed shells above walls; windows/doors are individual
  * surfaces. A prefab still belongs to ONE existing instanced source batch. */
 export function createAuthoredArchitecture(shape:HouseShape,emission=false){
-  const id=shape.profile.id;if(!BUILDINGS.has(id))return;
+  const id=shape.profile.id;if(!AUTHORED_BUILDINGS.has(id))return;
   const {width:W,height:H,depth:D}=shape,elf=id.startsWith('elven-');
   const m=new ModelMesh(shape,emission,W),base=Math.max(.96,shape.ground??.96);
   const lift=shape.floorLift??0;
@@ -87,9 +86,9 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     const points:P2[]=Array.from({length:17},(_,i):P2=>{const t=i/16;return [cx+Math.sin(t*Math.PI*2)*size*.18,y+(1-Math.cos(t*Math.PI*2))*size*.5];});
     m.extrude(points,z+.004*W,z-.004*W,gold);beam([cx,y,z+.007*W],[cx,y+size*.92,z+.007*W],.0025,timber);
   };
-  const door=(cx:number,z:number,w=.16,h=.28*H,pointed=elf,bottom=ground)=>{
-    h=Math.max(h,shape.doorHeight??0);
-    if(!/castle|palace/.test(id))w=Math.min(w,h/W*.60);
+  const door=()=>{
+    const entry=architectureEntryDoor(shape);if(!entry)return;
+    const {center:cx,front:z,width:w,height:h}=entry,pointed=elf,bottom=ground;
     const x=X(cx),path=arch(pointed),p=(u:number,v:number,out=0):V3=>[x+u*w*W,bottom+v*h,z+out*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,bottom+v*h] as const),z+.005*W,z-.012*W,woodDoor);
     for(let i=0;i<path.length;i++)beam(p(...path[i],.018),p(...path[(i+1)%path.length],.018),.014,stone);
@@ -101,13 +100,17 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
         [x+w*W*.25+Math.cos(b)*W*.009,bottom+h*.41+Math.sin(b)*W*.009,z+.022*W],.0025,gold);
     }
     if(elf){leaf(x,bottom+h*.20,z+.015*W,h*.48);beam(p(0,.03,.020),p(0,.86,.020),.003,gold);}
-    for(let i=0;i<3;i++)box(cx-w*.65-i*.022,cx+w*.65+i*.022,ground-.015*W,ground+.006*W*(3-i),z-.015*W,z+(.028+i*.028)*W,stone);
+
   };
   const banner=(cx:number,y:number,z:number,w:number,h:number,tile=elf?9:/inn/.test(id)?10:8)=>{
     const path:P2[]=[[-.5,1],[.5,1],[.5,.16],[0,0],[-.5,.16]],x=X(cx);
     const p=(u:number,v:number):V3=>[x+u*w*W,y+v*h,z+.002*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,y+v*h] as const),z,z-.004*W,atlasMaterial('furnishings',elf?7:/inn/.test(id)?13:6,W*.20,W*.30));
-    detailPolygon(path,p,tile);beam([x-w*W*.65,y+h,z],[x+w*W*.65,y+h,z],.005,gold);
+    if(shape.tradeSign&&!emission){
+      const size=Math.min(w*W*.82,h*.65),bottom=y+(h-size)*.5;
+      paintCapitalTradeBadge(m,shape.tradeSign,x-size/2,bottom,x+size/2,bottom+size,z+.0025*W);
+    }else detailPolygon(path,p,tile);
+    beam([x-w*W*.65,y+h,z],[x+w*W*.65,y+h,z],.005,gold);
   };
   /** A separate roof shell: the outer paint covers only sloping roof faces.
    * Side gables, underside, fascia and ridge all have their own closed faces. */
@@ -257,7 +260,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
       for(let i=0;i<4;i++)for(const z of [-D*.96,-D*.60])box(.413+i*.045,.438+i*.045,crown,crown+.060*H,z,z+.022*W,stone);
       for(const x of [.408,.57])for(let i=1;i<3;i++)box(x,x+.022,crown,crown+.060*H,-D*.92+D*.30*i/3,-D*.92+D*.30*i/3+.022*W,stone);
     }
-    door(.50,.030*W,.15,H*.25);
+    door();
     if(palace)window(X(.50),Y(.43),.037*W,W*.16,H*.27,1,0,true);
     else banner(.50,Y(.57),.040*W,.11,H*.25,8);
     for(const side of [-1,1]){
@@ -281,18 +284,18 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     const eave=Y(elf?.61:.62);body(.24,.76,-D*.83,0,eave,false);gable(.22,.78,-D*.87,.025*W,eave,Y(elf?.15:.23));
     window(X(.50),ground+.13*H,.035*W,W*.24,H*.38,1,0,true);
     for(const x of [.25,.75]){box(x-.042,x+.042,ground,eave,-D*.84,.065*W,stone);box(x-.054,x+.054,ground,ground+.085*H,-.06*W,.10*W,stone);}
-    for(let i=0;i<3;i++)box(.27-i*.035,.73+i*.035,ground-.01*W,ground+(.022-i*.006)*H,.035*W,.09*W+i*.035*W,stone);
+
     sideWindows(.24,.76,eave,0,-D*.83);
     const peak=Y(elf?.13:.17);if(elf)leaf(X(.5),peak,.025*W,W*.12);
     else{beam(pt(.5,.17,.025*W),[X(.5),peak+.09*H,.025*W],.008,gold);beam([X(.44),peak+.055*H,.025*W],[X(.56),peak+.055*H,.025*W],.008,gold);}
   }else if(/smithy|stable/.test(id)){
     const smithy=/smithy/.test(id);
-    const {eave,doorHeight,windowBottom,windowHeight,signBottom:signY,signHeight}=serviceHouseLayout(shape);
+    const {eave,windowBottom,windowHeight,signBottom:signY,signHeight}=serviceHouseLayout(shape);
     // Stables previously carried the source anvil-sign tile and an open bay.
     // Both service-house variants now have an uninterrupted, closed facade.
     body(.12,.88,-D,0,eave);
     roof(.07,.93,-D-.025*W,.045*W,eave,eave+H*(elf?.30:.31),'x');
-    door(.50,.015*W,smithy?.23:.29,doorHeight);
+    door();
     for(const x of [.26,.74])window(X(x),windowBottom,.018*W,W*.12,windowHeight);
     sideWindows(.12,.88,eave);
     // A lintel keeps the front legible as a complete wall.
@@ -328,13 +331,13 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
       gable(.37,.71,-D*.54,.06*W,eave+.045*H,Y(elf?.10:.07));
       window(X(.54),eave+.065*H,.070*W,W*(elf?.16:.12),H*(elf?.22:.14));
       for(const x of [.25,.77]){window(X(x),ground+.10*H,.018*W,W*.11,H*.17);window(X(x),middle+.04*H,.018*W,W*.11,H*.15);}
-      door(.52,.065*W,.22,H*.24);
+      door();
       if(elf||id==='manor')balcony(.40,.70,middle+.015*H,.115*W);
       else banner(.22,middle-.06*H,.07*W,.13,H*.23,10);
       sideWindows(l,r,eave);for(const side of [-1,1])window(X(side<0?l:r)+side*.008*W,middle+.03*H,-D*.60,W*.10,H*.15,0,-side);
       if(/estate/.test(id))for(const x of [.18,.81])tower(x,-D*.67,W*.082,Y(.52),Y(.30));
     }else if(cottage){
-      door(elf?.50:.58,.015*W,elf?.24:.23,H*.34);
+      door();
       for(const x of [.29,.77])window(X(x),ground+.12*H,.015*W,W*.11,H*.17);
       // Projecting dormer on the thatch; elven cottage gets its tall central
       // lancet gable and leaf-carved verge from the reference instead.
@@ -345,7 +348,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
       }
       planter(.27,ground+.05*H,.075*W,.17);barrel(.88,.02*W);sideWindows(l,r,eave);
     }else{
-      const mid=.50;door(mid,.014*W,.22,H*(guild?.30:.25));
+      door();
       for(const x of [.28,.74])window(X(x),ground+.13*H,.014*W,W*.11,H*.17);
       if(elf||guild)gable(.29,.71,-D*.64,.03*W,eave,Y(elf?.20:.21));
       else{gable(.43,.58,-D*.43,.025*W,eave+.025*H,eave+.15*H,false);window(X(.505),eave+.04*H,.035*W,W*.06,H*.07);}
@@ -356,6 +359,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(!elf||/manor/.test(id))chimney(twoStorey?.78:.75,-D*.70,Y(twoStorey?.14:.16),eave-.05*H);
     if(elf)for(const x of [l,r]){leaf(X(x),eave-.10*H,.025*W,H*.10);planter(x,ground+.045*H,.03*W,.10);}
   }
+  for(const t of architectureEntryTreads(shape))m.box(t.left,t.right,t.bottom,t.top,t.back,t.front,stone);
   addCapitalShopfront(m,shape,emission);
   return m.finish();
 }

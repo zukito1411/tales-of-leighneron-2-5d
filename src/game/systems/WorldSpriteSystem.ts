@@ -1,4 +1,5 @@
-import {CAPITAL_SHOPFRONTS} from '../../data/highmereStreetStyle';
+import {EntranceWalkSurfaces} from '../presentation25d/EntranceWalkSurfaces';
+import {CAPITAL_SHOPFRONTS,capitalTrade} from '../../data/highmereStreetStyle';
 import {bridgeShape} from '../presentation25d/BridgeGeometry';
 import {dockShape} from '../presentation25d/DockGeometry';
 import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
@@ -29,6 +30,8 @@ export const WORLD_SPRITE_OWNER='worldSpriteOwner';
 /** One source-derived ground geometry path for authored and streamed scenery.
  * Render bounds, physical contour and draw order are deliberately separate. */
 export class WorldSpriteSystem {
+  private readonly entranceSurfaces=new EntranceWalkSurfaces();
+  groundHeightAt(x:number,y:number,terrain:number){return this.entranceSurfaces.heightAt(x,y,terrain);}
   private readonly owned=new Map<WorldActor,Phaser.GameObjects.Rectangle[]>();
   private readonly staged=new Map<WorldActor,()=>void>();
   private readonly publication=new Map<WorldActor,()=>void>();
@@ -72,7 +75,8 @@ export class WorldSpriteSystem {
     if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
     if(house?.segment){house.segment.height=wallSegment?.height??Math.max(HERO_BODY_HEIGHT*2.4,visible.height*scale*.82);house.segment.thickness=wallSegment?.thickness??Math.max(32,32*scale);}
-    if(house){house.shopfront=CAPITAL_SHOPFRONTS[actor.name];(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;}
+    if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')this.entranceSurfaces.register(actor,house,worldHeight(this.scene,actor.x,actor.y),!staged);
+    if(house){house.shopfront=CAPITAL_SHOPFRONTS[actor.name];house.tradeSign=capitalTrade(actor.name);(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;}
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
       const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
@@ -217,6 +221,7 @@ export class WorldSpriteSystem {
       this.blend?.apply(actor,texture,frame,bottom);
     };
     const publish=()=>{
+      this.entranceSurfaces.enable(actor,actor.active&&actor.visible);
       for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=actor.active&&actor.visible;
       for(const layer of layers)layer.setVisible(actor.visible);
     };
@@ -241,14 +246,17 @@ export class WorldSpriteSystem {
   setVisibility(actor:WorldActor,visible:boolean){
     actor.setVisible(visible);
     const enabled=visible&&actor.active&&!this.publication.has(actor);
+    this.entranceSurfaces.enable(actor,enabled);
     for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=enabled;
   }
   /** Make retired scenery non-authoritative immediately; expensive listener/
    * physics destruction can then be spread across subsequent frames. */
   retire(actor:WorldActor){
+    this.entranceSurfaces.enable(actor,false);
     for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
   }
   private release(actor:WorldActor){
+    this.entranceSurfaces.remove(actor);
     this.staged.delete(actor);this.publication.delete(actor);
     const shapes=this.owned.get(actor);if(!shapes)return;this.owned.delete(actor);
     for(const shape of shapes)this.bodies.remove(shape,true,true);
@@ -268,5 +276,5 @@ export class WorldSpriteSystem {
       segmentTouchesRect(from,to,{left:body.left-width/2+.15,right:body.right+width/2-.15,
         top:body.top+.15,bottom:body.bottom+height-.15}));
   }
-  destroy(){for(const actor of this.owned.keys())this.release(actor);this.blend?.destroy();}
+  destroy(){for(const actor of this.owned.keys())this.release(actor);this.entranceSurfaces.clear();this.blend?.destroy();}
 }

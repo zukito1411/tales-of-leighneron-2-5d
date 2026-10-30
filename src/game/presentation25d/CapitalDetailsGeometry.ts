@@ -1,15 +1,16 @@
+import {CAPITAL_TRADE_TILES,type CapitalTrade} from '../../data/highmereStreetStyle';
 import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
 import type {HouseShape} from './HouseGeometry';
 import type {FurnitureShape} from './FurnitureGeometry';
 
-/** Small source-palette assemblies joined to existing prefabs. No new image
- * atlas, material, actor, light or animation loop is created by these details. */
+/** Source-palette assemblies join existing prefabs and one shared painted
+ * emblem atlas. No separate actor, light or animation loop per detail. */
 export function addCapitalShopfront(m:ModelMesh,shape:HouseShape,emission:boolean){
- const style=shape.shopfront;if(!style||emission)return;
+ const style=shape.shopfront;if(emission)return;if(!style){addCapitalTradeSign(m,shape,emission);return;}
  const {width:W,height:H}=shape,base=Math.max(.96,shape.ground??.96);
  const ground=.5-shape.top-base*H,X=(x:number)=>shape.left+x*W-.5;
  const wood=atlasMaterial('furnishings',0,W*.30,W*.22),dark=atlasMaterial('furnishings',2,W*.25,W*.35);
- const iron=atlasMaterial('furnishings',3,W*.16,W*.16),gold=atlasMaterial('furnishings',12,W*.12,W*.12);
+
  const cloth=atlasMaterial('furnishings',style==='clothier'?6:style==='guild'?6:style==='herbalist'?7:5,W*.24,W*.24);
  const cream=atlasMaterial('furnishings',4,W*.24,W*.24);
  // Canopies are raised over the side windows, leaving the central door clear.
@@ -25,30 +26,13 @@ export function addCapitalShopfront(m:ModelMesh,shape:HouseShape,emission:boolea
   m.beam(p(x,top+.005*H,back),p(x,top-.038*H,front),W*.004,dark,4);
  }
  m.beam(p(l,top-.038*H,front),p(r,top-.038*H,front),W*.005,wood,4);
- // Framed, two-sided hanging trade signs. Tankard, anvil and heraldry come
- // from the existing building-details atlas; textile shops show woven cloth.
- const sx=.78,sy=ground+H*.37,sw=W*.115,sh=H*.11,z=.108*W;
- m.beam(p(sx-.075,sy+sh*.75,.01*W),p(sx+.075,sy+sh*.75,.01*W),W*.006,dark,4);
- for(const x of [sx-.035,sx+.035]){
-  m.beam(p(x,sy+sh*.75,.01*W),p(x,sy+sh*.75,z),W*.003,iron,6);
-  m.beam(p(x,sy+sh*.75,z),p(x,sy+sh*.38,z),W*.0025,iron,6);
- }
- m.softBox(X(sx)-sw*.56,X(sx)+sw*.56,sy-sh*.53,sy+sh*.53,z-.01*W,z+.01*W,dark,W*.004);
- const tile=style==='cafe'||style==='bakery'?10:style==='armorer'?15:8;
- const sign:ModelMaterial=style==='clothier'?atlasMaterial('furnishings',6,sw,sh)
-  :style==='herbalist'?atlasMaterial('furnishings',7,sw,sh):atlasMaterial('buildingDetails',tile,sw,sh);
- for(const face of [-1,1]){
-  const depth=z+face*.0105*W,a=X(sx)-sw*.45,b=X(sx)+sw*.45;
-  if(face===1)m.quad([a,sy-sh*.42,depth],[b,sy-sh*.42,depth],[a,sy+sh*.42,depth],[b,sy+sh*.42,depth],sign);
-  else m.quad([b,sy-sh*.42,depth],[a,sy-sh*.42,depth],[b,sy+sh*.42,depth],[a,sy+sh*.42,depth],sign);
- }
- for(const x of [-1,1])m.beam([X(sx)+x*sw*.52,sy-sh*.50,z+.011*W],[X(sx)+x*sw*.52,sy+sh*.50,z+.011*W],W*.002,gold,4);
+ addCapitalTradeSign(m,shape,emission);
  // Louvered shutters and a shallow flower box finish the opposite shop bay.
  const sill=ground+H*.16;
  for(const x of [.67,.87])for(let i=0;i<4;i++)
   m.softBox(X(x)-W*.025,X(x)+W*.025,sill+i*H*.032,sill+(i+1)*H*.032-.003*H,.020*W,.037*W,wood,.002*W);
  m.softBox(X(.67),X(.87),sill-.025*H,sill,.030*W,.073*W,wood,.004*W);
- const leaves={...atlasMaterial('buildingDetails',12,W*.20,H*.09),cutout:true};
+ const leaves={...atlasMaterial('buildingDetails',14,W*.20,H*.09),cutout:true};
  m.quad(p(.67,sill,.074*W),p(.87,sill,.074*W),p(.67,sill+.085*H,.074*W),p(.87,sill+.085*H,.074*W),leaves);
 }
 
@@ -80,6 +64,11 @@ export function addCapitalMarketStock(m:ModelMesh,shape:FurnitureShape,emission:
  }
  if(!style.endsWith('-stall'))return;
  const y=H*.33;
+ const trade=style==='cloth-stall'?'clothier':style==='tools-stall'?'smith':style==='book-stall'?'bookseller':style==='bread-stall'?'bakery':style==='herb-stall'?'herbalist':'provisions';
+ const badge=Math.min(.26,H*.25),badgeBottom=H*.035;
+ box(-badge/2-.012,badge/2+.012,badgeBottom,badgeBottom+badge+.024,.004,.014,dark);
+ paintCapitalTradeBadge(m,trade,-badge/2,badgeBottom+.012,badge/2,badgeBottom+badge+.012,.015);
+
  // Rear shelf, counter trays and a scalloped, striped canvas hem add the
  // joinery, stock and fabric finish visible in the original market drawing.
  box(-.43,.43,y+.005,y+.022,-D*.72,-.035);
@@ -126,4 +115,33 @@ export function addCapitalCanopy(m:ModelMesh,H:number,D:number){
   m.quad([b,y(t),z(t)],[a,y(t),z(t)],[b,y(u),z(u)],[a,y(u),z(u)],stripe%2?cream:green);
  }
  for(const z of [-D-.025,.025])m.beam([-.53,z<0?H*.95:H*.78,z],[.53,z<0?H*.95:H*.78,z],.013,wood,4);
+}
+
+/** Readable complete paintings, not repeating/cropped cloth swatches. */
+export function addCapitalTradeSign(m:ModelMesh,shape:HouseShape,emission:boolean){
+ const trade=shape.tradeSign;if(!trade||emission)return;
+ const {width:W,height:H}=shape,ground=.5-shape.top-Math.max(.96,shape.ground??.96)*H;
+ const X=(u:number)=>shape.left+u*W-.5,tower=Boolean(shape.profile.tiers);
+ const size=W*(tower?.22:.16),cx=X(tower?.50:.78),cy=ground+H*(tower?.36:.37),z=W*(tower?.10:.12);
+ const timber=atlasMaterial('furnishings',2,W*.20,W*.20),brass=atlasMaterial('furnishings',12,W*.10,W*.10);
+ const emblem=atlasMaterial('trade',CAPITAL_TRADE_TILES[trade],size,size);
+ m.softBox(cx-size*.57,cx+size*.57,cy-size*.57,cy+size*.57,z-W*.012,z+W*.012,timber,W*.005);
+ m.beam([cx-size*.68,cy+size*.78,W*.01],[cx+size*.68,cy+size*.78,W*.01],W*.006,timber,4);
+ for(const x of [-.35,.35]){
+  m.beam([cx+x*size,cy+size*.78,W*.01],[cx+x*size,cy+size*.78,z],W*.003,brass,6);
+  m.beam([cx+x*size,cy+size*.78,z],[cx+x*size,cy+size*.55,z],W*.0025,brass,6);
+ }
+ for(const face of [-1,1]){
+  const depth=z+face*W*.0125,l=cx-size*.5,r=cx+size*.5,b=cy-size*.5,t=cy+size*.5;
+  const a:V3=[face===1?l:r,b,depth],bb:V3=[face===1?r:l,b,depth],c:V3=[face===1?l:r,t,depth],d:V3=[face===1?r:l,t,depth];
+  m.triangle(a,bb,c,emblem,[[0,0],[1,0],[0,1]]);m.triangle(bb,d,c,emblem,[[1,0],[1,1],[0,1]]);
+ }
+ for(const side of [-1,1])m.beam([cx+side*size*.54,cy-size*.54,z+W*.013],[cx+side*size*.54,cy+size*.54,z+W*.013],W*.002,brass,4);
+}
+
+/** Full atlas cells have explicit UVs so a logo never becomes a tiled swatch. */
+export function paintCapitalTradeBadge(m:ModelMesh,trade:CapitalTrade,l:number,b:number,r:number,t:number,z:number){
+ const material=atlasMaterial('trade',CAPITAL_TRADE_TILES[trade]);
+ m.triangle([l,b,z],[r,b,z],[l,t,z],material,[[0,0],[1,0],[0,1]]);
+ m.triangle([r,b,z],[r,t,z],[l,t,z],material,[[1,0],[1,1],[0,1]]);
 }

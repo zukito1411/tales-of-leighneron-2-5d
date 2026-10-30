@@ -198,8 +198,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   readonly presentationHeightAt=(x:number,y:number)=>this.worldGenerator?.getElevationAt(x,y)??0;
   readonly presentationTerrain=new TerrainHeightField(this.presentationHeightAt);
   /** Gameplay owns the same floor that the renderer and actor feet sample. */
-  readonly groundHeightAt=(x:number,y:number):number=>this.game.registry.get('presentation')!=='three-2.5d'?0:
-    this.inInterior?this.interiors.groundHeightAt(x,y):(walkSurfaceHeight(x,y)??this.presentationTerrain.height(x,y));
+  readonly groundHeightAt=(x:number,y:number):number=>{
+    if(this.game.registry.get('presentation')!=='three-2.5d')return 0;
+    if(this.inInterior)return this.interiors.groundHeightAt(x,y);
+    const terrain=walkSurfaceHeight(x,y)??this.presentationTerrain.height(x,y);
+    return this.worldSprites?.groundHeightAt(x,y,terrain)??terrain;
+  };
   movementSurfaceScale(x:number,y:number,dx:number,dy:number){return surfaceSpeedScale(this.groundHeightAt,x,y,dx,dy);}
   get presentationShadows(){return this.groundShadows;}
   get presentationWeather(){return this.weather;}
@@ -716,7 +720,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const access=this.exteriorAccess;
     function* candidates():Generator<Vec2,void>{
       yield {...preferred};
-      for(const radius of [48,72,96,128,176,224,288,352,448,576,768,960,1200,1536]){
+      const radii=(definition??actor?.definition)?.workplaceId?[48,72,96,128]:[48,72,96,128,176,224,288,352,448,576,768,960,1200,1536];
+      for(const radius of radii){
         const count=radius>=448?32:16;
         for(let i=0;i<count;i++){
           const angle=Math.PI/2+i*2*Math.PI/count;

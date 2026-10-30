@@ -4,7 +4,7 @@ import type {FurnitureShape} from './FurnitureGeometry';
 import type {PresentationHint} from './plane';
 
 type ModelActor=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite;
-const HOUSE_KEYS:readonly (keyof HouseShape)[]=['shopfront','profile','left','top','width','height','depth','ground','riseScale','floorLift','doorHeight','segment','paintRegion'];
+const HOUSE_KEYS:readonly (keyof HouseShape)[]=['shopfront','tradeSign','profile','left','top','width','height','depth','ground','riseScale','floorLift','doorHeight','segment','paintRegion'];
 const FURNITURE_KEYS:readonly (keyof FurnitureShape)[]=['streetStyle','art','kit','key','left','top','width','height','rise','depth','patch','footX','footY','heading','modelScale','lift','quarterTurnUV','paintOffset','ornamentX','fixedGround','pose','stonePatch','roofPatch','fire','canopy','sourceRegion','bounds'];
 export interface ModelState {
   frame:Phaser.Textures.Frame;hint:PresentationHint|undefined;

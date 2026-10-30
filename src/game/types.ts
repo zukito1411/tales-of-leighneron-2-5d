@@ -85,6 +85,8 @@ export interface NpcDefinition {
   combatant?: boolean;
   patrolRadius?: number;
   stationary?: boolean;
+  /** Fixed counter being attended; spawn clearance stays within its vicinity. */
+  workplaceId?: string;
   /** Offscreen return after a rescue; local coordinates in the home town. */
   storyReturn?: {questId:string;objectiveId:string;position:Vec2};
 }

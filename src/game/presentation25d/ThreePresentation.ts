@@ -126,7 +126,7 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
-  private readonly atmosphere={billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly atmosphere={billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},tradeAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},
     fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
@@ -268,6 +268,8 @@ export class ThreePresentation {
     if(details?.source.image)this.atmosphere.buildingDetailsAtlas.value=this.textures.get(details.source,this.frame);
     const nature=scene.textures.exists(PAINTED_MODEL_ATLASES[3].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[3].key):undefined;
     if(nature?.source.image)this.atmosphere.natureAtlas.value=this.textures.get(nature.source,this.frame);
+    const trades=scene.textures.exists(PAINTED_MODEL_ATLASES[4].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[4].key):undefined;
+    if(trades?.source.image)this.atmosphere.tradeAtlas.value=this.textures.get(trades.source,this.frame);
     this.atmosphere.visualTime.value=this.game.loop.time/1000;
     this.interior=presentation.inInterior===true;
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
@@ -693,7 +695,7 @@ export class ThreePresentation {
     if(source)texture=this.textures.get(source,this.frame,object instanceof Phaser.GameObjects.Text?object:undefined);
     if(!texture)return;
     const billboard=staticImage&&!house&&!furniture&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.shopfront??'')+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
+    const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.shopfront??'')+':'+(house!.tradeSign??'')+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
     const factor=emissionOwner?this.foregroundFactor(emissionOwner):fadeEligible?this.sceneryOpacity(object,batch):1;

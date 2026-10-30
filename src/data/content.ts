@@ -1,4 +1,5 @@
 import {applyNativePropReplacements} from './nativePropReplacements';
+import {addHighmereMarketLife} from './highmereMarketLife';
 import {addHighmereStreetLife} from './highmereStreetLife';
 import {addSettlementCommons} from './settlementCommons';
 import {CIVIC_BOARD_SITES} from './settlementCivic';
@@ -508,6 +509,7 @@ for(const d of WORLD_CONTENT){
 }
 addSettlementCommons(SETTLEMENT_LAYOUTS,WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 addHighmereStreetLife(WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
+addHighmereMarketLife(WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 export const CONTENT_BY_ID = Object.fromEntries(WORLD_CONTENT.map(d => [d.id, d])) as Record<string, ContentDefinition>;
 export function initialContentState(definition: ContentDefinition): ContentState {
   return { ...definition.world,

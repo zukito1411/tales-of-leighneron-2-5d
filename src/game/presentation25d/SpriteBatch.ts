@@ -11,7 +11,7 @@ export interface DistanceAtmosphere {
   visualTime?:{value:number};
   billboardPitch?:{value:Vector2};
   architectureAtlas?:{value:Texture|null};furnishingsAtlas?:{value:Texture|null};buildingDetailsAtlas?:{value:Texture|null};
-  natureAtlas?:{value:Texture|null};
+  natureAtlas?:{value:Texture|null};tradeAtlas?:{value:Texture|null};
   worldDepth?:{value:Texture|null};depthClipRange?:{value:Vector2};depthTexel?:{value:Vector2};
   structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
 }
@@ -150,6 +150,7 @@ uniform sampler2D architectureAtlas;
 uniform sampler2D furnishingsAtlas;
 uniform sampler2D buildingDetailsAtlas;
 uniform sampler2D natureAtlas;
+uniform sampler2D tradeAtlas;
 #endif
 uniform int clipCount;
 uniform vec4 clipRects[16];
@@ -165,6 +166,7 @@ vec3 paintedMaterialPixel(){
   // Derivatives must come from the continuous coordinates, not mirrored
   // fract seams. Swatch gutters remain isolated through the useful mip levels.
   vec2 dx=dFdx(materialUV)*.244,dy=dFdy(materialUV)*.244;
+  if(materialRect.w< -20.5)return textureGrad(tradeAtlas,uv,dx,dy).rgb;
   if(materialRect.w< -19.5)return textureGrad(natureAtlas,uv,dx,dy).rgb;
   if(materialRect.w< -17.5)return textureGrad(buildingDetailsAtlas,uv,dx,dy).rgb;
   return materialRect.w< -16.5?textureGrad(furnishingsAtlas,uv,dx,dy).rgb:textureGrad(architectureAtlas,uv,dx,dy).rgb;
@@ -355,7 +357,7 @@ export class SpriteBatch {
     };
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},tradeAtlas:atmosphere?.tradeAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,

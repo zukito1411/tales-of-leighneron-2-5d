@@ -283,3 +283,11 @@ for(const npc of NPCS){const p=npc.townId==='highmere'?CAPITAL_NPC_COURTS[npc.id
   npc.schedule=npc.schedule.map(period=>({...period,location:{...p}}));
 }
 export const NPC_BY_ID = Object.fromEntries(NPCS.map((npc) => [npc.id, npc])) as Record<string, NpcDefinition>;
+
+/** Content-dependent street roles are admitted only after their actual stall
+ * and standing space have survived the fixed city placement passes. */
+export function registerHighmereStreetNpc(npc:NpcDefinition){
+ if(npc.townId!=='highmere'||!npc.id.startsWith('capital:highmere:street:'))throw new Error('Invalid capital street resident');
+ if(NPC_BY_ID[npc.id])return NPC_BY_ID[npc.id];
+ NPCS.push(npc);NPC_BY_ID[npc.id]=npc;return npc;
+}

@@ -7,7 +7,7 @@ const curveSides=(sides:number,high:boolean)=>high&&sides>=12&&sides<64?Math.min
 
 export type V3=readonly [number,number,number];
 export type Patch=readonly [number,number,number,number];
-export interface AtlasMaterial {atlas:'architecture'|'furnishings'|'buildingDetails'|'nature';tile:number;scale:readonly [number,number];emission?:V3;cutout?:boolean}
+export interface AtlasMaterial {atlas:'architecture'|'furnishings'|'buildingDetails'|'nature'|'trade';tile:number;scale:readonly [number,number];emission?:V3;cutout?:boolean}
 export const atlasMaterial=(atlas:AtlasMaterial['atlas'],tile:number,width=.5,height=width,emission?:V3):AtlasMaterial=>({atlas,tile,scale:[width,height],...(emission?{emission}:{})});
 export type ModelMaterial=AtlasMaterial|Patch|{patch:Patch;tile:readonly [number,number]}|{color:V3;emission?:V3;pattern?:2|3|4|5|6|7|8|9;waterOrigin?:readonly [number,number]};
 /** A cropped material from this object's own painted atlas, in model units. */
@@ -57,7 +57,7 @@ export class ModelMesh {
     let rect:readonly number[],center:readonly [number,number];
     if(artUV){rect=[0,0,0,0];center=[0,0];}
     else if('atlas' in mat){
-      rect=this.emission?[...mat.emission!,-1]:[mat.tile%4/4,1-(Math.floor(mat.tile/4)+1)/4,.25,mat.atlas==='architecture'?-16:mat.atlas==='furnishings'?-17:mat.atlas==='nature'?-20:mat.cutout?-19:-18];center=[.5,.5];
+      rect=this.emission?[...mat.emission!,-1]:[mat.tile%4/4,1-(Math.floor(mat.tile/4)+1)/4,.25,mat.atlas==='architecture'?-16:mat.atlas==='furnishings'?-17:mat.atlas==='nature'?-20:mat.atlas==='trade'?-21:mat.cutout?-19:-18];center=[.5,.5];
     }
     else if('color' in mat){const rgb=this.emission?mat.emission!:mat.color;rect=[...rgb,this.emission?-1:-(mat.pattern??1)];center=[.5,.5];}
     else{const [l,t,right,bottom]='patch' in mat?mat.patch:mat;rect=[r.left+l*r.width,1-r.top-bottom*r.height,(right-l)*r.width,(bottom-t)*r.height];center=[rect[0]+rect[2]/2,rect[1]+rect[3]/2];}
