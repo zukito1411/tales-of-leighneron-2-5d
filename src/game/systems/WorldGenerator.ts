@@ -76,6 +76,11 @@ function ellipseContains(chunkX: number, chunkY: number, cx: number, cy: number,
 }
 
 export class WorldGenerator {
+  /** Road ink is baked once into the existing terrain texture. Courtyard
+   * paving retains its lighter finish and the same original stone detail. */
+  isPavedStreetAt(x:number,y:number,margin=-8){
+    const street=capitalApproachAt(x,y,margin);return Boolean(street&&(street.surface??'stone')==='stone');
+  }
   /** Stable height in the existing XY world. Painted roads follow these slopes;
    * settlements and shorelines retain their authored ground registration. */
   getElevationAt(x:number,y:number):number {

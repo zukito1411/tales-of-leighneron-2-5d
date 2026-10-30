@@ -8,7 +8,7 @@ import {highmereWardSite,highmereWardActivities} from './highmerePlan';
 
 export interface WardDetail extends Vec2 {
   id:string; texture:WorldPropTexture; frame:number; scale:number;
-  solid:boolean; label?:string;
+  solid:boolean; label?:string; placement?:'fixed';
 }
 interface WardTheme {
   names:readonly [string,string]; livelihoods:readonly [string,string];

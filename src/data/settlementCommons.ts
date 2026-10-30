@@ -75,6 +75,18 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
     return {x:a.x+dx*t,y:a.y+dy*t};
   };
   for(const layout of layouts){
+    if(layout.townId==='highmere'){
+      const town=TOWN_BY_ID.highmere,board=content.find(d=>'contractTownId' in d&&d.contractTownId==='highmere');
+      layout.commons=([{kind:'market',name:'Highmere Market Square',x:-2800,y:650,w:2900,h:850},
+        {kind:'gathering',name:'Hearth Shrine Garden',x:1100,y:4250,w:1300,h:2100},
+        {kind:'training',name:'Royal Watch Drill Court',x:2750,y:450,w:900,h:600}] as const).map(c=>({
+          id:'commons:highmere:'+c.kind,kind:c.kind,name:c.name,world:{x:town.world.x+c.x,y:town.world.y+c.y},
+          approach:{x:town.world.x+c.x,y:town.world.y+c.y+c.h/2},
+          bounds:{left:town.world.x+c.x-c.w/2,right:town.world.x+c.x+c.w/2,top:town.world.y+c.y-c.h/2,bottom:town.world.y+c.y+c.h/2},
+          noticeId:board?.id??'detail:highmere:civic:2',
+        }));
+      continue;
+    }
     const town=TOWN_BY_ID[layout.townId],cold=town.regionId==='frostlands'||town.regionId==='nardorous';
     const grove=town.regionId==='narenthil',military=town.kind==='capital'||town.kind==='stronghold';
     const greens=layout.parcels.filter(p=>p.id.endsWith(':market-green'));

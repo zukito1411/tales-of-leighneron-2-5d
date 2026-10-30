@@ -17,6 +17,7 @@ import {SETTLEMENT_LAYOUTS,nearbySlots,worldRectTouchesStreet} from './settlemen
 import {TOWN_BY_ID} from './towns';
 import {CIVIC_BOARD_SITES,civicBoardReserve} from './settlementCivic';
 import {fortificationBlocksPoint} from './fortifications';
+import {CAPITAL_SHRINE_COURT} from './highmereComposition';
 import {flagshipFootprint,onFlagshipDeck} from './pirateFlagship';
 
 /** Kept visible to development tools; never hide an unfitted quest objective. */
@@ -50,7 +51,7 @@ export function fitAuthoredProps(content:ContentDefinition[]){
     ||texture==='world_assets'&&frame<=2;
   const settlementFor=(p:Vec2)=>SETTLEMENT_LAYOUTS.find(layout=>insideDefense(layout.townId,p.x,p.y));
   const looseInSettlement=(d:ContentDefinition)=>{
-    if(!('frame' in d)||d.kind==='settlement-prop'||!settlementFor(d.world))return false;
+    if(!('frame' in d)||d.placement==='fixed'||d.kind==='settlement-prop'||!settlementFor(d.world))return false;
     const texture=d.texture??'world_objects';
     if(architectureProfile(texture,d.frame)||worldSpriteProfile(texture,d.frame)?.floor||isTreeArt(texture,d.frame)
       ||d.id.startsWith('farm:')||d.id.startsWith('fort:')||d.id.startsWith('defense:')||d.id.startsWith('bridge:')
@@ -58,7 +59,7 @@ export function fitAuthoredProps(content:ContentDefinition[]){
     return d.kind==='prop'||'description' in d;
   };
   const priority=(d:ContentDefinition)=>Number(isNativePropReplacement(d.id))*2+Number('questTargetId' in d&&Boolean(d.questTargetId));
-  const moving=content.filter(d=>'frame' in d&&(isNativePropReplacement(d.id)||looseInSettlement(d)
+  const moving=content.filter(d=>d.placement!=='fixed'&&'frame' in d&&(isNativePropReplacement(d.id)||looseInSettlement(d)
     ||d.kind==='prop'&&habitatProp(d.texture??'',d.frame)
       &&!propFitsHabitat(d.texture??'world_objects',d.frame,world,d.world.x,d.world.y,d.scale??1)))
     .sort((a,b)=>priority(b)-priority(a));
@@ -71,7 +72,10 @@ export function fitAuthoredProps(content:ContentDefinition[]){
   const indoor=new Set(INTERIOR_ASSIGNMENTS.map(([id])=>id));
   const people=NPCS.filter(n=>!indoor.has(n.id)).flatMap(n=>{const town=TOWN_BY_ID[n.townId];
     return npcExteriorAnchors(n).map(p=>({bounds:npcStandingReservation(p,town.world.x,town.world.y)}));});
-  const obstacles=new StaticBoundsIndex([...civicReservations,...people,...content.flatMap(d=>{
+  const shrineTown=TOWN_BY_ID.highmere.world;
+  const shrineCourt={bounds:{left:shrineTown.x+CAPITAL_SHRINE_COURT.left,right:shrineTown.x+CAPITAL_SHRINE_COURT.right,
+    top:shrineTown.y+CAPITAL_SHRINE_COURT.top,bottom:shrineTown.y+CAPITAL_SHRINE_COURT.bottom}};
+  const obstacles=new StaticBoundsIndex([shrineCourt,...civicReservations,...people,...content.flatMap(d=>{
     if(changed.has(d.id)||board(d)||d.kind==='npc')return [];
     if('frame' in d){
       if(worldSpriteProfile(d.texture??'world_objects',d.frame)?.floor)return [];

@@ -21,7 +21,7 @@ export function coreSettlementDressing(town:TownDefinition,layout:SettlementLayo
     }
   };
   for(const [index,lot] of layout.buildings.entries()){
-    if(lot.omitted||lot.wardId)continue;
+    if(lot.omitted||lot.wardId&&town.id!=='highmere')continue;
     const roof=roofs[index],frame=lot.appearance?.frame??lot.frame,texture=lot.appearance?.texture??'world_buildings';
     const front={x:lot.x,y:lot.y+105},side={x:roof.left-95,y:lot.y+20};
     const name='building:'+index;
@@ -61,7 +61,7 @@ export function coreSettlementDressing(town:TownDefinition,layout:SettlementLayo
     garden(id+':right',{x:right,y:parcel.y+parcel.height/2-30});
     add(id+':seat',{x:left,y:parcel.y+parcel.height/2-100},'others',7,.66,true);
     if(parcel.terrain==='stone'&&parcel.width>380){
-      add(id+':notice',{x:right,y:parcel.y+60},'others',11,.62,true);
+      if(town.id!=='highmere')add(id+':notice',{x:right,y:parcel.y+60},'others',11,.62,true);
       if(!ash&&!dry)add(id+':fountain',{x:parcel.x-110,y:parcel.y+70},'others',10,.78,true);
     }
   }

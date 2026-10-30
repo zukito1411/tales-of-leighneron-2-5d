@@ -9,6 +9,7 @@ import {naturalGroundPattern} from './NaturalGroundArt';
 import {GroundCoverBaker} from './GroundCoverBaker';
 import {PAVING_PATTERN_SIZE} from '../../data/environmentPresentation';
 import {darkavGroundPatterns,darkavGroundFrame,DARKAV_GROUND_FRAMES} from './DarkavGroundArt';
+import {TOWN_BY_ID} from '../../data/towns';
 import {insideDefense} from '../../data/settlementDefenses';
 
 export interface TerrainBakeResources {patternImages:CanvasImageSource[];cover:[string,CoverArt][]}
@@ -114,6 +115,32 @@ export class TerrainBaker {
       layerCtx.globalCompositeOperation = 'source-over';
       ctx.drawImage(this.layer, 0, 0, CHUNK_SIZE, CHUNK_SIZE);
       yield;
+    }
+    // Distinguish traveled stone streets from matching courtyard paving.
+    // Reuse the existing mask/layer, only in capital chunks; no new texture,
+    // readback, render pass or work in the frame loop. Worker/fallback share it.
+    const capital=TOWN_BY_ID.highmere.world;
+    if(grid.includes(2)&&Math.abs((chunkX+.5)*CHUNK_SIZE-capital.x)<8400+CHUNK_SIZE/2
+      &&Math.abs((chunkY+.5)*CHUNK_SIZE-capital.y)<8400+CHUNK_SIZE/2){
+      let ink=false;
+      for(let row=0;row<TERRAIN_MASK_SIZE;row++){
+        for(let col=0;col<TERRAIN_MASK_SIZE;col++){
+          const i=row*TERRAIN_MASK_SIZE+col;
+          const road=grid[i]===2&&world.isPavedStreetAt(chunkX*CHUNK_SIZE+(col-.5)*TILE_SIZE,
+            chunkY*CHUNK_SIZE+(row-.5)*TILE_SIZE);
+          pixels.data[i*4+3]=road?255:0;ink||=road;
+        }
+        if(row%2===1)yield;
+      }
+      if(ink){
+        maskCtx.putImageData(pixels,0,0);
+        layerCtx.globalCompositeOperation='copy';layerCtx.fillStyle='#a29a8d';layerCtx.fillRect(0,0,CHUNK_SIZE,CHUNK_SIZE);
+        layerCtx.globalCompositeOperation='destination-in';
+        layerCtx.drawImage(this.mask,-TILE_SIZE,-TILE_SIZE,TERRAIN_MASK_SIZE*TILE_SIZE,TERRAIN_MASK_SIZE*TILE_SIZE);
+        layerCtx.globalCompositeOperation='source-over';
+        ctx.save();ctx.globalCompositeOperation='multiply';ctx.drawImage(this.layer,0,0,CHUNK_SIZE,CHUNK_SIZE);ctx.restore();
+        yield;
+      }
     }
     yield* drawGroundReliefSteps(ctx,this.mask,world,chunkX,chunkY,grid);
     yield* this.cover.drawSteps(ctx,world,chunkX,chunkY);

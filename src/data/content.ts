@@ -87,11 +87,12 @@ for (const town of TOWNS) {
 for (const layout of SETTLEMENT_LAYOUTS) {
   const town = TOWN_BY_ID[layout.townId];
   for (const [index,decoration] of layout.profile.decorations.entries()) {
+    if(town.id==='highmere'&&decoration.frame<=2)continue;
     WORLD_CONTENT.push({ id:`detail:${town.id}:civic:${index}`,kind:'prop',
       world:{ x:town.world.x + decoration.x,y:town.world.y + decoration.y },texture:'others',frame:decoration.frame,
       scale:decoration.scale,solid:decoration.solid ?? true });
   }
-  for (const [i,[x,y]] of [[-180,-80],[210,-80],[-780,580],[780,580]].entries()) {
+  if(town.id!=='highmere')for (const [i,[x,y]] of [[-180,-80],[210,-80],[-780,580],[780,580]].entries()) {
     WORLD_CONTENT.push({ id:`detail:${town.id}:street-lamp:${i}`,kind:'prop',world:{x:town.world.x+x,y:town.world.y+y},
       texture:'others',frame:town.kind==='village'?0:i>1?2:1,scale:.5,solid:false });
   }
@@ -126,28 +127,26 @@ for(const [i,[x,y,frame,scale]] of [
   texture:'native_civic_bare',frame,scale,solid:frame!==0&&frame!==7,label:'Highmere River Quay'});
 WORLD_CONTENT.push({id:'port:highmere:city-direction',kind:'prop',world:cityPoint(HIGHMERE_WALL_APOTHEM+180,260),texture:'native_civic_bare',frame:4,scale:.6,solid:true,label:'Eastgate · Market / River Quay'});
 
-for(const d of HIGHMERE_DISTRICTS)if(!d.id.startsWith('farm:')&&d.id!=='capital-plaza')WORLD_CONTENT.push({
-  id:'district:highmere:'+d.id,kind:'interactable',world:cityPoint(d.x,d.y),texture:'native_civic_bare',frame:11,
-  scale:84/artFrameSize('native_civic_bare',11).height,solid:true,name:d.name,description:d.purpose,
-  repeatText:d.purpose,repeatable:true});
+const districtSigns:Record<string,{x:number;y:number}>={
+  'noble-quarter':{x:-2200,y:-750},'temple-terrace':{x:2200,y:-750},'royal-gardens':{x:-350,y:-4550},
+  'guild-market':{x:-1400,y:250},'weavers-green':{x:-2100,y:2900},
+  'commoner-quarter':{x:-4750,y:2950},'rural-quarter':{x:5200,y:2750},
+};
+for(const d of HIGHMERE_DISTRICTS){const sign=districtSigns[d.id];if(!sign)continue;
+  WORLD_CONTENT.push({id:'district:highmere:'+d.id,kind:'interactable',world:cityPoint(sign.x,sign.y),
+    texture:'native_civic_bare',frame:4,scale:78/artFrameSize('native_civic_bare',4).height,solid:true,
+    name:d.name,description:d.purpose,repeatText:d.purpose,repeatable:true});
+}
 WORLD_CONTENT.push(
   {id:'clue:grain-receipt',kind:'interactable',world:cityPoint(-1640,1700),texture:'others',frame:6,scale:.65,name:'Torn waybill',description:'The torn waybill bears the royal grain seal. Its date was scratched in after the flour cart crossed the river.',repeatText:'The torn waybill is tucked safely away.',questTargetId:'clue:grain-receipt',questEventType:'investigate',repeatable:true},
   {id:'clue:weighhouse-ledger',kind:'interactable',world:cityPoint(-2250,2340),texture:'others',frame:9,scale:.55,name:'Charred grain tally',description:'Behind a loose stone is a list of the stolen flour sacks. Tovin’s name was forged beside the royal seal.',repeatText:'The hidden tally points to the stolen flour.',questTargetId:'clue:weighhouse-ledger',questEventType:'investigate',repeatable:true},
   {id:'clue:watch-signals',kind:'interactable',world:cityPoint(-1960,-250),texture:'others',frame:11,scale:.6,name:'Old watch board',description:'The marks send the guards to the east gate at dawn, the river bridge at noon, and the old storehouse at dusk. The order reveals which road was left open.',repeatText:'East gate at dawn, river bridge at noon, old storehouse at dusk.',questTargetId:'clue:watch-signals',questEventType:'investigate',repeatable:true},
   {id:'clue:relief-tally',kind:'interactable',world:cityPoint(1790,2190),texture:'others',frame:11,scale:.55,name:'Granary count',description:'The sacks left in the storehouse are enough to feed both wards through the first snow—if the doors are opened.',repeatText:'There is enough grain to feed the city.',questTargetId:'clue:relief-tally',questEventType:'investigate',repeatable:true},
-  {id:'training:highmere-target',kind:'interactable',world:cityPoint(-1780,-320),texture:'others',frame:12,scale:.6,name:'Practice dummy',description:'Use this yard to practise three sword strikes, two dashes, and Azure Cleave. Keep your blade away from the townsfolk.',repeatText:'Practise inside the yard.',repeatable:true},
+  {id:'training:highmere-target',kind:'interactable',world:cityPoint(2700,550),texture:'others',frame:12,scale:.6,name:'Practice dummy',description:'Use this yard to practise three sword strikes, two dashes, and Azure Cleave. Keep your blade away from the townsfolk.',repeatText:'Practise inside the yard.',repeatable:true},
   {id:'watch:relief-yard',kind:'interactable',world:cityPoint(2190,2090),texture:'others',frame:12,scale:.6,name:'Storehouse watch',description:'Keep watch beside the storehouse while Iven checks the stolen flour.',repeatText:'The storehouse is safe for now.',repeatable:true},
 );
 // More detail follows authored district functions; the existing clearance pass
 // still checks full art bounds before admitting these roadside objects.
-for(const [i,[x,y,frame,scale]] of [
-  [-180,-180,10,.9],[-200,250,7,.65],[-240,410,11,.65],[-1110,-1420,12,.6],[-880,-1430,3,.55],
-  [1220,-130,5,.72],[1510,-100,5,.72],[1810,150,5,.68],[1950,620,8,.6],
-  [-2270,-130,3,.6],[-1940,-120,8,.65],[-2250,1160,6,.55],[-1820,2050,8,.5],[-870,2080,5,.5],
-  [1270,2210,8,.65],[1590,2270,9,.65],[-1700,2090,7,.45],
-].entries()) WORLD_CONTENT.push({id:'detail:highmere:district:'+i,kind:'prop',world:cityPoint(x,y),texture:'others',frame,scale,solid:![7,12].includes(frame)});
-for(const [i,[x,y]] of [[-2470,80],[-1970,80],[-1470,80],[-970,80],[-600,-570],[850,-570],[1330,80],[1810,80],[2310,80],[-600,1470],[850,1470],[-2100,1980],[2400,2180],[-1000,-1180]].entries())
-  WORLD_CONTENT.push({id:'detail:highmere:avenue-lamp:'+i,kind:'prop',world:cityPoint(x,y),texture:'others',frame:y>1200?0:1,scale:.55,solid:false});
 for (const [index,bridgeY] of HIGHMERE_RIVER.bridgeY.entries()) {
   const y = highmere.world.y + bridgeY;
   const segmentIndex = HIGHMERE_RIVER.points.slice(1).findIndex((point,i) =>
@@ -279,7 +278,7 @@ for (const [id, frame, x, y, scale] of details) WORLD_CONTENT.push({
 });
 for (const layout of SETTLEMENT_LAYOUTS) for (const tree of layout.plantings) {
   const town = TOWN_BY_ID[layout.townId];
-  WORLD_CONTENT.push({ id:`detail:${layout.townId}:${tree.id}`,kind:'prop',texture:tree.texture??'world_assets',frame:tree.frame,scale:tree.scale,solid:false,
+  WORLD_CONTENT.push({ id:`detail:${layout.townId}:${tree.id}`,kind:'prop',texture:tree.texture??'world_assets',frame:tree.frame,scale:tree.scale,solid:false,placement:layout.townId==='highmere'?'fixed':undefined,
     world:{ x:town.world.x + tree.x,y:town.world.y + tree.y } });
 }
 for (const plot of FARM_PLOTS) {
@@ -328,13 +327,13 @@ for(const definition of WORLD_CONTENT){
 // loose-object pass unknowingly move a sign or cache into the same footprint.
 function fixedSettlementPlacement(d:ContentDefinition){
   if(!('frame' in d))return true;
-  return d.kind==='settlement-prop'||d.id.startsWith('port:')||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
+  return d.placement==='fixed'||d.kind==='settlement-prop'||d.id.startsWith('port:')||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
     ||d.id.endsWith('harbor-pier')||d.id.startsWith('elarion:whitebough-fence:')
     ||isTreeArt(d.texture??'',d.frame)&&d.id.startsWith('detail:');
 }
 function layoutDetailContent(town:TownDefinition,detail:WardDetail):PropContentDefinition {
   return {id:`detail:${town.id}:${detail.id}`,kind:'prop',world:{x:town.world.x+detail.x,y:town.world.y+detail.y},
-    texture:detail.texture,frame:detail.frame,scale:detail.scale,solid:detail.solid,
+    texture:detail.texture,frame:detail.frame,scale:detail.scale,solid:detail.solid,placement:detail.placement,
     footprint:propFoundation(detail.texture,detail.frame,detail.scale),...(detail.label?{label:detail.label}:{})};
 }
 const deferredCourtDetails=new Map<string,{detail:WardDetail;town:TownDefinition}>();
@@ -345,7 +344,7 @@ for(const layout of SETTLEMENT_LAYOUTS){
     .map(d=>'frame' in d?propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center','wallSegment' in d?d.wallSegment:undefined,d.rotation??0):{left:0,right:0,top:0,bottom:0});
   for(const detail of layout.details??[]){
     const rect=spriteBounds(detail.texture,detail.frame,detail.scale,town.world.x+detail.x,town.world.y+detail.y);
-    if(detail.id.startsWith('court:')&&originals.some(r=>overlaps(rect,r,12))){
+    if(detail.placement!=='fixed'&&detail.id.startsWith('court:')&&originals.some(r=>overlaps(rect,r,12))){
       const definition=layoutDetailContent(town,detail);
       deferredCourtDetails.set(definition.id,{detail,town});WORLD_CONTENT.push(definition);
       continue; // The shared loose-object fitter below relocates it safely.
@@ -442,6 +441,7 @@ for(let i=0;i<WORLD_CONTENT.length;i++){
   const d=WORLD_CONTENT[i],townId=d.id.startsWith('detail:')?d.id.split(':')[1]:undefined;
   if(d.kind!=='prop'||!townId||!Object.hasOwn(TOWN_BY_ID,townId)
     ||(d.texture!=='others'&&d.texture!=='native_civic_bare')||d.frame!==11)continue;
+  if(townId==='highmere'&&townsWithContractBoards.has(townId))continue;
   townsWithContractBoards.add(townId);
   WORLD_CONTENT[i]={...d,kind:'interactable',contractTownId:townId,name:`${TOWN_BY_ID[townId].name} quest board`,
     description:'Local hunting contracts and regional bounties.',repeatText:'Read the posted contracts.',repeatable:true};

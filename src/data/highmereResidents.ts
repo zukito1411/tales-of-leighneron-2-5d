@@ -31,18 +31,18 @@ export function createHighmereResidents():NpcDefinition[]{
   };
   for(const [i,c] of HIGHMERE_HOUSEHOLD_COURTS.entries()){
     const outer=Math.abs(c.x)>=4900,side=Math.sign(c.x);
-    const point={x:outer?c.x-side*200:c.x+150,y:c.streetY-100};
-    const home={x:outer?c.x-side*350:c.x-150,y:c.streetY-120};
-    const social={x:outer?c.x-side*80:c.x+(c.x>0?150:240),y:c.streetY-110};
+    const point={x:outer?c.x-side*200:c.x+150,y:c.streetY-115};
+    const home={x:outer?c.x-side*350:c.x-150,y:c.streetY-115};
+    const social={x:outer?c.x-side*80:c.x+(c.x>0?150:240),y:c.streetY-115};
     add(c.id,names[i],c.x<0?['Household Baker','Linen Mender','Potter','Kitchen Gardener'][i%4]
       :['Seed Keeper','Wainwright','Garden Provisioner','Grain Sorter'][i%4],point,home,social,i,c.district);
   }
   for(const [i,[x,y,name,title]] of ([
-    [-1850,1250,'Sabina Threadwell','Cloth Market Seller'],[-2700,1250,'Adam Copperfold','Market Provisioner'],
-    [-3550,1250,'Alys Herbwick','Herb Market Seller'],[1850,1250,'Hamon Rivetwell','Guild Tool Trader'],
-    [2700,1250,'Eleanor Ashfold','Apothecary Supplier'],[3550,1250,'Hob Cartwell','Wagon Fittings Trader'],
-    [-3450,-1450,'Ida Rosewell','Noble Garden Keeper'],[-4350,-2500,'Edwin Leafgate','Embassy Gardener'],
-    [3450,-1450,'Agatha Dawnwell','Temple Garden Keeper'],[4350,-2500,'Lucas Bellward','Temple Provisioner'],
+    [-2050,550,'Sabina Threadwell','Cloth Market Seller'],[-2800,550,'Adam Copperfold','Market Provisioner'],
+    [-3550,550,'Alys Herbwick','Herb Market Seller'],[-2050,980,'Hamon Rivetwell','Guild Tool Trader'],
+    [-2800,980,'Eleanor Ashfold','Apothecary Supplier'],[-3550,980,'Hob Cartwell','Wagon Fittings Trader'],
+    [-3950,-1900,'Ida Rosewell','Noble Garden Keeper'],[-4900,-2500,'Edwin Leafgate','Embassy Gardener'],
+    [3950,-1900,'Agatha Dawnwell','Temple Garden Keeper'],[4900,-2500,'Lucas Bellward','Temple Provisioner'],
     [HIGHMERE_QUAY.landing.x-190,HIGHMERE_QUAY.landing.y-200,'Marion Saltwick','Quay Packet Captain'],[HIGHMERE_QUAY.landing.x-190,HIGHMERE_QUAY.landing.y+150,'Ralph Ropewell','Quay Porter'],
     [HIGHMERE_QUAY.landing.x-190,HIGHMERE_QUAY.landing.y+650,'Juliana Sailfold','Quay Passenger Clerk'],
   ] as const).entries()){

@@ -1,4 +1,5 @@
 import slots from './npcPositions.json';
+import {CAPITAL_NPC_COURTS,CAPITAL_ESCORT_ARRIVAL} from './highmereComposition';
 import {HIGHMERE_SENTRY_ANCHORS,HIGHMERE_MARCH_STATIONS} from './highmerePlan';
 import type {NpcDefinition,Vec2} from '../game/types';
 import {TOWN_BY_ID} from './towns';
@@ -13,6 +14,10 @@ for(const [id,p] of Object.entries(HIGHMERE_MARCH_STATIONS)){
  const old=NPC_POSITIONS[id];if(old)NPC_POSITIONS[id]={...old,position:{...p.position},home:{...p.home},
   schedule:old.schedule.map((_,i)=>({... (i===0?p.position:p.home)}))};
 }
+for(const [id,p] of Object.entries(CAPITAL_NPC_COURTS)){
+ const old=NPC_POSITIONS[id];if(old)NPC_POSITIONS[id]={...old,position:{...p},home:{...p},schedule:old.schedule.map(()=>({...p}))};
+}
+NPC_POSITIONS['tovin-reed']={...NPC_POSITIONS['tovin-reed'],home:{...CAPITAL_ESCORT_ARRIVAL},arrival:{...CAPITAL_ESCORT_ARRIVAL}};
 export function npcEscortArrival(){
  const p=NPC_POSITIONS['tovin-reed'].arrival!,town=TOWN_BY_ID.highmere;
  return {x:town.world.x+p.x,y:town.world.y+p.y};

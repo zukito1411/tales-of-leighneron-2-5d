@@ -1,3 +1,5 @@
+import {highmereFurnishings} from './highmereFurnishings';
+import {CAPITAL_BUILDING_SITES,CAPITAL_SHRINE_COURT} from './highmereComposition';
 import type { TerrainKind, Vec2, TownDefinition } from '../game/types';
 import { TOWNS, TOWN_BY_ID } from './towns';
 import { ROAD_ROUTES,roadTouchesRect } from './roadRoutes';
@@ -21,9 +23,9 @@ import {BUILDING_PRESENTATION_GROWTH} from './environmentPresentation';
 import occupancy from './settlementOccupancy.json';
 import {coreSettlementDressing} from './settlementDressing';
 import type {SettlementCommon} from './settlementCommons';
-import {HIGHMERE_AVENUES,HIGHMERE_DISTRICTS,HIGHMERE_PLAN,HIGHMERE_SHRINE_SITE,royalWardOverlaps} from './highmerePlan';
+import {HIGHMERE_AVENUES,HIGHMERE_DISTRICTS,HIGHMERE_PLAN,royalWardOverlaps} from './highmerePlan';
 import {civicBoardReserve} from './settlementCivic';
-import {HIGHMERE_CORE_SITES,highmereBoroughPlan} from './highmereBoroughs';
+import {highmereBoroughPlan} from './highmereBoroughs';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
 import {harborBay,onHeadwaterStream} from './worldLandscape';
 import {ELARION_LIFE_TREE_CLEARING,ELARION_LIFE_TREE_LOCAL} from './elarionLifeTree';
@@ -315,7 +317,6 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   const priorBuildings=new Set<number>(prior?.buildings),priorTrees=new Set<string>(prior?.plantings),priorDetails=new Set<string>(prior?.details);
   const wards=settlementWardPlan(town),citadel=citadelPlanning(town.id),borough=town.id==='highmere'?highmereBoroughPlan():undefined;
   if(town.id==='highmere'){
-    for(const lot of layout.buildings){const p=lot.label==='Crown Shrine'?HIGHMERE_SHRINE_SITE:HIGHMERE_CORE_SITES[lot.label];if(p)Object.assign(lot,p);}
     const districts=new Set(HIGHMERE_DISTRICTS.map(d=>d.id));
     layout.parcels=layout.parcels.filter(p=>!districts.has(p.id));
     layout.parcels.push(...HIGHMERE_DISTRICTS.map(d=>({...d})));
@@ -343,6 +344,11 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
       parcel('citadel-door-apron','Audience steps and arrival court','stone',citadel.x,citadel.y+100,citadel.width+140,140),
       parcel('citadel-processional','Clear gate-to-door ceremonial walk','stone',citadel.x,(citadel.y+citadel.bottom)/2,208,citadel.forecourt+180));
   }
+  if(town.id==='highmere'){
+    layout.buildings.forEach((lot,index)=>{const site=CAPITAL_BUILDING_SITES[index];if(site){Object.assign(lot,site);lot.plot=undefined;}});
+    layout.parcels.push(parcel('hearth-shrine-garden','Dedicated shrine garden, open arrival and southern outlook','grass',1100,4250,1300,2100),
+      parcel('hearth-shrine-court','Paved shrine forecourt and public gathering place','stone',1100,4040,650,580));
+  }
   const indoorIds=new Set(INTERIOR_ASSIGNMENTS.filter(([,name])=>layout.buildings.some(lot=>lot.label===name&&!lot.omitted)).map(([id])=>id));
   for(const [index,lot] of layout.buildings.entries()){
     lot.growth=requestedGrowth;
@@ -354,6 +360,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     points:points.map(p=>({x:p.x-town.world.x,y:p.y-town.world.y}))});
   const anchors=NPCS.filter(n=>n.townId===town.id&&!indoorIds.has(n.id)).flatMap(n=>npcExteriorAnchors(n));
   const reserved:Rect[]=anchors.map(p=>npcStandingReservation(p));
+  if(town.id==='highmere')reserved.push(CAPITAL_SHRINE_COURT);
   const accessReservations:Rect[]=anchors.map(p=>({left:p.x-32,right:p.x+32,top:p.y-32,bottom:p.y+16}));
   const boardReserve=civicBoardReserve(town.id);if(boardReserve){reserved.push(boardReserve);accessReservations.push(boardReserve);}
   const elvenShrine=shrine.townId==='elarion';
@@ -392,9 +399,9 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   const accessIndex=new StaticBoundsIndex(accessReservations.map(bounds=>({bounds})));
   let reservedIndex=new StaticBoundsIndex(reserved.map(bounds=>({bounds})));
   const occupiedIndex=new StaticBoundsIndex<{bounds:Rect}>([]),overlapQuery={left:0,right:0,top:0,bottom:0};
-  const touchesReservation=(r:Rect,gap:number)=>{
+  const touchesReservation=(r:Rect,gap:number,shrineGarden=false)=>{
     const q=overlapQuery;q.left=r.left-gap;q.right=r.right+gap;q.top=r.top-gap;q.bottom=r.bottom+gap;
-    return reservedIndex.any(q,o=>overlaps(r,o.bounds,gap))||occupiedIndex.any(q,o=>overlaps(r,o.bounds,gap));
+    return reservedIndex.any(q,o=>(!shrineGarden||o.bounds!==CAPITAL_SHRINE_COURT)&&overlaps(r,o.bounds,gap))||occupiedIndex.any(q,o=>overlaps(r,o.bounds,gap));
   };
   const occupied:Rect[]=[];
   const forecourts:Rect[]=[];
@@ -477,6 +484,16 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   // that has not had its first placement attempt yet.
   const placements=lots.map(([index,lot])=>({index,lot,relocating:false}));
   for(const {index,lot,relocating} of placements) {
+    const surveyed=town.id==='highmere'?CAPITAL_BUILDING_SITES[index]:undefined;
+    if(surveyed){
+      const rect=buildingBounds(lot);occupied.push(rect);occupiedIndex.add({bounds:rect});
+      if(index!==1){
+        const door={x:lot.x,y:lot.y+34},connection={x:lot.x,y:surveyed.frontY};
+        forecourts.push({left:lot.x-64,right:lot.x+64,top:lot.y+2,bottom:surveyed.frontY+24});
+        layout.streets.push({id:'frontage:'+index,width:48,surface:lot.x<0&&lot.y>2000?'dirt':'stone',points:[connection,door]});
+      }
+      continue;
+    }
     if ('town:'+town.id+':building:'+index===shrine.contentId) {
       occupied.push(buildingBounds(lot));occupiedIndex.add({bounds:occupied.at(-1)!});
       layout.streets.push(street('shrine-frontage',40,[[lot.x,lot.y+64],[lot.x,lot.y+34]]));continue;
@@ -575,7 +592,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
     const height=texture==='woodland_props'?205:original.id.includes('orchard')?190:original.wardId?245:Math.min(335,REGION_SCENERY[town.regionId].treeHeight);
     const tree={...original,texture,frame,scale:treeScale(texture,frame,height)};
     if(town.regionId==='darkav'||town.regionId==='rindass'&&original.id.startsWith('shelter:'))continue;
-    const p=nearbySlot(tree,priorTrees.has(tree.id)?1536:tree.wardId?128:tree.id.startsWith('shelter:')?448:1024,point=>{
+    const p=nearbySlot(tree,town.id==='highmere'?128:priorTrees.has(tree.id)?1536:tree.wardId?128:tree.id.startsWith('shelter:')?448:1024,point=>{
       const r=spriteBounds(texture,tree.frame,tree.scale,point.x,point.y);
       return (tree.wardId||priorTrees.has(tree.id)?enclosed(r):within(r))&&riverFree(r)&&highmereRiverFree(r)
         &&!layout.streets.some(s=>rectTouchesStreet(r,s,20)||onStreet(point.x,point.y,s,18))
@@ -589,16 +606,17 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   const courtDetails=coreSettlementDressing(town,layout,layout.buildings.map(buildingBounds));
   // Existing district landmarks keep their space; optional new front gardens
   // and furniture use the remaining clear courts rather than displacing them.
-  const details=[...wards.details,...(borough?.details??[]),...courtDetails].sort((a,b)=>Number(priorDetails.has(b.id))-Number(priorDetails.has(a.id)));
+  const details=(town.id==='highmere'?[...highmereFurnishings(),...(borough?.details??[]),...courtDetails]:[...wards.details,...(borough?.details??[]),...courtDetails])
+    .filter(d=>town.id!=='highmere'||!((d.texture==='others'||d.texture==='native_civic_bare')&&(d.frame<=2||d.frame===11)&&!d.id.includes('-light:'))).sort((a,b)=>Number(priorDetails.has(b.id))-Number(priorDetails.has(a.id)));
   for(const detail of details){
     if(town.id!=='highmere'&&prior&&layout.details.length>=prior.details.length)break;
-    const point=nearbySlot(detail,priorDetails.has(detail.id)?1024:128,p=>{
+    const point=nearbySlot(detail,town.id==='highmere'?0:priorDetails.has(detail.id)?1024:128,p=>{
       const rect=propPlacementBounds(detail.texture,detail.frame,detail.scale,p.x,p.y);
       return enclosed(rect)&&riverFree(rect)&&highmereRiverFree(rect)
         &&!layout.streets.some(s=>rectTouchesStreet(rect,s,12))
-        &&!touchesReservation(rect,16);
+        &&!touchesReservation(rect,16,town.id==='highmere'&&detail.id.startsWith('capital:shrine-'));
     });
-    if(point){const placed={...detail,...point};layout.details.push(placed);
+    if(point){const placed:WardDetail={...detail,...point,...(town.id==='highmere'?{placement:'fixed' as const}:{})};layout.details.push(placed);
       occupied.push(propPlacementBounds(detail.texture,detail.frame,detail.scale,point.x,point.y));occupiedIndex.add({bounds:occupied.at(-1)!});}
   }
 

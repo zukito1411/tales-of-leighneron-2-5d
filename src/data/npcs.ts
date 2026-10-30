@@ -1,3 +1,4 @@
+import {CAPITAL_NPC_COURTS} from './highmereComposition';
 import {createHighmereResidents} from './highmereResidents';
 import {HIGHMERE_SENTRY_ANCHORS} from './highmerePlan';
 import type { NpcDefinition } from '../game/types';
@@ -275,6 +276,10 @@ reviseNamedConversations(NPCS,NPC_NAME_ALIASES);
 for(const npc of NPCS)npc.questIds.push(...(ADVENTURE_QUEST_GIVERS[npc.id]??[]));
 for(const npc of NPCS){const p=npc.townId==='highmere'?HIGHMERE_SENTRY_ANCHORS[npc.id]:undefined;if(!p)continue;
   npc.worldOffset={...p};npc.homeLocation={...p};npc.stationary=true;npc.patrolRadius=0;
+  npc.schedule=npc.schedule.map(period=>({...period,location:{...p}}));
+}
+for(const npc of NPCS){const p=npc.townId==='highmere'?CAPITAL_NPC_COURTS[npc.id]:undefined;if(!p)continue;
+  npc.worldOffset={...p};npc.homeLocation={...p};npc.patrolRadius=0;
   npc.schedule=npc.schedule.map(period=>({...period,location:{...p}}));
 }
 export const NPC_BY_ID = Object.fromEntries(NPCS.map((npc) => [npc.id, npc])) as Record<string, NpcDefinition>;

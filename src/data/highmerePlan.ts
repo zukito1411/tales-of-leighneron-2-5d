@@ -1,4 +1,5 @@
 import type {Vec2} from '../game/types';
+import {CAPITAL_LOCAL_STREETS,CAPITAL_SHRINE_SITE} from './highmereComposition';
 
 /** Local capital survey. Independent of content/terrain initialization so the
  * renderer, foundations, roads, defenses and residents share one source. */
@@ -7,7 +8,7 @@ export const HIGHMERE_PLAN={radius:6100,segments:64,royalRadius:2100,royalSegmen
   riverX:7400,eastApproachX:8300,bridgeY:[0],mainBridge:{x:0,y:6650},bridgeClearWidth:220} as const;
 /** Keep port travel, the visible boat, landing and signposts on one survey. */
 export const HIGHMERE_QUAY={landing:{x:HIGHMERE_PLAN.riverX-260,y:1100},quay:{x:HIGHMERE_PLAN.riverX-150,y:1100},boat:{x:HIGHMERE_PLAN.riverX,y:1100}} as const;
-export const HIGHMERE_SHRINE_SITE={x:700,y:3700} as const;
+export const HIGHMERE_SHRINE_SITE=CAPITAL_SHRINE_SITE;
 export const HIGHMERE_WALL_APOTHEM=HIGHMERE_PLAN.radius*Math.cos(Math.PI/HIGHMERE_PLAN.segments);
 export const HIGHMERE_ROYAL_APOTHEM=HIGHMERE_PLAN.royalRadius*Math.cos(Math.PI/HIGHMERE_PLAN.royalSegments);
 export const HIGHMERE_ROYAL_GATE_Y=HIGHMERE_PLAN.royalCenter.y+HIGHMERE_ROYAL_APOTHEM;
@@ -57,11 +58,11 @@ export const HIGHMERE_DISTRICTS:readonly CapitalDistrict[]=[
   {id:'temple-terrace',name:'Temple of the Dawn Terrace',purpose:'Paved chapel courts, fountains and tended pilgrimage gardens',terrain:'stone',x:3500,y:-2400,width:3000,height:2600},
   {id:'royal-gardens',name:'Royal Gardens',purpose:'Tended gardens and a rear processional walk around the keep',terrain:'grass',x:0,y:-4550,width:2100,height:650},
   {id:'capital-plaza',name:'Crown and Common Plaza',purpose:'Central public quest board, petitions and a clear ceremonial crossing',terrain:'stone',x:0,y:100,width:760,height:760},
-  {id:'guild-market',name:'Market and Guild Borough',purpose:'Markets, craft courts and sheltered merchant approaches',terrain:'stone',x:3500,y:400,width:2400,height:1900},
-  {id:'weavers-green',name:'Weavers Common',purpose:'Cloth exchange, neighborhood wells and household gathering courts',terrain:'grass',x:-3500,y:400,width:2400,height:1900},
+  {id:'guild-market',name:'Market and Guild Borough',purpose:'Markets, craft courts and sheltered merchant approaches',terrain:'stone',x:-2900,y:400,width:3300,height:1100},
+  {id:'weavers-green',name:'Weavers Common',purpose:'Cloth exchange, neighborhood wells and household gathering courts',terrain:'grass',x:-3450,y:3100,width:2200,height:1600},
   {id:'commoner-quarter',name:'Commoner Housing',purpose:'Lower western homes, communal kitchens and accessible side lanes',terrain:'dirt',x:-3200,y:3400,width:3200,height:2200},
   {id:'rural-quarter',name:'Rural Quarter and Farmstead Edge',purpose:'Stone farmstead courts, granaries, stables, cart yards and separate food gardens',terrain:'stone',x:3200,y:3400,width:3200,height:2200},
-  {id:'farm:highmere:east',name:'East Allotments',purpose:'Productive crop strips beside the southern gate approach',terrain:'farmland',x:2800,y:4950,width:1500,height:480},
+  {id:'farm:highmere:east',name:'East Allotments',purpose:'Productive crop strips beside the southern gate approach',terrain:'farmland',x:2400,y:5100,width:1000,height:280},
   {id:'farm:highmere:west',name:'Household Gardens',purpose:'Lower ward food gardens and clear harvest approaches',terrain:'farmland',x:-2400,y:4950,width:1400,height:480},
 ];
 
@@ -83,7 +84,7 @@ export const HIGHMERE_MARCH_ROUTE:readonly Vec2[]=[{x:-5100,y:0},{x:-1200,y:0},
 export const HIGHMERE_MARCH_SPACING=120;
 export const HIGHMERE_MARCH_STATIONS:Readonly<Record<string,{position:Vec2;home:Vec2}>>=Object.fromEntries(
   ['odel-wren','bessa-holt','hugh-merrit','sella-ford','orrik-pike','mina-thorne'].map((id,rank)=>[id,{
-    position:{x:HIGHMERE_MARCH_ROUTE[0].x+rank*HIGHMERE_MARCH_SPACING,y:0},home:{x:-4250+rank*150,y:-260},
+    position:{x:HIGHMERE_MARCH_ROUTE[0].x+rank*HIGHMERE_MARCH_SPACING,y:0},home:{x:-4250+rank*150,y:-130},
   }]));
 
 export const HIGHMERE_ROYAL_WALK:readonly Vec2[]=[{x:0,y:HIGHMERE_ROYAL_POSTERN_Y},{x:0,y:-4900},
@@ -93,21 +94,9 @@ export const HIGHMERE_AVENUES:ReadonlyArray<{id:string;width:number;points:Vec2[
   {id:'kings-road',width:208,surface:'stone',points:[{x:0,y:HIGHMERE_ROYAL_GATE_Y+60},{x:0,y:0},{x:0,y:7600}]},
   {id:'crown-plaza-ring',width:64,surface:'stone',points:Array.from({length:25},(_,i)=>({x:Math.cos(i*Math.PI/12)*600,y:150+Math.sin(i*Math.PI/12)*600}))},
   {id:'capital-crossing',width:176,surface:'stone',points:[{x:-6600,y:0},{x:0,y:0},{x:HIGHMERE_PLAN.eastApproachX,y:0}]},
-  {id:'noble-avenue',width:112,surface:'stone',points:[{x:-5100,y:0},{x:-5100,y:-1200},{x:-4700,y:-1600},{x:-2350,y:-1600},{x:-1700,y:-900},{x:0,y:-900}]},
-  {id:'noble-upper-walk',width:88,surface:'stone',points:[{x:-4600,y:-2700},{x:-2350,y:-2700},{x:-2350,y:-1600}]},
-  {id:'temple-avenue',width:112,surface:'stone',points:[{x:5100,y:0},{x:5100,y:-1200},{x:4700,y:-1600},{x:2350,y:-1600},{x:1700,y:-900},{x:0,y:-900}]},
-  {id:'temple-upper-walk',width:88,surface:'stone',points:[{x:4600,y:-2700},{x:2350,y:-2700},{x:2350,y:-1600}]},
   {id:'market-crossing',width:112,surface:'stone',points:[{x:-5100,y:1100},{x:0,y:1100},{x:5100,y:1100}]},
   {id:'crown-watch-circuit',width:104,surface:'stone',points:HIGHMERE_MARCH_ROUTE.map(p=>({...p}))},
-  ...[-1,1].flatMap(side=>[
-    {id:'outer-neighborhood:'+side,width:100,surface:'stone' as const,points:[{x:side*5100,y:0},{x:side*5100,y:2200},{x:side*4400,y:3300}]},
-    {id:'household-lane:'+side+':0',width:76,surface:side>0?'stone' as const:'dirt' as const,points:[{x:side*5000,y:2200},{x:0,y:2200}]},
-    {id:'household-lane:'+side+':1',width:76,surface:side>0?'stone' as const:'dirt' as const,points:[{x:side*4400,y:3300},{x:0,y:3300}]},
-    {id:'household-lane:'+side+':2',width:72,surface:side>0?'stone' as const:'dirt' as const,points:[{x:side*3650,y:4400},{x:0,y:4400}]},
-    {id:'household-lane:'+side+':3',width:72,surface:side>0?'stone' as const:'dirt' as const,points:[{x:side*1800,y:5200},{x:0,y:5200}]},
-    ...[[1200,5200],[2300,4400],[3400,3300],[4500,2200]].map(([x,y])=>({
-      id:'household-link:'+side+':'+x,width:64,surface:side>0?'stone' as const:'dirt' as const,points:[{x:side*x,y:1100},{x:side*x,y}]})),
-  ]),
+  ...CAPITAL_LOCAL_STREETS,
   // This branch is wholly outside the curtain. All quay traffic uses Eastgate.
   {id:'river-quay-approach',width:160,surface:'stone',points:[{x:6400,y:0},{x:6400,y:1100},{...HIGHMERE_QUAY.landing}]},
   {id:'river-quay-promenade',width:220,surface:'stone',points:[{x:HIGHMERE_QUAY.landing.x,y:500},{x:HIGHMERE_QUAY.landing.x,y:1900}]},
