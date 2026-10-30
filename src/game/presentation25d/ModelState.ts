@@ -14,7 +14,7 @@ export interface ModelState {
 }
 function elevation(actor:ModelActor){return 'presentationElevation' in actor&&typeof actor.presentationElevation==='number'?actor.presentationElevation:0;}
 /** Snapshot once when a modeled actor changes. No camera/time fields: the
- * existing shared shaders still animate fire, fountains, light and cutaways. */
+ * existing shared shaders still animate fire, fountains and light. */
 export function captureModelState(actor:ModelActor,hint:PresentationHint|undefined):ModelState {
   const house=hint?.house,furniture=hint?.furniture;
   return {frame:actor.frame,hint,x:actor.x,y:actor.y,scaleX:actor.scaleX,scaleY:actor.scaleY,rotation:actor.rotation,

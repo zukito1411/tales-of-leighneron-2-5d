@@ -8,7 +8,7 @@ import {drainageDistance,harborBay,harborShoreDistance,LAVA_FLOW,pathDistance,RI
 import { CHUNK_SIZE, WORLD_SEED, WORLD_WIDTH, WORLD_HEIGHT } from '../../data/world';
 import { seededRandom } from '../../utils/seededRandom';
 import { FARM_PLOTS } from '../../data/landmarks';
-import {SETTLEMENT_LAYOUTS,settlementAt,settlementTerrain,onStreet,protectedSettlementAt} from '../../data/settlements';
+import {SETTLEMENT_LAYOUTS,settlementAt,settlementTerrain,settlementStreetAt,protectedSettlementAt} from '../../data/settlements';
 import {settlementGroundPlan} from '../../data/settlementPlanning';
 import { fortificationBlocksPoint } from '../../data/fortifications';
 import {lakeAt,lakeShoreDistance} from '../../data/landscapeFeatures';
@@ -218,7 +218,7 @@ export class WorldGenerator {
     const layout = settlementAt(worldX,worldY);
     if (layout) {
       const town = TOWN_BY_ID[layout.townId];
-      if (layout.streets.some(s => onStreet(worldX - town.world.x,worldY - town.world.y,s,clearance))) return true;
+      if (settlementStreetAt(layout,worldX-town.world.x,worldY-town.world.y,clearance)) return true;
     }
     return onRoadRoute(worldX,worldY,clearance);
   }

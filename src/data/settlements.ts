@@ -19,6 +19,7 @@ import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {BUILDING_PRESENTATION_GROWTH} from './environmentPresentation';
 import occupancy from './settlementOccupancy.json';
 import {coreSettlementDressing} from './settlementDressing';
+import type {SettlementCommon} from './settlementCommons';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
 import {ELARION_LIFE_TREE_CLEARING,ELARION_LIFE_TREE_LOCAL} from './elarionLifeTree';
 
@@ -32,6 +33,7 @@ export interface SettlementLayout {
   pavedStreets?: boolean;
   waterway?: { x:number; width:number; crossings:number[] };
   details?:WardDetail[];
+  commons?:SettlementCommon[];
 }
 export const inParcel = (x: number, y: number, p: LandParcel) => Math.abs(x - p.x) <= p.width / 2 && Math.abs(y - p.y) <= p.height / 2;
 export function segmentDistance(x: number, y: number, a: Vec2, b: Vec2) {
@@ -40,7 +42,13 @@ export function segmentDistance(x: number, y: number, a: Vec2, b: Vec2) {
   return Math.hypot(x - a.x - t * dx, y - a.y - t * dy);
 }
 export function onStreet(x: number, y: number, street: Street, margin = 0) {
-  return street.points.slice(1).some((point, i) => segmentDistance(x, y, street.points[i], point) <= street.width / 2 + margin);
+  const radius=street.width/2+margin;if(radius<0)return false;
+  for(let i=1;i<street.points.length;i++){
+    const a=street.points[i-1],b=street.points[i],dx=b.x-a.x,dy=b.y-a.y,length=dx*dx+dy*dy;
+    const t=length?Math.max(0,Math.min(1,((x-a.x)*dx+(y-a.y)*dy)/length)):0;
+    if((x-a.x-dx*t)**2+(y-a.y-dy*t)**2<=radius*radius)return true;
+  }
+  return false;
 }
 const street = (id: string, width: number, points: number[][]): Street => ({ id, width, points: points.map(([x,y]) => ({ x,y })) });
 const parcel = (id: string, purpose: string, terrain: TerrainKind, x: number, y: number, width: number, height: number): LandParcel => ({ id,purpose,terrain,x,y,width,height });
@@ -576,15 +584,51 @@ export function protectedSettlementAt(x: number, y: number) {
       && Math.abs(y - town.world.y - bounds.y) <= bounds.height / 2 + SETTLEMENT_ENEMY_BUFFER;
   });
 }
+// Immutable authored topology, indexed lazily per layout. Buckets retain
+// source order so overlapping paving/streets keep their original priority.
+const TERRAIN_CELL=512;
+interface TerrainIndex {streets:Map<string,Street[]>;parcels:Map<string,LandParcel[]>;streetCount:number;parcelCount:number}
+const terrainIndices=new WeakMap<SettlementLayout,TerrainIndex>();
+const NO_STREETS:readonly Street[]=[],NO_PARCELS:readonly LandParcel[]=[];
+function terrainIndex(layout:SettlementLayout){
+  let index=terrainIndices.get(layout);
+  if(index&&index.streetCount===layout.streets.length&&index.parcelCount===layout.parcels.length)return index;
+  index={streets:new Map(),parcels:new Map(),streetCount:layout.streets.length,parcelCount:layout.parcels.length};
+  const cells=(rect:Rect,add:(key:string)=>void)=>{
+    for(let y=Math.floor(rect.top/TERRAIN_CELL);y<=Math.floor(rect.bottom/TERRAIN_CELL);y++)
+      for(let x=Math.floor(rect.left/TERRAIN_CELL);x<=Math.floor(rect.right/TERRAIN_CELL);x++)add(x+':'+y);
+  };
+  for(const road of layout.streets){
+    const keys=new Set<string>(),pad=road.width/2;
+    for(let i=1;i<road.points.length;i++){
+      const a=road.points[i-1],b=road.points[i];
+      cells({left:Math.min(a.x,b.x)-pad,right:Math.max(a.x,b.x)+pad,top:Math.min(a.y,b.y)-pad,bottom:Math.max(a.y,b.y)+pad},key=>keys.add(key));
+    }
+    for(const key of keys){const bucket=index.streets.get(key)??[];bucket.push(road);index.streets.set(key,bucket);}
+  }
+  for(const parcel of layout.parcels)cells({left:parcel.x-parcel.width/2,right:parcel.x+parcel.width/2,
+    top:parcel.y-parcel.height/2,bottom:parcel.y+parcel.height/2},key=>{
+    const bucket=index!.parcels.get(key)??[];bucket.push(parcel);index!.parcels.set(key,bucket);
+  });
+  terrainIndices.set(layout,index);return index;
+}
+export function settlementStreetAt(layout:SettlementLayout,x:number,y:number,margin=0):Street|undefined{
+  const index=terrainIndex(layout),pad=Math.max(0,margin);
+  for(let cy=Math.floor((y-pad)/TERRAIN_CELL);cy<=Math.floor((y+pad)/TERRAIN_CELL);cy++)
+    for(let cx=Math.floor((x-pad)/TERRAIN_CELL);cx<=Math.floor((x+pad)/TERRAIN_CELL);cx++)
+      for(const road of index.streets.get(cx+':'+cy)??NO_STREETS)if(onStreet(x,y,road,margin))return road;
+  return undefined;
+}
 export function settlementTerrain(layout: SettlementLayout, x: number, y: number): TerrainKind {
   if(TOWN_BY_ID[layout.townId].kind==='harbor' && Math.abs(x-700)<=60 && y>=650 && y<=835) return 'stone';
   if(layout.waterway && Math.abs(x-layout.waterway.x)<=layout.waterway.width/2)
     return layout.waterway.crossings.some(c=>onStoneBridgeDeck(x,y,layout.waterway!.x,c,stoneBridgeScale(layout.waterway!.width)))?'stone':'water';
-  if(layout.parcels.some(p=>p.terrain==='water'&&inParcel(x,y,p))) return 'water';
+  const index=terrainIndex(layout),parcels=index.parcels.get(Math.floor(x/TERRAIN_CELL)+':'+Math.floor(y/TERRAIN_CELL))??NO_PARCELS;
+  if(parcels.some(p=>p.terrain==='water'&&inParcel(x,y,p))) return 'water';
   // Paved courts override street dirt; streets cut access lanes through fields.
-  if (layout.parcels.some(p => p.terrain === 'stone' && inParcel(x,y,p))) return 'stone';
-  const road=layout.streets.find(s=>onStreet(x,y,s));
+  if (parcels.some(p => p.terrain === 'stone' && inParcel(x,y,p))) return 'stone';
+  const road=settlementStreetAt(layout,x,y);
   if (road) return road.surface ?? (layout.pavedStreets ? 'stone' : 'dirt');
-  if (layout.parcels.some(p=>p.terrain==='farmland'&&inParcel(x,y,p))) return 'farmland';
-  return layout.parcels.find(p => inParcel(x,y,p))?.terrain ?? layout.baseTerrain;
+  if (parcels.some(p=>p.terrain==='farmland'&&inParcel(x,y,p))) return 'farmland';
+  return parcels.find(p => inParcel(x,y,p))?.terrain ?? layout.baseTerrain;
 }

@@ -14,28 +14,52 @@ additional runtime images or new asset-loading path is introduced.
 
 ## Camera clearance
 
-A scene-owned spatial index tracks admitted structure hulls independently of
-the drawing frustum. The camera probes nearby hulls along its desired orbit,
-pulls forward on obstruction and eases back after clearance. Circular towers
-use cylinder intersections; gate openings retain a passage through their hull.
-Very close obstructions use a smooth, screen-space dithered cutaway around the
-character and locked enemy. This also handles structures surrounding the
-camera where fading only an object's centre would miss the obstruction.
+The orbit retains the player's chosen distance. Circular architecture cutouts
+have been removed: they exposed the hollow inside of buildings and could erase
+walls beside a player who was already visible.
 
-The framing distance is bounded to preserve the full character pose. Cutaway
-cores participate in picking, so a visually cleared wall does not intercept
-the revealed target. Cinematics retain their authored camera behaviour.
+Only scenery obstructing the actual player becomes translucent, at the same
+28% opacity used for trees. Three body samples follow the player's world
+position, jumping elevation and billboard lean. At least two samples must be
+covered before fading. Modeled buildings, towers, gates, walls and furnishings
+also require actual camera-to-body intersections with their solid triangles;
+a bounding rectangle alone cannot fade them. Gate openings remain clear.
+Painted cutout decorations do not count as solid architecture.
 
-The index removes destroyed actors and clears with the scene. Probes use
-nearby grid cells rather than full-world traversal or triangle raycasts.
+The complete blocking instance fades, with its window/rune emission. Its normal
+appearance returns when the obstruction clears. No geometry is discarded and
+nearby conversation or locked targets do not create separate holes. Floors and
+collision retain their existing behaviour. Faded scenery blends after actors
+without writing opaque depth over them; interactive props retain their own click
+target, while faded non-interactive walls allow selecting an actor behind them.
+Cinematics and passage views retain their authored presentation. Normal player
+visibility remains supported while a dialogue or menu disables movement.
+
+The existing viewport collector supplies candidates. Exact intersection work
+runs only for models covering the body samples, using cached triangle-block
+bounds and reusable vectors. Static model packets retain their original alpha
+and transforms across opacity changes. Faded batches use the existing bounded
+batch retention/disposal policy. There is no additional framebuffer, per-frame
+pixel readback, asset decode or full-world raycast traversal.
 
 ## Target lock
 
 - Press **R** or tap **Lock** to acquire an eligible visible enemy; repeat to
   unlock. Direct enemy selection also locks it.
-- Acquisition range is 720 world units; release range is 900. Death, invalid
-  combat state or sustained lost sight also releases the lock. Brief cover has
-  an 850 ms grace period, checked at 100 ms intervals.
+- Explicit selection uses the existing rendered-world limit (2400 world
+  units), rather than the old 720 acquisition / 900 release combat limits.
+- Acquisition and retention reuse the last submitted enemy pose from the
+  presentation renderer. A partially visible pose counts; the renderer's
+  offscreen preload guard band does not. Missing/offscreen poses have a 300 ms
+  grace period, checked at 100 ms intervals, to avoid edge/animation flicker.
+- Ground-level weapon line of sight, night attack eligibility and temporary
+  flight vulnerability do not cancel attention. Actual attacks retain all of
+  those checks. Only player obstructions trigger scenery fading; target render
+  submission is not a GPU pixel-occlusion query.
+- Defeat, leaving the rendered-world distance, sustained absence from the
+  camera, invalid player/combat state, deliberate unlock and scene/travel
+  transitions release the lock. The selected outdoor actor remains resident
+  within this limit without loading additional world chunks.
 - The orbit follows combat facing and biases its aim toward the target.
   Movement, dodging and zoom retain their existing controls.
 - The locked enemy's projected pose is protected from depth-of-field blur and
@@ -52,10 +76,9 @@ occlusion along the visible ray, instead of suppressing every shaft whenever
 the sun's centre is covered. Clouds, night, interiors and graphics settings
 still govern the effect. Existing bounded quality-dependent taps are retained.
 
-Structure geometry remains shared and instanced. Cutaway uses the existing
-architecture shader; target blur protection and sun changes use existing
-post-processing passes. No new framebuffer, per-frame pixel readback or eager
-world loading is introduced.
+Structure geometry remains instanced, with retained normal/faded batches.
+Target blur protection and sun changes use existing post-processing passes.
+No new framebuffer, per-frame pixel readback or eager world loading is introduced.
 
 ## Verification
 

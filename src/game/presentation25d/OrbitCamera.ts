@@ -126,7 +126,7 @@ export class OrbitCamera {
     const orbitPitch=Math.max(8*RAD,this.pitch);
     const horizontal=distance*Math.cos(orbitPitch),vertical=distance*Math.sin(orbitPitch);
     this.camera.position.set(this.focus.x+horizontal*Math.sin(this.yaw),this.focus.y+vertical,this.focus.z+horizontal*Math.cos(this.yaw));
-    // Obstructions use the shared depth-tested character/target cutaway.
+    // Only scenery obstructing the player fades in the presentation collector.
     // Keep the player's chosen orbit distance instead of zooming at wall edges.
     if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
     else{

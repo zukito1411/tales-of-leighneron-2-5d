@@ -14,13 +14,11 @@ import {useGameStore} from '../../src/store/gameStore';
 const keys=new Set<ArtTextureKey>(['world_buildings','capital_buildings','elven_villas','royal_walls','leigneron_idle','npc_guard_idle','npc_villager_idle','flower_fence']);
 const sheets=ART_SHEETS.filter(sheet=>keys.has(sheet.key));
 const state={ready:false,error:'',game:undefined as unknown as Phaser.Game,scene:undefined as unknown as ReviewScene,
-  cutaway:undefined as unknown as {cutawayTarget:{value:{w:number}}},
   orbit:undefined as unknown as {yaw:number;targetYaw:number;pitch:number;targetPitch:number}};
 declare global{interface Window{__architectureScaleReview:typeof state}}
 window.__architectureScaleReview=state;
 class ReviewScene extends Phaser.Scene{
   readonly presentationFocus={x:0,y:30};readonly presentationControlsEnabled=false;
-  presentationInteractionTarget?:Phaser.GameObjects.Image;
   private reviewProps:Phaser.GameObjects.Image[]=[];
   private sprites!:WorldSpriteSystem;private actor?:Phaser.GameObjects.Image;
   preload(){
@@ -46,14 +44,9 @@ class ReviewScene extends Phaser.Scene{
     this.events.once(Phaser.Scenes.Events.SHUTDOWN,()=>this.sprites.destroy());
     state.scene=this;state.ready=true;
   }
-  revealResident(enabled:boolean){
-    const resident=this.children.list.find(o=>o instanceof Phaser.GameObjects.Image&&o.texture.key==='npc_villager_idle') as Phaser.GameObjects.Image;
-    resident.setPosition(0,-380);this.presentationFocus.y=-380;
-    this.presentationInteractionTarget=enabled?resident:undefined;
-  }
   showSettlement(townId:string){
     for(const actor of this.reviewProps)actor.destroy();this.reviewProps=[];
-    this.actor?.destroy();this.actor=undefined;this.presentationInteractionTarget=undefined;
+    this.actor?.destroy();this.actor=undefined;
     const town=TOWN_BY_ID[townId],court=citadelPlanning(townId)!;
     const origin={x:town.world.x+court.x,y:town.world.y+court.y+court.forecourt/2};
     this.presentationFocus.x=this.presentationFocus.y=0;this.cameras.main.setZoom(.36);
@@ -96,5 +89,4 @@ class ReviewScene extends Phaser.Scene{
 state.game=new Phaser.Game({type:Phaser.CANVAS,parent:'review',width:1280,height:720,audio:{noAudio:true},
   physics:{default:'arcade',arcade:{gravity:{x:0,y:0}}},scene:[ReviewScene],
   callbacks:{postBoot(game){const presentation=new ThreePresentation(game,document.querySelector('#review')!);
-    state.cutaway=(presentation as unknown as {cutaway:typeof state.cutaway}).cutaway;
     state.orbit=(presentation as unknown as {orbit:typeof state.orbit}).orbit;}}});

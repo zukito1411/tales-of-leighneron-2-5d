@@ -16,9 +16,7 @@ export interface DistanceAtmosphere {
   structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
 }
 
-export interface CutawayUniforms {
-  cutawayViewport:{value:Vector2};cutawaySubject:{value:Vector4};cutawayTarget:{value:Vector4};
-}
+export interface PresentationUniforms {viewport:{value:Vector2}}
 interface LocalRect {left:number;top:number;width:number;height:number}
 interface PickEntry {object:Phaser.GameObjects.GameObject|undefined;rect:LocalRect}
 // Phaser tint bytes are sRGB; shared Three textures are sampled in linear light.
@@ -34,7 +32,6 @@ attribute vec4 instanceTintBR;
 attribute vec4 tileRepeat;
 uniform bool groundSurface;
 uniform bool architecture;
-uniform bool cutawayEnabled;
 uniform bool structureShading;
 uniform vec3 structureLightDirection;
 uniform vec3 structureFill;
@@ -52,7 +49,6 @@ varying vec4 tint;
 varying vec2 groundPosition;
 varying float sourceY;
 varying float shadowBottom;
-varying float cameraDepth;
 ${waveVertexDeclarations}
 #ifdef COMBAT_SURFACES
 attribute float combatOpacity;
@@ -113,7 +109,7 @@ ${waveVertexMotion}
   }
   groundPosition=world.xz;
   if(groundSurface)world.y+=groundHeight(world.xz);
-  vec4 viewed=viewMatrix*world;cameraDepth=-viewed.z;
+  vec4 viewed=viewMatrix*world;
   gl_Position=projectionMatrix*viewed;
 }`;
 const fragmentShader=`
@@ -128,10 +124,7 @@ uniform bool shadow;
 uniform bool fadeOnly;
 uniform bool telegraph;
 uniform bool architecture;
-uniform bool cutawayEnabled;
-uniform vec2 cutawayViewport;
-uniform vec4 cutawaySubject;
-uniform vec4 cutawayTarget;
+uniform vec2 presentationViewport;
 varying vec2 localUV;
 varying vec4 effectData;
 uniform vec2 atlasTexel;
@@ -140,7 +133,6 @@ uniform vec3 fogColor;
 uniform vec2 fogRange;
 varying float sourceY;
 varying float shadowBottom;
-varying float cameraDepth;
 #ifdef COMBAT_SURFACES
 varying float energyOpacity;
 #endif
@@ -161,11 +153,6 @@ uniform sampler2D natureAtlas;
 #endif
 uniform int clipCount;
 uniform vec4 clipRects[16];
-float cutaway(vec4 subject){
-  if(subject.w<=0.0||cameraDepth>=subject.z-6.0)return 0.0;
-  vec2 d=(gl_FragCoord.xy/cutawayViewport-subject.xy)*vec2(cutawayViewport.x/cutawayViewport.y*1.5,1.0);
-  return 1.0-smoothstep(.66,1.0,length(d)/subject.w);
-}
 #ifdef STRUCTURE_SURFACES
 float materialNoise(vec2 p){vec3 q=fract(vec3(p.xyx)*.1031);q+=dot(q,q.yzx+33.33);return fract((q.x+q.y)*q.z);}
 vec2 paintedMaterialUV(){
@@ -253,14 +240,8 @@ void main(){
   if(occludedOverlay){
     float n=depthClipRange.x,f=depthClipRange.y;
     float lightDepth=n*f/(f-effectData.z*(f-n));
-    glowVisibility=lightVisibility(worldDepth,effectData.xy,gl_FragCoord.xy/cutawayViewport,lightDepth,depthClipRange,depthTexel,effectData.w);
+    glowVisibility=lightVisibility(worldDepth,effectData.xy,gl_FragCoord.xy/presentationViewport,lightDepth,depthClipRange,depthTexel,effectData.w);
     if(glowVisibility<.001)discard;
-  }
-  if(architecture&&cutawayEnabled){
-    float reveal=max(cutaway(cutawaySubject),cutaway(cutawayTarget));
-    // A stable sight-line cutout avoids crawling screen-door noise on walls.
-    // The existing FXAA pass smooths the rim while the character remains clear.
-    if(reveal>.25)discard;
   }
   if(clipCount>0){
     bool inside=false;
@@ -347,6 +328,7 @@ export class SpriteBatch {
   private capacity=32;
   private used=0;
   private readonly material:ShaderMaterial;
+  private readonly foregroundFactory:()=>SpriteBatch;
   private atlas:InstancedBufferAttribute;
   private tint:InstancedBufferAttribute;
   private tintTR:InstancedBufferAttribute;
@@ -362,10 +344,18 @@ export class SpriteBatch {
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
 
-  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},cutawayUniforms?:CutawayUniforms,cutawayEnabled=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry){
+  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},presentationUniforms?:PresentationUniforms,occluder=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry){
+    this.foregroundFactory=()=>{
+      // Copy the already prepared topology once, instead of assembling the
+      // detailed prefab again on the first obstructed frame.
+      const structure=geometryFactory?()=>this.mesh.geometry.clone():undefined;
+      const batch=new SpriteBatch(scene,texture,additive,overlay,Math.max(1,order),clips,fillTint,false,false,ground,tiled,elevation,terrain,atmosphere,shadow,telegraph,structure,billboard,billboardRight,presentationUniforms,occluder,occludedOverlay,combatGeometry);
+      batch.mesh.userData.foregroundFaded=true;
+      return batch;
+    };
     if(billboard)this.capacity=128;
     const image=texture.image as {width?:number;height?:number}|undefined;
-    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},cutawayEnabled:{value:cutawayEnabled},cutawayViewport:cutawayUniforms?.cutawayViewport??{value:new Vector2(1,1)},cutawaySubject:cutawayUniforms?.cutawaySubject??{value:new Vector4()},cutawayTarget:cutawayUniforms?.cutawayTarget??{value:new Vector4()},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:{value:Array.from({length:16},(_,i)=>clips[i]??new Vector4())}},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,
@@ -382,9 +372,12 @@ export class SpriteBatch {
     geometry.setAttribute('instanceTintTR',this.tintTR);geometry.setAttribute('instanceTintBL',this.tintBL);geometry.setAttribute('instanceTintBR',this.tintBR);
     this.mesh=new InstancedMesh(geometry,this.material,this.capacity);
     this.mesh.instanceMatrix.setUsage(DynamicDrawUsage);this.mesh.frustumCulled=false;this.mesh.renderOrder=order;
-    this.mesh.userData.batch=this;this.mesh.userData.presentationOccluder=Boolean(geometryFactory)&&!shadow&&cutawayEnabled;scene.add(this.mesh);
+    this.mesh.userData.batch=this;this.mesh.userData.presentationOccluder=Boolean(geometryFactory)&&!shadow&&occluder;scene.add(this.mesh);
     this.bindAttributes();this.begin();
   }
+  /** Separate retained batch: faded objects blend after actors and cannot
+   * write opaque depth over them. Original instances keep their normal depth. */
+  createForegroundVariant(){return this.foregroundFactory();}
   begin(){this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);}
   add(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat?:ArrayLike<number>){
     if(this.used===this.capacity)this.grow();
@@ -449,7 +442,7 @@ export class SpriteBatch {
     const next=new InstancedMesh(geometry,this.material,capacity);
     (next.instanceMatrix as BufferAttribute).setUsage(DynamicDrawUsage);
     next.instanceMatrix.array.set(previous.instanceMatrix.array);
-    next.frustumCulled=false;next.renderOrder=previous.renderOrder;next.userData.batch=this;next.userData.presentationOccluder=previous.userData.presentationOccluder;
+    next.frustumCulled=false;next.renderOrder=previous.renderOrder;next.userData.batch=this;next.userData.presentationOccluder=previous.userData.presentationOccluder;next.userData.foregroundFaded=previous.userData.foregroundFaded;
     this.scene.remove(previous);previous.geometry.dispose();previous.dispose();this.scene.add(next);
     this.mesh=next;this.capacity=capacity;this.bindAttributes();
   }

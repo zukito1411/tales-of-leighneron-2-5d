@@ -12,6 +12,8 @@ export interface PresentationView {
   bounds:{left:number;top:number;right:number;bottom:number};focusGround:{x:number;y:number};
   height:(x:number,y:number)=>number;
   visibility?:StreamVisibility;
+  /** Last submitted camera frame, including actual pose culling and alpha. */
+  actorDrawn?:(actor:Phaser.GameObjects.GameObject)=>boolean;
 }
 const gameViews=new WeakMap<Phaser.Game,PresentationView>();
 const cameraViews=new WeakMap<Phaser.Cameras.Scene2D.Camera,PresentationView>();

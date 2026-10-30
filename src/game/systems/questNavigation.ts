@@ -58,7 +58,7 @@ function withTravelHint(target:QuestTarget,player:Vec2,interiorId?:string):Quest
 /** One objective resolver shared by world, interiors, maps and journal. */
 export function resolveQuestTarget(quests:Record<string,QuestRuntimeState>,world:ContentWorldState,player:Vec2,
   livePosition?:(id:string)=>Vec2|undefined,trackedQuestId?:string|null,interiorId?:string,
-  storyFlags:Record<string,boolean>={},visited=new Set<string>()):QuestTarget|null{
+  storyFlags:Record<string,boolean>={},visited=new Set<string>(),escortArrival:()=>Vec2|null=npcEscortArrival):QuestTarget|null{
   const active=activeObjective(quests,trackedQuestId);
   if(!active||visited.has(active.questId))return null;
   const {objective:o,questId}=active;visited.add(questId);
@@ -77,7 +77,7 @@ export function resolveQuestTarget(quests:Record<string,QuestRuntimeState>,world
       +town.name+', '+(town.regionId==='dead-sea'?'Dead Sea':REGION_BY_ID[town.regionId].name),questId,objectiveId:o.id,type:o.type},player,interiorId);
   }
   if(o.type==='quest'){
-    if(quests[o.targetId]?.status==='active')return resolveQuestTarget(quests,world,player,livePosition,o.targetId,interiorId,storyFlags,visited);
+    if(quests[o.targetId]?.status==='active')return resolveQuestTarget(quests,world,player,livePosition,o.targetId,interiorId,storyFlags,visited,escortArrival);
     const dependency=QUEST_BY_ID[o.targetId],npc=dependency&&NPC_BY_ID[dependency.giverNpcId];
     if(!npc)return null;
     const id='npc:'+npc.id,room=NPC_INTERIOR_BY_ID[npc.id];
@@ -102,8 +102,10 @@ export function resolveQuestTarget(quests:Record<string,QuestRuntimeState>,world
     if(distance<nearest){nearest=distance;target=d;position=p;}
   }
   if(!target||!position)return null;
-  if(o.type==='escort'&&o.targetId==='tovin-reed'&&nearest<210)
-    return {...npcEscortArrival(),contentId:'escort:tovin-reed',label:'Kitchen approach, Highmere, Trandum — stay close to '+NPC_BY_ID['tovin-reed'].name,questId,objectiveId:o.id,type:o.type};
+  if(o.type==='escort'&&o.targetId==='tovin-reed'&&nearest<210){
+    const arrival=escortArrival();
+    if(arrival)return {...arrival,contentId:'escort:tovin-reed',label:'Kitchen approach, Highmere, Trandum — stay close to '+NPC_BY_ID['tovin-reed'].name,questId,objectiveId:o.id,type:o.type};
+  }
   const room=target.kind==='npc'?NPC_INTERIOR_BY_ID[target.npcId]:undefined;
   const destination=target.kind==='npc'?undefined:contentQuestLocation(target,target.kind==='creature'&&target.bossId?BOSS_BY_ID[target.bossId]?.regionId:undefined);
   let label=target.kind==='npc'?questNpcLabel(target.npcId,Boolean(room&&room.entry.id!==interiorId))

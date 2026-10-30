@@ -96,6 +96,9 @@ export class ContentChunkManager<Actor> {
   private nextAdmissionCheckAt=0;
   private admissionBootstrapped=false;
   private admissionDeferred=false;
+  private admissionCursor:Generator<string,void>|null=null;
+  private admissionPlayerCell='';
+  private readonly admissionRetryAt=new Map<string,number>();
   get settled(){return !this.admissionDeferred;}
   private cleanupPending=false;
   private nextSpawnSequence: number;
@@ -142,6 +145,11 @@ export class ContentChunkManager<Actor> {
     // Rebuild residency only when its cell bounds change. Preserve the local
     // physics neighborhood even when the perspective footprint looks ahead.
     const playerCell=contentChunkKey(x,y);
+    if(playerCell!==this.admissionPlayerCell){
+      // A teleport must inspect its new physics neighborhood immediately.
+      // Camera-only rotations retain the iterator and its fairness.
+      this.admissionPlayerCell=playerCell;this.admissionCursor=null;
+    }
     const center=view?playerCell+':view:'
       +Math.floor((view.left-768)/CHUNK_SIZE)+':'+Math.floor((view.right+768)/CHUNK_SIZE)+':'
       +Math.floor((view.top-768)/CHUNK_SIZE)+':'+Math.floor((view.bottom+768)/CHUNK_SIZE)+':'+(view.key??''):playerCell;
@@ -215,40 +223,40 @@ export class ContentChunkManager<Actor> {
     const budgeted=Boolean(view)&&this.admissionBootstrapped;
     this.admissionBootstrapped=true;
     const admissionStart=performance.now(),admissionAllowance=work?.remaining('actors',2)??2;
-    let admitted=0,deferred=false;
-    // Bound first-time actor/material/collider construction to one short
-    // slice. Encounter groups remain atomic, but don't also create an entire
-    // settlement in the same camera-turn frame.
-    const exhausted=()=>budgeted&&(admitted>=4||admitted>0&&performance.now()-admissionStart>=admissionAllowance);
-    admissions: for (const key of this.wanted) {
-      for (const id of this.buckets.get(key) ?? []) {
-        if (this.active.has(id)) continue;
-        if(exhausted()){deferred=true;break admissions;}
-        const state = this.getState(id)!;
-        if (state.defeated) continue;
-        const definition = this.definitions.get(id)!;
-        const groupKey = definition.kind === 'creature' ? creatureGroupKey(definition) : undefined;
-        if (groupKey && this.host.canActivateGroup) {
-          if (checkedGroups.has(groupKey)) continue;
-          checkedGroups.add(groupKey);
-          const before=this.active.size;
-          if (this.activateCreatureGroup(groupKey)) {admitted+=this.active.size-before;changed=true;}
-          continue;
-        }
-        if (this.host.canActivate && !this.host.canActivate(definition, state)) continue;
-        this.active.set(id, this.host.create(definition, { ...state }));
-        admitted++;changed = true;
-      }
-    }
-    // A mountain's visible extent can enter view before its base chunk does.
-    // Keep just those authored actors alive; terrain streaming stays bounded.
-    if(!deferred)for(const id of this.sceneryCandidates){
-      if(this.active.has(id))continue;
+    let admitted=0,attempted=0,deferred=false;
+    // Failed geometry/admission checks spend the same allowance as successful
+    // spawns. Preserve the iterator so rejected records at the front cannot
+    // starve a quest contact or scenery later in the neighborhood.
+    const exhausted=()=>budgeted&&(admitted>=4||attempted>=16
+      ||attempted>0&&performance.now()-admissionStart>=admissionAllowance);
+    this.admissionCursor??=this.admissionCandidates();
+    while(true){
       if(exhausted()){deferred=true;break;}
-      const state=this.getState(id)!;
-      if(state.defeated||!this.sceneryWanted.has(id)&&!this.nearOversized(id,state,x,y,view))continue;
-      const definition=this.definitions.get(id)!;
-      if(this.host.canActivate&&!this.host.canActivate(definition,state))continue;
+      const next=this.admissionCursor.next();
+      if(next.done){this.admissionCursor=null;break;}
+      const id=next.value;
+      if(this.active.has(id))continue;
+      const definition=this.definitions.get(id),state=this.getState(id);
+      if(!definition||!state||state.defeated)continue;
+      if(!this.wanted.has(this.locations.get(id)!)&&!this.sceneryWanted.has(id)
+        &&!this.nearOversized(id,state,x,y,view))continue;
+      const groupKey=definition.kind==='creature'?creatureGroupKey(definition):undefined;
+      const retryKey=groupKey??id;
+      if(now<(this.admissionRetryAt.get(retryKey)??0))continue;
+      if(groupKey&&this.host.canActivateGroup){
+        if(checkedGroups.has(groupKey))continue;
+        checkedGroups.add(groupKey);attempted++;
+        const before=this.active.size;
+        if(this.activateCreatureGroup(groupKey)){
+          admitted+=this.active.size-before;changed=true;this.admissionRetryAt.delete(retryKey);
+        }else this.admissionRetryAt.set(retryKey,now+250);
+        continue;
+      }
+      attempted++;
+      if(this.host.canActivate&&!this.host.canActivate(definition,state)){
+        this.admissionRetryAt.set(retryKey,now+250);continue;
+      }
+      this.admissionRetryAt.delete(retryKey);
       this.active.set(id,this.host.create(definition,{...state}));admitted++;changed=true;
     }
     // A deferred activation should resume next tick, not wait for another
@@ -258,6 +266,14 @@ export class ContentChunkManager<Actor> {
     if(budgeted)work?.charge('actors',admissionStart);
     }
     return changed;
+  }
+
+  private *admissionCandidates():Generator<string,void>{
+    const seen=new Set<string>();
+    for(const key of this.wanted)for(const id of this.buckets.get(key)??[]){
+      if(!seen.has(id)){seen.add(id);yield id;}
+    }
+    for(const id of this.sceneryCandidates)if(!seen.has(id))yield id;
   }
 
   addSpawn(enemyId: string, world: Vec2, eventSpawn: boolean,
@@ -421,10 +437,10 @@ export class ContentChunkManager<Actor> {
       if (groupKey) {
         const members = this.creatureGroups.get(groupKey);
         members?.delete(id);
-        if (members?.size === 0) this.creatureGroups.delete(groupKey);
+        if (members?.size === 0){this.creatureGroups.delete(groupKey);this.admissionRetryAt.delete(groupKey);}
       }
       this.locations.delete(id);this.spawns.delete(id);this.states.delete(id);
-      this.definitions.delete(id);this.returns.delete(id);
+      this.definitions.delete(id);this.returns.delete(id);this.admissionRetryAt.delete(id);
     }
   }
 
@@ -465,6 +481,7 @@ export class ContentChunkManager<Actor> {
   }
 
   destroy() {
+    this.admissionCursor=null;this.admissionPlayerCell='';this.admissionRetryAt.clear();
     for (const id of [...this.active.keys()]) this.deactivate(id);
     this.wanted.clear();this.sceneryWanted.clear();this.sceneryCandidates.clear();this.sceneryKey='';this.centerKey = '';
   }

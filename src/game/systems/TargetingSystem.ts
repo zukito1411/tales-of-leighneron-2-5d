@@ -3,6 +3,7 @@ import type {WorldScene} from '../scenes/WorldScene';
 import {BOSS_BY_ID} from '../../data/enemies';
 import {useGameStore} from '../../store/gameStore';
 import {presentationView,worldPointInView} from '../presentation25d/plane';
+import {VIEW_DISTANCE} from '../presentation25d/environment';
 
 /** Shared eligibility for indicators, automatic casts and deliberate selection. */
 export class TargetingSystem {
@@ -11,8 +12,9 @@ export class TargetingSystem {
   private locked:Enemy|null=null;
   private sightCheckAt=0;private lastClearAt=0;
   get lockedTarget(){const e=this.locked;return e?.active&&e.visible&&e.isAlive&&e.canRemainLocked?e:null;}
-  static readonly acquireRange=720;
-  static readonly breakRange=900;
+  // Explicit attention follows the rendered world, not melee/casting range.
+  static readonly acquireRange=VIEW_DISTANCE;
+  static readonly breakRange=VIEW_DISTANCE;
   private engaged:Enemy|null=null;
   private nextSelectionAt=0;
   private indicatorSequence=0;
@@ -31,8 +33,16 @@ export class TargetingSystem {
   private lockEligible(enemy:Enemy,range:number){
     const p=this.scene.player;
     return enemy.active&&enemy.visible&&enemy.isAlive&&enemy.canRemainLocked
-      &&(enemy.x-p.x)**2+(enemy.y-p.y)**2<=range*range&&this.scene.canSeeEnemy(enemy)
-      &&(enemy.isAirborne||this.scene.hasClearPath(p.x,p.y,enemy.x,enemy.y));
+      &&(enemy.x-p.x)**2+(enemy.y-p.y)**2<=range*range
+      &&this.lockOnScreen(enemy);
+  }
+  private lockOnScreen(enemy:Enemy){
+    const view=presentationView(this.scene),visual=enemy.presentationLockVisual;
+    // Reuse the renderer's last submitted pose, including frame bounds,
+    // transparency, near/far planes and partial screen-edge visibility. This
+    // needs no per-target raycast, GPU readback or additional render pass.
+    return view?.actorDrawn?view.actorDrawn(visual)
+      :worldPointInView(this.scene,enemy.x,enemy.y,this.lockHeight(enemy));
   }
   private lockHeight(enemy:Enemy){
     return Math.max(30,(enemy.definition.bodyRadius??12)*2)
@@ -55,7 +65,7 @@ export class TargetingSystem {
     Object.assign(cached,{until:now+80+(this.indicatorSequence++%6)*8,x:enemy.x,y:enemy.y,px:p.x,py:p.y,eligible});
     return eligible;
   }
-  /** Deliberate/visible selection wins over proximity; cover and range still apply. */
+  /** Tracking attention never overrides attack range, cover or vulnerability. */
   skillTarget(range:number){
     const selected=this.lockedTarget??this.selected;
     return selected&&this.eligible(selected,range)?selected:this.nearest(range);
@@ -78,9 +88,9 @@ export class TargetingSystem {
       if(!enemy.active||!enemy.visible||!enemy.isAlive||!(forLock?enemy.canRemainLocked:enemy.canBeTargeted))continue;
       const dx=enemy.x-player.x,dy=enemy.y-player.y,distance2=dx*dx+dy*dy;
       if(distance2>range2)continue;
-      // Automatic assistance follows what the free camera can see. Manual
-      // locks keep their original range/LOS rules when briefly offscreen.
-      if(presentationView(this.scene)&&!worldPointInView(this.scene,enemy.x,enemy.y,forLock?this.lockHeight(enemy):Math.max(30,(enemy.definition.bodyRadius??12)*2),48))continue;
+      // Explicit locks use actual submitted pose bounds. Automatic attack
+      // assistance retains its existing camera, weapon-range and sight rules.
+      if(forLock?!this.lockOnScreen(enemy):presentationView(this.scene)&&!worldPointInView(this.scene,enemy.x,enemy.y,Math.max(30,(enemy.definition.bodyRadius??12)*2),48))continue;
       if(count<candidates.length){candidates[count].enemy=enemy;candidates[count].distance2=distance2;}
       else candidates.push({enemy,distance2});
       count++;
@@ -102,9 +112,8 @@ export class TargetingSystem {
   toggleLock(){
     if(this.locked){this.locked=null;this.manual=null;this.nextSelectionAt=0;this.publishLock();this.publishBoss();return;}
     const selected=this.selected;
-    const enemy=selected&&this.lockEligible(selected,TargetingSystem.acquireRange)
-      &&worldPointInView(this.scene,selected.x,selected.y,this.lockHeight(selected),48)?selected:this.nearest(TargetingSystem.acquireRange,true);
-    if(enemy)this.select(enemy);else this.scene.notify('No visible enemy in lock range.');
+    const enemy=selected&&this.lockEligible(selected,TargetingSystem.acquireRange)?selected:this.nearest(TargetingSystem.acquireRange,true);
+    if(enemy)this.select(enemy);else this.scene.notify('No visible enemy to lock.');
   }
   private publishLock(){
     const enemy=this.lockedTarget,next=enemy?{id:enemy.instanceId,name:enemy.definition.name}:null;
@@ -118,14 +127,14 @@ export class TargetingSystem {
     const locked=this.locked,now=this.scene.time.now;
     if(locked){
       const p=this.scene.player;
-      const airborne=locked.isAirborne&&locked.canRemainLocked;
       let valid=this.lockedTarget!==null&&p.hp>0&&this.scene.combatAllowed
-        &&(airborne||Math.hypot(locked.x-p.x,locked.y-p.y)<=TargetingSystem.breakRange);
-      if(valid&&airborne)this.lastClearAt=now;
-      else if(valid&&now>=this.sightCheckAt){
+        &&(locked.x-p.x)**2+(locked.y-p.y)**2<=TargetingSystem.breakRange**2;
+      if(valid&&now>=this.sightCheckAt){
         this.sightCheckAt=now+100;
-        if(this.scene.canSeeEnemy(locked)&&this.scene.hasClearPath(p.x,p.y,locked.x,locked.y))this.lastClearAt=now;
-        else if(now-this.lastClearAt>850)valid=false;
+        // Ground combat LOS is deliberately absent here. A wall may block a
+        // sword while the camera still tracks the chosen enemy.
+        if(this.lockOnScreen(locked))this.lastClearAt=now;
+        else if(now-this.lastClearAt>300)valid=false;
       }
       if(valid){this.selected=locked;this.publishBoss(true);return;}
       this.locked=null;this.manual=null;this.publishLock();

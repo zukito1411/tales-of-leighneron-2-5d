@@ -153,8 +153,8 @@ export class Enemy extends DepthSortedSprite {
   private wolfFlankSlot: number | null = null;
   private wolfHuntBearing = 0;
   get canBeTargeted(){return !this.dragonCombat?.airborne;}
-  /** A protected flight changes hit eligibility, not the player's chosen foe. */
-  get canRemainLocked(){return !this.dragonCombat?.airborne||this.dragonCombat.engagedWithPlayer;}
+  /** Tracking a visible foe is independent of its attack vulnerability or aggro. */
+  get canRemainLocked(){return this.isAlive;}
   get isAirborne(){return Boolean(this.dragonCombat?.airborne||this.bossCombat?.airborne);}
   get presentationElevation(){return this.bossCombat?.elevation??0;}
   get presentationLockVisual():Phaser.GameObjects.Sprite{return this.dragonCombat?.visual??(this.leapVisual?.active?this.leapVisual:this);}

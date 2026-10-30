@@ -11,7 +11,7 @@ import {segmentTouchesRect} from '../../data/settlementGeometry';
  * it is valid before chunks load, and never changes when the camera turns.
  * Structures with genuine gate/opening geometry keep their public passage;
  * wall curtains are covered by the dedicated exact fortification collision. */
-interface Obstacle {id:string; bounds:Rect; solids:Rect[]; front?:Rect; cover?:Rect; footY:number}
+interface Obstacle {id:string; bounds:Rect; solids:Rect[]; front?:Rect; cover?:Rect; rest?:Rect; footY:number}
 const union=(a:Rect,b:Rect):Rect=>({
   left:Math.min(a.left,b.left),right:Math.max(a.right,b.right),
   top:Math.min(a.top,b.top),bottom:Math.max(a.bottom,b.bottom),
@@ -64,19 +64,30 @@ export class ExteriorPlacement {
       // scenery, so their hanging arch must not close the actual aperture.
       const front=architecture&&!architecture.board&&!architecture.opening?.length?source:undefined;
       const bounds=solids.reduce((a,b)=>union(a,b),front??solids[0]);
-      entries.push({id:d.id,bounds:architecture?union(bounds,source):bounds,solids,front,cover:architecture&&!architecture.board?source:undefined,footY:d.world.y});
+      entries.push({id:d.id,bounds:architecture?union(bounds,source):bounds,solids,front,cover:architecture&&!architecture.board?source:undefined,
+        rest:architecture?.opening?.length?solids.reduce(union):undefined,footY:d.world.y});
     }
     this.index=new StaticBoundsIndex(entries);
   }
   /** Full character silhouette clearance, including structures not yet
    * streamed. No per-frame iteration over the world's authored content. */
-  blocksNpc(p:Vec2,excludeId?:string){
-    if(fortificationBlocksPoint(p.x,p.y,30))return true;
+  blocksNpc(p:Vec2,excludeId?:string,standing=false){
+    if(fortificationBlocksPoint(p.x,p.y,standing?44:30))return true;
     const feet={left:p.x-24,right:p.x+24,top:p.y-28,bottom:p.y+8};
     const person={left:p.x-30,right:p.x+30,top:p.y-96,bottom:p.y+8};
     return this.index.any(person,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(feet,s))||
+      Boolean(standing&&o.rest&&overlaps(person,o.rest))||
       Boolean(o.front&&o.footY>p.y&&overlaps(person,o.front!))));
+  }
+  /** Public access uses player-sized swept feet and physical supports only.
+   * Standing exclusions must never seal an otherwise open gateway. */
+  blocksAccessPath(from:Vec2,to:Vec2,excludeId?:string){
+    if(fortificationBlocksPath(from,to,12))return true;
+    const bounds={left:Math.min(from.x,to.x)-11,right:Math.max(from.x,to.x)+11,
+      top:Math.min(from.y,to.y)-24,bottom:Math.max(from.y,to.y)+2};
+    return this.index.any(bounds,o=>o.id!==excludeId&&o.solids.some(s=>segmentTouchesRect(from,to,{
+      left:s.left-11,right:s.right+11,top:s.top-2,bottom:s.bottom+24})));
   }
   /** Hostile feet use their real diameter, including bosses and alpha wolves.
    * Spawn clearance also excludes concealed positions under building artwork;
@@ -102,6 +113,7 @@ export class ExteriorPlacement {
     const item={left:p.x-23,right:p.x+23,top:p.y-43,bottom:p.y+12};
     return this.index.any(item,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(item,s))||
+      Boolean(o.rest&&overlaps(item,o.rest))||
       Boolean(o.front&&o.footY>p.y&&overlaps(item,o.front!))));
   }
 }

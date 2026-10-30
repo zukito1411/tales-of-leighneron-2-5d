@@ -35,6 +35,7 @@ import { BOSS_RESPAWN_MS, encounterRewardFactor } from '../../data/enemyTiers';
 import {restoredEnemyHealth} from '../systems/enemyHealth';
 import {authoredRoofs} from '../systems/authoredRoofs';
 import {ExteriorPlacement} from '../systems/ExteriorPlacement';
+import {ExteriorAccess} from '../systems/ExteriorAccess';
 import { LEIGNERON } from '../../data/player';
 import { NPCS, NPC_BY_ID } from '../../data/npcs';
 import {npcWorldPosition,npcEscortArrival} from '../../data/npcPositions';
@@ -108,6 +109,9 @@ import {WILDERNESS_SITES} from '../../data/wildernessSites';
 import { creatureFitsHabitat, creatureHabitatWeight, hostileCapacity, MAX_LIVE_HOSTILES, MAX_PERSISTENT_SPAWNS, type CreatureHabitat, type EncounterAdmission } from '../systems/encounterAdmission';
 
 type ContentActor = Phaser.GameObjects.Sprite | Phaser.GameObjects.Text;
+const exteriorQuestObject=(d:ContentDefinition):d is InteractableContentDefinition=>
+  (d.kind==='interactable'||d.kind==='loot-container'||d.kind==='harvestable')
+  &&Boolean(d.questTargetId||d.contractTownId)&&!d.portId&&!d.townShrineId;
 const authoredBosses = WORLD_CONTENT.filter(d => d.kind === 'creature' && d.bossId);
 const authoredClearStages=Object.values(QUEST_BY_ID).flatMap(quest=>quest.objectives.flatMap(objective=>
   objective.killContentPrefix?[{questId:quest.id,objective}]:[]));
@@ -131,6 +135,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   // Authored structure collision is available even before its scenery chunk streams.
   private readonly exteriorPlacement=new ExteriorPlacement(WORLD_CONTENT);
   private readonly questObjectSlots=new Map<string,Vec2>();
+  private readonly exteriorAccess=new ExteriorAccess(this.worldGenerator,this.exteriorPlacement,
+    (x,y)=>this.game.registry.get('presentation')==='three-2.5d'
+      ?walkSurfaceHeight(x,y)??this.presentationTerrain.height(x,y):0);
+  private escortDestination:Vec2|null=null;
   private chunkManager!: ChunkManager;
   private dayNight!: DayNightSystem;
   private weather!:WeatherSystem;
@@ -174,10 +182,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active
       ?this.player:this.cameras.main.midPoint;
   }
-  private interactionNpc?:Npc;
-  get presentationInteractionTarget(){
-    const npc=this.interactionNpc;
-    return this.player?.active&&npc?.active&&npc.visible&&Math.hypot(npc.x-this.player.x,npc.y-this.player.y)<=180?npc:undefined;
+  get presentationOcclusionSubject(){
+    return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active&&!this.passage?.active
+      ?this.player:undefined;
   }
   private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
   get presentationLockedTarget(){
@@ -560,7 +567,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   beginCinematicView(){
     this.aliceCompanion?.pauseForStory();
     this.interiors.beginCinematic();this.prepareStoryActors();this.targeting.clear();
-    this.questGuide.clear();this.questGuide.setVisible(false);this.questMarker.setVisible(false);this.spearProjectiles.clear();this.wildlife.reset();this.volcanicTremor.pause();
+    this.questGuide.setVisible(false);this.questMarker.setVisible(false);this.spearProjectiles.clear();this.wildlife.reset();this.volcanicTremor.pause();
   }
   prepareCinematicShot(shot:StoryShot){return this.interiors.showCinematicLocation(this.cinematicLocation(shot)??null);}
   restoreCinematicLocation(){return this.interiors.restoreCinematicLocation();}
@@ -612,7 +619,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return actor?{x:actor.x,y:actor.y-35}:undefined;
   }
   prepareStoryActors(){for(const npc of this.npcs)if(!npc.definition.formation)npc.storyRest();}
-  escortArrival(){return this.safeExteriorNpcDestination(npcEscortArrival())??npcEscortArrival();}
+  escortArrival():Vec2|null {
+    // One validated, stable destination for the escort, reload and quest guide.
+    // Occupants walking through it must not move the destination mid-journey.
+    return this.escortDestination??=this.findExteriorSlot(npcEscortArrival(),'npc','escort:tovin-reed',undefined,false,undefined,false);
+  }
   recordTraining(targetId:string) {
     if(this.inInterior)return;
     const target=this.contentManager.getActor('training:highmere-target');
@@ -665,58 +676,65 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return point;
   }
   npcCanStandAt(x:number,y:number,exclude?:Npc,regional=false):boolean {
-    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y})
+    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y},undefined,true)
       &&!this.isBlockedByBuilding(x,y)
       &&!this.isNpcObscured(x,y,regional||Boolean(exclude?.usesRegionalPresentation))
       &&this.npcs.every(n=>!n.active||n===exclude||(npcMayPatrol(n.definition)?Math.hypot(n.x-x,n.y-y)>=64:npcPersonalSpace(n,{x,y})))
       &&(!this.player?.active||Math.hypot(this.player.x-x,this.player.y-y)>=52);
   }
 
-  /** Nearby, deterministic exterior placement; no dependency on which walls
-   * happen to have loaded. Called on admission or scheduled destination change,
-   * never on the 60 fps rendering path. */
-  private findExteriorSlot(preferred:Vec2,kind:'npc'|'quest',id?:string,actor?:Npc,offRoad=false):Vec2|null{
+  /** Placement and public-access probes resume within the shared work budget.
+   * Never substitute an unchecked anchor when a search is pending or fails. */
+  private findExteriorSlot(preferred:Vec2,kind:'npc'|'quest',id?:string,actor?:Npc,offRoad=false,
+    definition?:NpcDefinition,crowd=true):Vec2|null{
     const region=this.worldGenerator.getRegionAt(preferred.x,preferred.y);
+    const regional=Boolean(definition?.settlementResident||definition&&citizenModel(definition)!==undefined||actor?.usesRegionalPresentation);
     const fits=(p:Vec2)=>{
       if(this.worldGenerator.getRegionAt(p.x,p.y)!==region||!this.worldGenerator.isWalkable(p.x,p.y))return false;
-      if(kind==='quest')return !this.exteriorPlacement.blocksQuestItem(p,id??'')&&!this.isBlockedByBuilding(p.x,p.y);
-      if(this.exteriorPlacement.blocksNpc(p)||this.isBlockedByBuilding(p.x,p.y)
-        ||this.isNpcObscured(p.x,p.y,Boolean(actor?.usesRegionalPresentation)))return false;
-      if(offRoad&&actor&&!npcStandingOffRoad(actor.definition,p))return false;
-      if(this.npcs.some(n=>n.active&&n!==actor&&Math.hypot(n.x-p.x,n.y-p.y)<60))return false;
-      if(this.player?.active&&Math.hypot(this.player.x-p.x,this.player.y-p.y)<52)return false;
+      if(kind==='quest'){
+        if(this.exteriorPlacement.blocksQuestItem(p,id??'')||this.isBlockedByBuilding(p.x,p.y))return false;
+        if(this.npcs.some(n=>n.active&&!npcPersonalSpace(n,p)))return false;
+        for(const [other,point] of this.questObjectSlots)if(other!==id&&Math.hypot(point.x-p.x,point.y-p.y)<64)return false;
+      }
+      if(kind==='npc'&&(this.exteriorPlacement.blocksNpc(p,undefined,true)||this.isBlockedByBuilding(p.x,p.y)
+        ||this.isNpcObscured(p.x,p.y,regional)))return false;
+      for(const [other,entry] of this.interactables)if(other!==id&&entry.actor.active&&entry.actor.visible
+        &&Math.hypot(entry.actor.x-p.x,entry.actor.y-p.y)<60)return false;
+      const npc=definition??actor?.definition;
+      if(offRoad&&npc&&!npcStandingOffRoad(npc,p))return false;
+      if(crowd&&this.npcs.some(n=>n.active&&n!==actor&&!npcPersonalSpace(n,p)))return false;
+      if(kind==='npc'&&crowd&&this.player?.active&&Math.hypot(this.player.x-p.x,this.player.y-p.y)<52)return false;
       return true;
     };
-    if(fits(preferred))return {...preferred};
-    for(const radius of [48,72,96,128,176,224,288,352,448,576,768,960,1200,1536]){
-      const count=radius>=448?32:16;
-      for(let i=0;i<count;i++){
-        const angle=Math.PI/2+i*2*Math.PI/count;
-        const p={x:Math.round(preferred.x+Math.cos(angle)*radius),y:Math.round(preferred.y+Math.sin(angle)*radius)};
-        if(fits(p))return p;
+    const access=this.exteriorAccess;
+    function* candidates():Generator<Vec2,void>{
+      yield {...preferred};
+      for(const radius of [48,72,96,128,176,224,288,352,448,576,768,960,1200,1536]){
+        const count=radius>=448?32:16;
+        for(let i=0;i<count;i++){
+          const angle=Math.PI/2+i*2*Math.PI/count;
+          yield {x:Math.round(preferred.x+Math.cos(angle)*radius),y:Math.round(preferred.y+Math.sin(angle)*radius)};
+        }
       }
     }
-    return null;
+    function* search():Generator<void,Vec2|null>{
+      for(const p of candidates()){
+        if(fits(p)&&(yield* access.reachable(p,kind==='quest'?id:undefined)))return p;
+        yield;
+      }
+      return null;
+    }
+    const key=kind+':'+(id??actor?.definition.id??'anchor')+':'+preferred.x+':'+preferred.y+':'+offRoad+':'+crowd;
+    return access.request(key,search,fits,this.time.now);
   }
-  /** NPC schedules and quest escorts must not send characters back through a
-   * wall after we have repaired their initial spawn. */
+  /** Schedules wait for a validated destination instead of falling back into
+   * a wall. Callers retain their current safe position while work is pending. */
   safeExteriorNpcDestination(target:Vec2,npc?:Npc){
-    return this.findExteriorSlot(target,'npc',undefined,npc)??(npc?{x:npc.x,y:npc.y}:null);
+    return this.findExteriorSlot(target,'npc',undefined,npc,false,undefined,false);
   }
   private safeNpcSpawn(preferred:Vec2,definition:NpcDefinition,regional=false):Vec2|null{
     const actor=this.npcs.find(n=>n.active&&n.definition.id===definition.id);
-    const area=this.findExteriorSlot(preferred,'npc',undefined,actor);
-    if(!area)return null;
-    if(!regional||npcStandingOffRoad(definition,area))return area;
-    // Preserve the long-standing rule keeping regional townsfolk off streets.
-    for(const radius of [64,96,128,176,224,288,352,448,576,768,960]){
-      for(let i=0;i<16;i++){
-        const theta=Math.PI/2+i*Math.PI/8;
-        const p={x:Math.round(preferred.x+Math.cos(theta)*radius),y:Math.round(preferred.y+Math.sin(theta)*radius)};
-        if(npcStandingOffRoad(definition,p)&&this.npcCanStandAt(p.x,p.y,actor,true))return p;
-      }
-    }
-    return null;
+    return this.findExteriorSlot(preferred,'npc','npc:'+definition.id,actor,regional,definition);
   }
 
   create() {
@@ -732,6 +750,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.regionalNpcSlots.clear();
     this.regionalNpcRetryAt.clear();
     this.questObjectSlots.clear();
+    this.exteriorAccess.clear();this.escortDestination=null;
     this.spearProjectiles=new SpearProjectileSystem(this);
     this.m14Art=new M14ArtResidency(this,id=>{
       for(const enemy of this.enemies)if(enemy.active&&enemy.definition.id===id)return true;
@@ -844,7 +863,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       initialState: initialContentState,
       keepActive:(definition,actor)=>definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID&&aliceIsFollowing(useGameStore.getState().storyFlags)
         ||actor instanceof Enemy&&actor.active&&actor.isAlive&&Math.hypot(actor.x-this.player.x,actor.y-this.player.y)
-          <=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384),
+          <=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384,
+            actor===this.targeting?.lockedTarget?TargetingSystem.breakRange:0),
       canActivate: (definition, runtime) => {
         if(definition.kind==='creature'&&this.storyCombatActive)return false;
         if(definition.kind==='npc'&&NPC_INTERIOR_BY_ID[definition.npcId])return false;
@@ -857,13 +877,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           const preferred=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime
             :questReturned?this.escortArrival()
             :npcMayPatrol(npc)||npc.formation||npc.id==='tovin-reed'?runtime:definition.world;
+          if(!preferred)return false;
           const point=this.safeNpcSpawn(preferred,npc,regional);
           if(point){this.regionalNpcSlots.set(definition.id,point);this.regionalNpcRetryAt.delete(definition.id);}
           else this.regionalNpcRetryAt.set(definition.id,this.time.now+1000);
           return Boolean(point); // All exterior NPCs, including quest NPCs.
         }
-        if(definition.kind==='interactable'&&(definition.questTargetId||definition.contractTownId)
-          &&!definition.portId&&!definition.townShrineId){
+        if(exteriorQuestObject(definition)){
           const preferred={x:runtime.x,y:runtime.y};
           const point=this.findExteriorSlot(preferred,'quest',definition.id);
           if(!point)return false; // Never spawn a quest item inside a closed wall.
@@ -994,8 +1014,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       (this.player.body as Phaser.Physics.Arcade.Body).reset(safe.x,safe.y);this.lastSafe={...safe};
       this.chunkManager.update(safe.x,safe.y,true);this.contentManager.update(safe.x,safe.y);
     }
-    this.questGuide = this.add.graphics().setDepth(9100).setName('quest-direction-guide');
-    this.questMarker = this.add.graphics().setDepth(9100).setName('quest-target-marker');
+    this.questGuide = this.add.graphics().setDepth(9100).setName('quest-direction-guide').setVisible(false);
+    // Prepare each exact shape once. Movement/heading changes only transform
+    // instances; no resizing canvas, raster upload or GPU texture replacement.
+    this.questGuide.lineStyle(2,0x34210d,.85).fillStyle(0xffd976,.95)
+      .beginPath().moveTo(0,-8).lineTo(-6,5).lineTo(6,5).closePath().fillPath().strokePath();
+    this.questMarker = this.add.graphics().setDepth(9100).setName('quest-target-marker').setVisible(false);
+    this.questMarker.lineStyle(2,0xffd976,.8).strokeEllipse(0,2,28,10)
+      .fillStyle(0xffdf91,.95).fillPoints([{x:0,y:-116},{x:5,y:-110},{x:0,y:-104},{x:-5,y:-110}],true);
     this.updateNavigation();
     // Older interrupted death transitions may have saved the hero at 0 HP.
     // Recover that save on the next update, without resetting game progress.
@@ -1050,15 +1076,20 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
 
   update(time:number,delta:number){
-    if(!this.registry.get('presentationDiagnostics')){this.updateWorld(time,delta);return;}
-    const start=performance.now();
-    try{this.updateWorld(time,delta);}finally{this.registry.set('simulationCpuMs',performance.now()-start);}
+    const diagnostics=this.registry.get('presentationDiagnostics'),start=diagnostics?performance.now():0;
+    try{this.updateWorld(time,delta);}finally{
+      this.enemySounds?.update(time);
+      if(diagnostics)this.registry.set('simulationCpuMs',performance.now()-start);
+    }
   }
   private updateWorld(time: number, delta: number) {
     this.resolveGroundAfterPhysics=false;
     if(this.registry.get('presentationInitialViewReady')===false){
       this.physics.world.pause();this.player.discardActions();return;
     }
+    const work=frameWork(this.game),placementStart=performance.now();
+    this.exteriorAccess.advance(this.time.now,work.remaining('actors',.55));
+    work.charge('actors',placementStart);
     if(this.pendingRespawn){
       const death=this.pendingRespawn;this.pendingRespawn=null;
       this.respawnPlayer(death);
@@ -1138,7 +1169,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       const store=useGameStore.getState();
       if(objectiveIsCurrent(store.quests,'escort','tovin-reed')) {
         const witness=this.npcs.find(n=>n.definition.id==='tovin-reed');
-        if(witness&&!witness.escorting)witness.beginEscort(this.escortArrival());
+        if(witness&&!witness.escorting){
+          const arrival=this.escortArrival();if(arrival)witness.beginEscort(arrival);
+        }
       }
       for (const npc of this.npcs) if (npc.active) npc.updatePatrol(time,delta);
       for (const enemy of this.enemies) {
@@ -2085,7 +2118,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private updateNavigation() {
     const store = useGameStore.getState();
     this.questTarget = resolveQuestTarget(store.quests, store.worldContent, this.player,
-      id => this.contentManager.getActor(id),store.trackedQuestId,undefined,store.storyFlags);
+      id => this.contentManager.getActor(id),store.trackedQuestId,undefined,store.storyFlags,undefined,()=>this.escortArrival());
     const markers: NavigationMarker[] = [];
     for(const home of PLAYER_HOMES)if(housingFor(store.housing,home.id).owned)markers.push({id:'player-home:'+home.id,kind:'building',service:'home',label:home.homeName,...home.door});
     markers.push(...this.dungeons.exteriorMarkers());
@@ -2114,7 +2147,6 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     for(const enemy of this.enemies)if(this.storyActor(enemy)&&this.targeting.eligible(enemy))markers.push({
       id:enemy.instanceId,kind:'enemy',label:enemy.definition.name,x:enemy.x,y:enemy.y});
     let interaction: string | null = null, distance = 72;
-    this.interactionNpc=undefined;
     const building=this.interiors.nearest(this.player.x,this.player.y);
     if(building){const home=PLAYER_HOME_BY_ID[building.id];interaction=home?housingFor(store.housing,home.id).owned?`Enter ${home.homeName}`:`Home for sale · Speak with ${home.agentName}`:`Enter ${building.name}`;distance=0;}
     const elarionShrine=this.nearbyElarionShrine(this.player.x,this.player.y);
@@ -2125,7 +2157,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       // the expensive talk line-of-sight probe or offer a nonfunctional prompt.
       if(npc.definition.id.startsWith('road-life:'))continue;
       const d = Phaser.Math.Distance.Between(this.player.x,this.player.y,npc.x,npc.y);
-      if (d < distance && this.hasClearPath(this.player.x,this.player.y,npc.x,npc.y)) { distance = d; interaction = `Talk to ${npc.definition.name}`;this.interactionNpc=npc; }
+      if (d < distance && this.hasClearPath(this.player.x,this.player.y,npc.x,npc.y)) { distance = d; interaction = `Talk to ${npc.definition.name}`; }
     }
     if (!interaction) for (const { definition,actor } of this.interactables.values()) {
       const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;
@@ -2141,35 +2173,16 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
 
   private drawQuestGuide(blocked: boolean) {
-    this.questGuide.clear().setVisible(!blocked);
-    this.questMarker.clear().setVisible(!blocked);
-    const target = this.questTarget;
-    if (!target || blocked) return;
-    const live = target.type==='escort'?target:this.contentManager.getActor(target.contentId) ?? target;
-    const approach=live;
-    const angle = questBearing(this.player,approach), dx = Math.sin(angle), dy = -Math.cos(angle);
-    const approachDistance=Phaser.Math.Distance.Between(this.player.x,this.player.y,approach.x,approach.y);
-    const arrived=Phaser.Math.Distance.Between(this.player.x,this.player.y,live.x,live.y)<=72
-      &&this.hasClearPath(this.player.x,this.player.y,live.x,live.y,this.contentManager.getActor(target.contentId))
+    const target=this.questTarget,show=Boolean(target)&&!blocked;
+    this.questGuide.setVisible(show);this.questMarker.setVisible(show);
+    if(!target||blocked)return;
+    const live=target.type==='escort'?target:this.contentManager.getActor(target.contentId)??target;
+    const angle=questBearing(this.player,live),distance=Math.hypot(live.x-this.player.x,live.y-this.player.y);
+    const arrived=distance<=72&&this.hasClearPath(this.player.x,this.player.y,live.x,live.y,this.contentManager.getActor(target.contentId))
       &&this.worldGenerator.isWalkablePath(this.player,live);
-    if (approachDistance>10&&!arrived) {
-      // Keep vector surfaces local: distant objectives must not create a
-      // viewport-sized raster/upload spanning the hero and the target.
-      this.questGuide.setPosition(this.player.x,this.player.y);
-      const x = dx * 48, y = dy * 48;
-      this.questGuide.lineStyle(2,0x34210d,.85).fillStyle(0xffd976,.95);
-      this.questGuide.beginPath(); this.questGuide.moveTo(x + dx * 8,y + dy * 8);
-      this.questGuide.lineTo(x - dx * 5 - dy * 6,y - dy * 5 + dx * 6);
-      this.questGuide.lineTo(x - dx * 5 + dy * 6,y - dy * 5 - dx * 6);
-      this.questGuide.closePath(); this.questGuide.fillPath(); this.questGuide.strokePath();
-    }
-    const ground=groundMarkerPosition(live);
+    this.questGuide.setVisible(distance>10&&!arrived)
+      .setPosition(this.player.x+Math.sin(angle)*48,this.player.y-Math.cos(angle)*48).setRotation(angle);
     this.questMarker.setPosition(live.x,live.y);
-    this.questMarker.lineStyle(2,0xffd976,.8).strokeEllipse(ground.x-live.x,ground.y-live.y,28,10);
-    this.questMarker.fillStyle(0xffdf91,.95).fillPoints([
-      { x: 0, y: -116 }, { x: 5, y: -110 },
-      { x: 0, y: -104 }, { x: -5, y: -110 },
-    ],true);
   }
 
   private onBlur() { this.focused = false;this.screenTransition.setPaused(true);this.panelActions.clear();this.player?.resetInput();this.volcanicTremor?.pause();this.wildlife?.reset(); }
@@ -2178,8 +2191,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private createContentActor(definition: ContentDefinition, state: ContentState): ContentActor {
     let { x, y } = definition.kind==='interactable'&&definition.portId
       ?PORT_BY_ID[definition.portId].quay:state;
-    if(definition.kind==='interactable'&&(definition.questTargetId||definition.contractTownId)
-      &&!definition.portId&&!definition.townShrineId){
+    if(exteriorQuestObject(definition)){
       const moved=this.questObjectSlots.get(definition.id)??this.findExteriorSlot({x,y},'quest',definition.id);
       this.questObjectSlots.delete(definition.id);
       if(!moved)throw new Error('No valid exterior position for quest object '+definition.id);
@@ -2205,7 +2217,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       const admitted=this.regionalNpcSlots.get(definition.id);
       this.regionalNpcSlots.delete(definition.id);
       const regional=Boolean(npcDefinition.settlementResident||citizenModel(npcDefinition)!==undefined);
-      const npcPosition=admitted??this.safeNpcSpawn(position,npcDefinition,regional);
+      const npcPosition=admitted??(position?this.safeNpcSpawn(position,npcDefinition,regional):null);
       if(!npcPosition)throw new Error('No valid exterior position for NPC '+definition.id);
       const authoredHome=npcWorldPosition(npcDefinition,'home');
       const safeHome=this.safeExteriorNpcDestination(authoredHome)??npcPosition;
@@ -2589,6 +2601,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('tree sway',()=>this.treeSway?.destroy());
     release('water surface',()=>this.waterSurface?.destroy());
     release('enemy navigation',()=>this.enemyNavigation.clear());this.enemyPlacementRetryAt.clear();
+    this.exteriorAccess.clear();this.escortDestination=null;this.questObjectSlots.clear();
+    this.regionalNpcSlots.clear();this.regionalNpcRetryAt.clear();
     release('world sprites',()=>this.worldSprites?.destroy());
     release('flagship art',()=>this.flagshipArt?.destroy());
   }

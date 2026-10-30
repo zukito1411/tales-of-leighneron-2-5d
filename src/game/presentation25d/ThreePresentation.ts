@@ -16,6 +16,7 @@ import {
   type Intersection,type Object3D,type Texture,
 } from 'three';
 import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
+import {ForegroundOcclusion,FOREGROUND_OPACITY} from './ForegroundOcclusion';
 import {createCombatEffectGeometry,combatEffectPoint,type CombatEffectShape} from './CombatEffectGeometry';
 import {OrbitCamera} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
@@ -64,14 +65,14 @@ interface StaticPacket {
 interface CameraEffectChannels {red:number;green:number;blue:number;alpha:number}
 interface PresentedTileSprite extends Phaser.GameObjects.TileSprite {displayFrame:Phaser.Textures.Frame}
 interface PresentationScene extends Phaser.Scene {
-  readonly presentationFocus?:Readonly<{x:number;y:number}>;
+  readonly presentationFocus?:Readonly<{x:number;y:number;presentationElevation?:number}>;
   readonly inInterior?:boolean;
   readonly presentationHeightAt?:(x:number,y:number)=>number;
   readonly presentationTerrain?:TerrainHeightField;
   readonly groundHeightAt?:(x:number,y:number)=>number;
   readonly presentationControlsEnabled?:boolean;
   readonly presentationLockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
-  readonly presentationInteractionTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
+  readonly presentationOcclusionSubject?:Readonly<{x:number;y:number;presentationElevation?:number}>;
   readonly presentationPause?:()=>void;
   readonly presentationShadows?:GroundShadowSystem;
   readonly presentationWeather?:WeatherSystem;
@@ -109,6 +110,8 @@ export class ThreePresentation {
   private sceneGroundHeight:((x:number,y:number)=>number)|undefined;
   private readonly heightAt=(x:number,y:number)=>this.sceneGroundHeight?.(x,y)??(this.heightEnabled?(walkSurfaceHeight(x,y)??this.elevation.height(x,y)):0);
   private view:PresentationView|undefined;
+  private drawnSprites=new WeakMap<Phaser.GameObjects.GameObject,number>();
+  private readonly actorDrawn=(actor:Phaser.GameObjects.GameObject)=>this.drawnSprites.get(actor)===this.frame;
   private presentedScene:Phaser.Scene|undefined;
   private readonly screenCamera=new OrthographicCamera(0,1,0,1,-100,100);
   private readonly effectGeometry=new PlaneGeometry(1,1);
@@ -141,10 +144,10 @@ export class ThreePresentation {
   private readonly model=new Matrix4();
   private readonly p0=new Vector3();private readonly p1=new Vector3();private readonly p2=new Vector3();
   private readonly projected=new Vector3();
-  private readonly subject=new Vector3();
-  private readonly protectionPoint=new Vector3();
+  private readonly foreground=new ForegroundOcclusion();
+  private foregroundAlpha=new WeakMap<Phaser.GameObjects.GameObject,{frame:number;factor:number}>();
   private readonly furniturePosition={x:0,y:0,width:0,heading:0,lift:0};
-  private readonly cutaway={cutawayViewport:{value:new Vector2(1,1)},cutawaySubject:{value:new Vector4()},cutawayTarget:{value:new Vector4()}};
+  private readonly presentationUniforms={viewport:{value:new Vector2(1,1)}};
   private readonly projectedBounds={left:0,right:0,top:0,bottom:0,depth:0};
   private readonly localRect:LocalRect={left:0,top:0,width:0,height:0};
   private readonly atlasUV=new Float64Array(4);
@@ -278,19 +281,14 @@ export class ThreePresentation {
     const lean=billboardLean(this.orbit.pitch);this.atmosphere.billboardPitch.value.set(Math.cos(lean),Math.sin(lean));
     this.pitchSin=Math.sin(this.orbit.pitch);this.pitchCos=Math.cos(this.orbit.pitch);this.pitchTan=Math.tan(this.orbit.pitch);
     if(!this.view)this.view={camera:this.orbit.camera,native:camera,yaw:this.orbit.yaw,pitch:this.orbit.pitch,
-      bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt,visibility:this.visibility};
+      bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt,visibility:this.visibility,actorDrawn:this.actorDrawn};
     else{this.view.native=camera;this.view.yaw=this.orbit.yaw;this.view.pitch=this.orbit.pitch;}
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
-    this.subject.set(focus.x,this.heightAt(focus.x,focus.y)+28,focus.y);this.leanPoint(this.subject,this.heightAt(focus.x,focus.y));this.subject.project(this.orbit.camera);
-    this.cutaway.cutawayViewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
-    if(presentation.presentationControlsEnabled)this.updateCutaway(this.cutaway.cutawaySubject.value,focus,90);
-    else this.cutaway.cutawaySubject.value.w=0;
-    // Reuse the existing target cutaway for the nearby person offered by the
-    // interaction system. No extra scan, shader pass or camera lock is needed.
-    const revealTarget=lockedTarget??presentation.presentationInteractionTarget;
-    if(revealTarget)this.updateCutaway(this.cutaway.cutawayTarget.value,revealTarget,Math.max(65,Math.min(420,revealTarget.displayHeight*.75)),revealTarget.presentationElevation??0);
-    else this.cutaway.cutawayTarget.value.w=0;
+    const subject=presentation.presentationOcclusionSubject;
+    this.presentationUniforms.viewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
+    this.foreground.begin(this.orbit.camera,subject,subject?this.heightAt(subject.x,subject.y):0,
+      this.atmosphere.billboardPitch.value.x,this.atmosphere.billboardPitch.value.y,this.yawCos,this.yawSin);
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     if(this.heightEnabled&&!this.elevation.initialized){
       // POST_RENDER still fires on an undrawn preparation tick. Keep the
@@ -371,17 +369,6 @@ export class ThreePresentation {
       work.charge('elevation',elevationStart);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
-  }
-
-  private updateCutaway(out:Vector4,target:{x:number;y:number},height:number,elevation=0){
-    const camera=this.orbit.camera;
-    const floor=this.heightAt(target.x,target.y)+elevation;
-    this.protectionPoint.set(target.x,floor+height*.45,target.y);this.leanPoint(this.protectionPoint,floor);this.protectionPoint.applyMatrix4(camera.matrixWorldInverse);
-    const depth=-this.protectionPoint.z;
-    if(depth<=camera.near){out.w=0;return;}
-    const radius=Math.max(42/Math.max(1,this.height),Math.min(.65,height/(2*depth*Math.tan(camera.fov*Math.PI/360))*.8));
-    this.protectionPoint.set(target.x,floor+height*.45,target.y);this.leanPoint(this.protectionPoint,floor);this.protectionPoint.project(camera);
-    out.set((this.protectionPoint.x+1)/2,(this.protectionPoint.y+1)/2,depth,radius);
   }
 
   private syncDiagnosticsPanel(){
@@ -687,15 +674,9 @@ export class ThreePresentation {
         rz*span,0,rx*thickness,anchorY,0,0,0,1);
     }
     if(plane!=='screen'&&!hint?.overlay&&!this.inView(followsTerrain,roomWall?.5:volumeDepth,furnitureVolume?furniture:undefined,Boolean(roomWall),houseVolume?house?.floorLift??0:0,staticImage&&!house&&!furniture&&plane==='upright'?anchorHeight:undefined))return;
-    // Fade only foreground scenery whose projected rectangle covers the subject.
-    // The original art and depth remain intact outside that small sight line.
-    if(plane==='upright'&&!hint?.overlay&&!houseVolume&&!furniture&&!wallDepth&&(!hint?.anchor||hint.wall)
-      &&object.getData('presentation25dPlayerVisual')!==true
+    const fadeEligible=plane==='upright'&&!hint?.overlay&&!emissionOwner&&object.getData('presentation25dPlayerVisual')!==true
       &&!(object instanceof Phaser.GameObjects.Text)
-      &&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body)){
-      const b=this.projectedBounds;
-      if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
-    }
+      &&(houseVolume||furnitureVolume||wallDepth>0||!hint?.anchor&&!(object instanceof Phaser.GameObjects.Sprite&&'body' in object&&object.body));
     const overlay=plane==='screen'||hint?.overlay===true;
     const additive='blendMode' in object&&object.blendMode===Phaser.BlendModes.ADD;
     // Solid floors render in the opaque pass. Ground decals blend afterward
@@ -714,7 +695,9 @@ export class ThreePresentation {
     const billboard=staticImage&&!house&&!furniture&&plane==='upright'&&!object.input?.enabled;
     const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.cutaway,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
+    const factor=emissionOwner?this.foregroundFactor(emissionOwner):fadeEligible?this.sceneryOpacity(object,batch):1;
+    const drawingBatch=factor<1?this.foregroundBatch(key,batch):batch;
     const colors=this.colors;
     if('tintTopLeft' in object&&typeof object.tintTopLeft==='number'){
       colors[0]=object.tintTopLeft;colors[1]=object.tintTopRight;colors[2]=object.tintBottomLeft;colors[3]=object.tintBottomRight;
@@ -727,7 +710,8 @@ export class ThreePresentation {
       this.neutralModel.copy(this.model);this.rotateModel(this.neutralModel,anchorX,anchorY,-this.orbit.yaw);submitted=this.neutralModel;
       repeat=this.tileRepeat;repeat[0]=anchorX;repeat[1]=anchorY;repeat[2]=anchorHeight;repeat[3]=0;
     }
-    batch.add(submitted,uv,colors,alpha*camera.alpha,object,rect,this.frame,repeat);
+    drawingBatch.add(submitted,uv,colors,alpha*camera.alpha*factor,object,rect,this.frame,repeat);
+    if(!overlay&&object instanceof Phaser.GameObjects.Sprite)this.markDrawnSprite(object);
     if(staticImage&&source){
       if(houseVolume||furnitureVolume)this.staticModelBuilds++;
       this.staticPackets.set(object,{
@@ -790,14 +774,42 @@ export class ThreePresentation {
       ||packet.colors[0]!==object.tintTopLeft||packet.colors[1]!==object.tintTopRight||packet.colors[2]!==object.tintBottomLeft||packet.colors[3]!==object.tintBottomRight)return false;
     this.model.copy(packet.matrix);if(packet.billboard)this.rotateModel(this.model,packet.x,packet.y,this.orbit.yaw);
     if(!this.inView(packet.ground,packet.backDepth,packet.furniture,false,packet.heightLift,packet.billboard?packet.repeat?.[2]:undefined))return true;
-    if(packet.billboard&&object.getData('presentation25dPlayerVisual')!==true){
-      const b=this.projectedBounds;if(b.depth<this.subject.z-.00001&&this.subject.x>b.left&&this.subject.x<b.right&&this.subject.y>b.top&&this.subject.y<b.bottom)alpha*=.28;
-    }
     const batch=this.batches.get(packet.key),texture=this.textures.get(packet.source,this.frame);
     if(!batch||texture!==packet.texture||packet.alpha!==alpha*camera.alpha)return false;
-    batch.add(packet.matrix,packet.uv,packet.colors,packet.alpha,object,packet.rect,this.frame,packet.repeat);
+    const eligible=!packet.ground&&(Boolean(packet.modelState)||packet.billboard)&&object.getData('presentation25dPlayerVisual')!==true;
+    const factor=eligible?this.sceneryOpacity(object,batch):1;
+    const drawingBatch=factor<1?this.foregroundBatch(packet.key,batch):batch;
+    drawingBatch.add(packet.matrix,packet.uv,packet.colors,packet.alpha*factor,object,packet.rect,this.frame,packet.repeat);
     if(packet.modelState)this.staticModelHits++;
+    if(object instanceof Phaser.GameObjects.Sprite)this.markDrawnSprite(object);
     camera.addToRenderList(object);return true;
+  }
+
+  private sceneryOpacity(object:Phaser.GameObjects.GameObject,batch:SpriteBatch){
+    const blocked=batch.mesh.userData.presentationOccluder
+      ?this.foreground.modelBlocked(batch.mesh.geometry,this.model,this.projectedBounds)
+      :this.foreground.billboardBlocked(this.projectedBounds);
+    const factor=blocked?FOREGROUND_OPACITY:1;
+    let saved=this.foregroundAlpha.get(object);
+    if(!saved){saved={frame:this.frame,factor};this.foregroundAlpha.set(object,saved);}
+    else{saved.frame=this.frame;saved.factor=factor;}
+    return factor;
+  }
+  private foregroundFactor(owner:Phaser.GameObjects.GameObject){
+    const saved=this.foregroundAlpha.get(owner);return saved?.frame===this.frame?saved.factor:1;
+  }
+  private foregroundBatch(key:string,base:SpriteBatch){
+    const fadedKey=key+':foreground';let batch=this.batches.get(fadedKey);
+    if(!batch){batch=base.createForegroundVariant();this.batches.set(fadedKey,batch);}
+    // Keep the source geometry resident while its faded variant is in use.
+    base.lastUsed=this.frame;return batch;
+  }
+
+  private markDrawnSprite(object:Phaser.GameObjects.Sprite){
+    const b=this.projectedBounds;
+    // Rendering preloads/culls with a 15% guard band. Lock visibility uses the
+    // actual viewport, so a fully offscreen sprite in that band is not visible.
+    if(b.right>=-1&&b.left<=1&&b.top<=1&&b.bottom>=-1)this.drawnSprites.set(object,this.frame);
   }
 
   private projectOverlayPoint(point:Vector3){
@@ -897,13 +909,9 @@ export class ThreePresentation {
       const object=entry?.object;
       const surface=hit.object instanceof Mesh?hit.object.geometry.getAttribute('surfaceRect'):undefined;
       const solidSurface=surface&&hit.face&&surface.getZ(hit.face.a)!==0;
-      if(hit.object.userData.presentationOccluder){
-        this.protectionPoint.copy(hit.point).applyMatrix4(this.orbit.camera.matrixWorldInverse);
-        const depth=-this.protectionPoint.z,u=(this.pointer.x+1)/2,v=(this.pointer.y+1)/2;
-        const revealed=[this.cutaway.cutawaySubject.value,this.cutaway.cutawayTarget.value].some(p=>p.w>0&&depth<p.z-6
-          &&Math.hypot((u-p.x)*this.width/this.height*1.5,v-p.y)<p.w*.66);
-        if(revealed)continue;
-      }
+      // Visible interactable furnishings retain their own click target. A
+      // faded, non-interactive wall must allow selecting the actor behind it.
+      if(hit.object.userData.foregroundFaded&&!object?.input?.enabled)continue;
       // Picking a transparent corner of the original house artwork must not
       // block selection. This reads one prepared canvas texel on clicks only,
       // never the WebGL framebuffer or an image scan in the frame loop.
@@ -1005,6 +1013,7 @@ export class ThreePresentation {
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();
+    this.drawnSprites=new WeakMap();this.foregroundAlpha=new WeakMap();this.foreground.clear();
     this.hits.length=0;this.pickable.length=0;this.transform.destroy();this.parentTransform.destroy();
   }
 }

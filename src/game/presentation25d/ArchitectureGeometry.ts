@@ -294,8 +294,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     door(.50,.015*W,smithy?.23:.29,doorHeight);
     for(const x of [.26,.74])window(X(x),windowBottom,.018*W,W*.12,windowHeight);
     sideWindows(.12,.88,eave);
-    // A lintel keeps the front legible as a complete wall,
-    // including when the existing character sight-line cutaway is active.
+    // A lintel keeps the front legible as a complete wall.
     beam([X(.12),eave-.02*H,.016*W],[X(.88),eave-.02*H,.016*W],.008,trim);
     if(smithy)chimney(.78,-D*.68,eave+H*.39,eave-.05*H);
     if(elf)for(const x of [.12,.88])leaf(X(x),eave-.11*H,.025*W,H*.11);

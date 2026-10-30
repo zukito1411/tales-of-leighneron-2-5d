@@ -46,14 +46,13 @@ Previously `lockedTarget` required `canBeTargeted`. Varkhul deliberately sets
 that false during flight to prevent ground attacks, so the next targeting update
 discarded the player's lock.
 
-Lock tracking and hit eligibility are now separate. A living, engaged airborne
-boss can remain locked through its flight, temporary ground obstruction and
-flight excursion beyond the usual ground break range. Varkhul's arena engagement
-still governs retention. Ground range/LOS rules resume after landing. Defeat,
-disengagement, deliberate unlock and normal scene/travel clearing still apply.
-Visible airborne targets can also be explicitly acquired within acquisition
-range. Camera protection and indicators account for the active visual's height.
-None of this permits hitting an invulnerable airborne dragon.
+Lock tracking and hit eligibility are separate. Explicit attention now uses
+submitted camera poses up to the existing world-view limit, including protected
+flight, without the old ground-distance/ground-LOS release rules. The viewport
+check has a brief grace period for edge and pose transitions. Ground attacks
+still reject airborne/invulnerable targets, out-of-range targets and cover.
+The current lock and foreground transparency policies are documented in
+[Camera clearance and target lock](CAMERA_LOCK_AND_ROUND_TOWERS.md).
 
 ## Boss leap attacks
 

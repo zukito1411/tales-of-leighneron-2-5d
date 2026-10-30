@@ -1,4 +1,5 @@
 import {applyNativePropReplacements} from './nativePropReplacements';
+import {addSettlementCommons} from './settlementCommons';
 import {fitAuthoredProps} from './authoredPropPlacement';
 import {propFitsHabitat} from '../game/systems/propHabitat';
 import {WorldGenerator} from '../game/systems/WorldGenerator';
@@ -462,6 +463,7 @@ for(const d of WORLD_CONTENT){
   if(position)d.world=position;
   boardPlacements.push(spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center'));
 }
+addSettlementCommons(SETTLEMENT_LAYOUTS,WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 export const CONTENT_BY_ID = Object.fromEntries(WORLD_CONTENT.map(d => [d.id, d])) as Record<string, ContentDefinition>;
 export function initialContentState(definition: ContentDefinition): ContentState {
   return { ...definition.world,

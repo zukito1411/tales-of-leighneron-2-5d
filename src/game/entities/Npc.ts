@@ -59,6 +59,8 @@ export class Npc extends DepthSortedSprite {
   private stalledMs=0;
   private previousPosition:Vec2;
   private escortGoal:Vec2|null=null;
+  private escortRouteRetryAt=0;
+  private routineRetryAt=0;
   // A temporary side step never consumes the original scheduled waypoint.
   private npcDetour:Vec2|null=null;
   private lastAvoidAttempt=0;
@@ -161,7 +163,7 @@ export class Npc extends DepthSortedSprite {
     }
   }
 
-  beginEscort(goal:Vec2) {this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
+  beginEscort(goal:Vec2) {this.escortRouteRetryAt=0;this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
   get escorting(){return this.escortGoal!==null;}
   get usesRegionalPresentation(){return this.regionalModel!==undefined||Boolean(this.definition.settlementResident);}
   storyRest(){
@@ -391,7 +393,10 @@ export class Npc extends DepthSortedSprite {
       if(Math.hypot(this.x-this.escortGoal.x,this.y-this.escortGoal.y)<28){
         this.escortGoal=null;this.route=[];this.target=null;this.routineAnchor={x:this.x,y:this.y};
         useGameStore.getState().progressQuest('escort',this.definition.id);scene.notify(`${this.definition.name} reaches the kitchen safely.`);
-      }else if(!this.target&&!this.route.length)this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.escortGoal),(a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+      }else if(!this.target&&!this.route.length&&time>=this.escortRouteRetryAt){
+        this.escortRouteRetryAt=time+750;
+        this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.escortGoal),(a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+      }
     } else if(!this.formationRejoining) {
       const hour=scene.getWorldHour();
       let routine=this.schedule.at(-1);
@@ -400,15 +405,19 @@ export class Npc extends DepthSortedSprite {
       const returned=this.definition.id==='tovin-reed'&&(story.quests['shadows-highmere']?.objectiveProgress.escort??0)>=1;
       const council=story.storyFlags['relief-joint-council']&&['maela-quill','nella-harrow'].includes(this.definition.id);
       const period=(routine?.startHour??0)+':'+returned+':'+Boolean(council);
-      if(period!==this.routineKey) {
-        this.routineKey=period;const location=returned?toLocal(scene.escortArrival()):council?{x:this.definition.id==='maela-quill'?160:-180,y:140}:npcSchedulePosition(this.definition,this.definition.schedule.findIndex(p=>p.startHour===routine?.startHour));
-        const desired=toWorld(location),safe=scene.inInterior?desired:scene.safeExteriorNpcDestination(desired,this);
-        // A repainted/rebuilt gate can invalidate yesterday's authored home or
-        // schedule anchor. Stay on clear ground if no nearby route is available.
-        this.routineAnchor=safe??{x:this.x,y:this.y};
-        this.target=null;this.npcDetour=null;this.returningHome=false;
-        this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
-          (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+      if(period!==this.routineKey&&time>=this.routineRetryAt) {
+        this.routineRetryAt=time+500;
+        const arrival=returned?scene.escortArrival():null;
+        const location=returned?(arrival?toLocal(arrival):null):council?{x:this.definition.id==='maela-quill'?160:-180,y:140}
+          :npcSchedulePosition(this.definition,this.definition.schedule.findIndex(p=>p.startHour===routine?.startHour));
+        const desired=location?toWorld(location):null;
+        const safe=desired?(scene.inInterior?desired:scene.safeExteriorNpcDestination(desired,this)):null;
+        if(safe){
+          this.routineKey=period;this.routineAnchor=safe;
+          this.target=null;this.npcDetour=null;this.returningHome=false;
+          this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
+            (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+        }
       }
     }
     if(!this.target&&this.route.length)this.target=this.route.shift()!;
