@@ -38,8 +38,8 @@ export function createHighmereResidents():NpcDefinition[]{
       :['Seed Keeper','Wainwright','Garden Provisioner','Grain Sorter'][i%4],point,home,social,i,c.district);
   }
   for(const [i,[x,y,name,title]] of ([
-    [-2050,550,'Sabina Threadwell','Cloth Market Seller'],[-2800,550,'Adam Copperfold','Market Provisioner'],
-    [-3550,550,'Alys Herbwick','Herb Market Seller'],[-2050,980,'Hamon Rivetwell','Guild Tool Trader'],
+    [-2050,525,'Sabina Threadwell','Cloth Market Seller'],[-2800,525,'Adam Copperfold','Market Provisioner'],
+    [-3550,525,'Alys Herbwick','Herb Market Seller'],[-2050,980,'Hamon Rivetwell','Guild Tool Trader'],
     [-2800,980,'Eleanor Ashfold','Apothecary Supplier'],[-3550,980,'Hob Cartwell','Wagon Fittings Trader'],
     [-3950,-1900,'Ida Rosewell','Noble Garden Keeper'],[-4900,-2500,'Edwin Leafgate','Embassy Gardener'],
     [3950,-1900,'Agatha Dawnwell','Temple Garden Keeper'],[4900,-2500,'Lucas Bellward','Temple Provisioner'],
@@ -47,8 +47,8 @@ export function createHighmereResidents():NpcDefinition[]{
     [HIGHMERE_QUAY.landing.x-190,HIGHMERE_QUAY.landing.y+650,'Juliana Sailfold','Quay Passenger Clerk'],
   ] as const).entries()){
     const point={x,y},quay=title.startsWith('Quay'),market=y>0&&!quay;
-    const home={x:market?x+Math.sign(x)*110:x-110,y:y+50};
-    const social={x:quay?x-110:market?x+Math.sign(x)*220:x+110,y:y+30};
+    const home={x:market?x+Math.sign(x)*110:quay?x-110:x,y:market&&y<600?y:y+50};
+    const social={x:quay?x-110:market?x+Math.sign(x)*220:x,y:market&&y<600?y:y+30};
     add('trade:'+i,name,title,point,home,social,i,
       quay?'Highmere River Quay':y<0?'Upper Wards':'Market and Guild Borough');
   }
