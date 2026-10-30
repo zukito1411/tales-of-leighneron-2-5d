@@ -61,6 +61,8 @@ export interface NpcDefinition {
   visualRegion?: RegionId;
   visitor?: boolean;
   settlementResident?: boolean;
+  /** Opt-in short routines using an existing complete civilian walk set. */
+  townRoutine?:boolean;
   districtId?:string;
   role: string;
   spriteFrame: number;

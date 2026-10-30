@@ -16,7 +16,9 @@ export function createHighmereResidents():NpcDefinition[]{
     const spriteTexture:NpcDefinition['spriteTexture']=['npc_villager','npc_attendant','npc_blacksmith','npc_adventurer'][index%4] as NpcDefinition['spriteTexture'];
     people.push({id:'capital:highmere:resident:'+id,name,title,townId:'highmere',districtId:district,
       ancestry:'human',visualRegion:'trandum',settlementResident:true,spriteFrame:0,spriteTexture,
-      worldOffset:point,homeLocation:home,patrolRadius:0,role:title+' serving the households of Highmere',
+      townRoutine:id.startsWith('trade:')?title.includes('Garden'):index%3===0,
+      showOverheadLabels:id.startsWith('trade:')||index%3!==0,
+      worldOffset:point,homeLocation:home,patrolRadius:id.startsWith('trade:')?30:42,role:title+' serving the households of Highmere',
       faction:'Highmere Households',connections:[{npcId:'maela-quill',relationship:'Registered with the city household and trade tally'}],
       relationshipToLeigneron:{kind:'acquaintance',trust:42,summary:'Knows the roadwarden family through the city relief deliveries.'},
       schedule:[{startHour:6,activity:'Sets out the day’s household work',location:point},

@@ -1,3 +1,5 @@
+import type {CapitalPropStyle} from '../../data/highmereStreetStyle';
+import {addCapitalMarketStock,addCapitalCanopy} from './CapitalDetailsGeometry';
 import {createFountainGeometry} from './FountainGeometry';
 import {createDockGeometry} from './DockGeometry';
 import {STAIR_STEPS,STAIR_HALF_WIDTH} from './WalkSurface';
@@ -17,6 +19,7 @@ export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPo
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
+  streetStyle?:CapitalPropStyle;
   art:FurnitureArt;kit:string;key:string;
   /** Visible artwork in frame UV coordinates, independent of atlas padding. */
   left:number;top:number;width:number;height:number;
@@ -166,7 +169,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     if(!bench){
       if(desk){box(-.38,-.05,seat,seat+H*.10,-D*.7,-D*.35,fabric);box(-.34,-.01,seat+H*.10,seat+H*.17,-D*.68,-D*.35,ivory);}
       else{tube(-.18,-D*.5,seat,seat+H*.018,.10,.10,ivory);cup(.19,-D*.40,seat,H*.07);}
-      candle(.28,-D*.75,seat,H*.24);
+      if(!shape.streetStyle)candle(.28,-D*.75,seat,H*.24);
     }
   };
   const cabinet=(shelves=false,pantry=false)=>{
@@ -333,9 +336,9 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       m.beam([r,H*.58,z],[r+.12,H*.58,z],.018,wood,8);
       m.beam([r+.12,H*.58,z],[r+.12,H*.48,z],.015,metal,8);
   }else if(art==='stall'||art==='tent'){
-    for(const x of [-.44,.44])for(const z of [-D+.04,-.04])box(x-.022,x+.022,0,H*.78,z-.022,z+.022);
-    roof(H*.72,H);
-    if(art==='stall'){box(-.44,.44,0,H*.33,-D*.65,-.04);for(let i=0;i<4;i++)tube(-.29+i*.19,-D*.42,H*.33,H*.39,.07,.06,i%2?fabric:ivory);}
+    for(const x of [-.44,.44])for(const z of [-D+.04,-.04])box(x-.022,x+.022,0,shape.streetStyle&&z<-D/2?H*.94:H*.78,z-.022,z+.022);
+    if(shape.streetStyle)addCapitalCanopy(m,H,D);else roof(H*.72,H);
+    if(art==='stall'){box(-.44,.44,0,H*.33,-D*.65,-.04);if(!shape.streetStyle)for(let i=0;i<4;i++)tube(-.29+i*.19,-D*.42,H*.33,H*.39,.07,.06,i%2?fabric:ivory);}
     else{m.quad([-.46,0,0],[-.46,0,-D],[-.46,H*.72,0],[-.46,H*.72,-D],fabric);m.quad([.46,0,-D],[.46,0,0],[.46,H*.72,-D],[.46,H*.72,0],fabric);box(-.46,.46,0,H*.72,-D,-D+.015,fabric);m.triangle([-.46,0,.01],[-.20,0,.01],[0,H,.01],fabric);m.triangle([.20,0,.01],[.46,0,.01],[0,H,.01],fabric);}
   }else if(art==='wagon'){
     box(-.40,.40,H*.24,H*.32,-D*.85,-.04);for(const x of [-.40,.40])for(const y of [.37,.51,.65])box(x-.025,x+.025,H*y,H*(y+.09),-D*.85,-.04);box(-.41,.41,H*.32,H*.74,-D*.88,-D*.83);
@@ -447,5 +450,6 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     m.cutout([-.5,0,-D/2+.004],[.5,0,-D/2+.004],[-.5,H,-D/2+.004],[.5,H,-D/2+.004],[0,0,1,1]);
   }else if(art==='ship-pennant')m.cutout([-.5,0,0],[.5,0,0],[-.5,H,0],[.5,H,0],[0,0,1,1]);
   else cabinet(false,true);
+  addCapitalMarketStock(m,shape,emission);
   return m.finish();
 }

@@ -12,7 +12,8 @@ import type {NpcDefinition,Vec2} from '../types';
 
 export function npcMayPatrol(npc:NpcDefinition){
  return !npc.stationary&&(npc.spriteTexture==='npc_royal_guard'||npc.spriteTexture==='npc_elven_guard_idle'
-  ||npc.spriteTexture==='npc_guard'&&TOWN_BY_ID[npc.townId].regionId==='trandum');
+  ||npc.spriteTexture==='npc_guard'&&TOWN_BY_ID[npc.townId].regionId==='trandum'
+  ||npc.townRoutine&&npc.townId==='highmere'&&['npc_villager','npc_attendant','npc_blacksmith','npc_adventurer'].includes(npc.spriteTexture??''));
 }
 export const npcPersonalSpace=(a:Vec2,b:Vec2)=>Math.abs(a.x-b.x)>=80||Math.abs(a.y-b.y)>=112;
 const standingStreetQuery={left:0,right:0,top:0,bottom:0};

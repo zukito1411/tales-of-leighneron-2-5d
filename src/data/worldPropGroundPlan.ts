@@ -5,7 +5,7 @@ import type {Rect} from './settlementGeometry';
 
 const civic:Readonly<Record<number,FurnitureArt>>={0:'lampPost',1:'lampPost',2:'lampPost',3:'brazier',4:'sign',5:'stall',6:'well',7:'bench',8:'barrels',9:'cargo',10:'fountain',12:'banner',13:'brazier'};
 const story:Readonly<Record<number,FurnitureArt>>={0:'lectern',1:'satchel',2:'ledger',3:'lantern',4:'wagon',5:'dummy',6:'pump',7:'keepsake',8:'keepsake',9:'keepsake',10:'chest',11:'waystone'};
-const depths:Partial<Record<FurnitureArt,number>>={well:.88,fountain:.42,barrels:.76,cargo:.62,crate:.62,chest:.58,
+const depths:Partial<Record<FurnitureArt,number>>={table:.60,chair:.50,planter:.55,weaponRack:.30,well:.88,fountain:.42,barrels:.76,cargo:.62,crate:.62,chest:.58,
   stall:.72,tent:.80,wagon:.68,bench:.38,rock:.58,columns:.56,crystals:.55,waystone:.38,shrine:.45,sack:.50,brazier:.44,satchel:.40,ledger:.62};
 const kinds:Partial<Record<ArtTextureKey,Readonly<Record<number,FurnitureArt>>>>={
   others:civic,native_civic_bare:civic,native_story_bare:story,native_story_props:story,
@@ -22,8 +22,8 @@ export function worldPropKind(texture:ArtTextureKey,index:number):FurnitureArt|u
 
 /** The same source-relative foot anchor and model depth drive prepared models,
  * authoring clearance and unloaded physical queries. No artwork is decoded. */
-export function worldPropGroundPlan(texture:ArtTextureKey,index:number,w:number,h:number){
-  const art=worldPropKind(texture,index);if(!art||art==='life-tree')return;
+export function worldPropGroundPlan(texture:ArtTextureKey,index:number,w:number,h:number,override?:FurnitureArt){
+  const art=override??worldPropKind(texture,index);if(!art||art==='life-tree')return;
   const polygons=worldSpriteProfile(texture,index)?.solids??[];
   let l=.08,r=.92,t=.70,bottom=.97;
   if(polygons.length){l=Infinity;r=-Infinity;t=Infinity;bottom=-Infinity;

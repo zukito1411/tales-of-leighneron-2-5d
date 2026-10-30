@@ -1,3 +1,4 @@
+import {addCapitalShopfront} from './CapitalDetailsGeometry';
 import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
 import {AUTHORED_GATE} from '../../data/architecture';
 import type {HouseShape} from './HouseGeometry';
@@ -355,5 +356,6 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(!elf||/manor/.test(id))chimney(twoStorey?.78:.75,-D*.70,Y(twoStorey?.14:.16),eave-.05*H);
     if(elf)for(const x of [l,r]){leaf(X(x),eave-.10*H,.025*W,H*.10);planter(x,ground+.045*H,.03*W,.10);}
   }
+  addCapitalShopfront(m,shape,emission);
   return m.finish();
 }

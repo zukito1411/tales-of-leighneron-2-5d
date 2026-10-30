@@ -1,3 +1,4 @@
+import type {CapitalShopStyle} from '../../data/highmereStreetStyle';
 import {ModelMesh,atlasMaterial,paintedMaterial,brass,glass,pigment,regionalFabric,regionalWood,masonry,roofMaterial,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
@@ -11,6 +12,7 @@ import {architectureProfile,house,tower,type HouseProfile,type Point,type Patch}
 
 export interface WallSegment {dx:number;dy:number;height?:number;thickness?:number}
 export interface HouseShape {
+  shopfront?:CapitalShopStyle;
   profile:HouseProfile;left:number;top:number;width:number;height:number;depth:number;ground?:number;
   /** Height only: retain the surveyed X/Z lot, entry and collider footprint. */
   riseScale?:number;

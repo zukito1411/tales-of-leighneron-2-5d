@@ -526,7 +526,7 @@ export class Npc extends DepthSortedSprite {
   }
 
   private get mayPatrol(){
-    return this.regionalModel===undefined&&npcMayPatrol(this.definition);
+    return this.regionalModel===undefined&&npcMayPatrol(this.definition)&&(!this.definition.townRoutine||this.canStoryWalk);
   }
 
   updatePresentation(playerX: number, playerY: number, questTarget: boolean, paused = false, cinematic=false) {

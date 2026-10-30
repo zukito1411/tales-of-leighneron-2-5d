@@ -1,3 +1,4 @@
+import {CAPITAL_SHOPFRONTS} from '../../data/highmereStreetStyle';
 import {bridgeShape} from '../presentation25d/BridgeGeometry';
 import {dockShape} from '../presentation25d/DockGeometry';
 import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
@@ -71,7 +72,7 @@ export class WorldSpriteSystem {
     if(house&&!house.segment&&!house.profile.board)house.ground=(actor.originY-house.top)/house.height;
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
     if(house?.segment){house.segment.height=wallSegment?.height??Math.max(HERO_BODY_HEIGHT*2.4,visible.height*scale*.82);house.segment.thickness=wallSegment?.thickness??Math.max(32,32*scale);}
-    if(house)(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;
+    if(house){house.shopfront=CAPITAL_SHOPFRONTS[actor.name];(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;}
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
       const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
