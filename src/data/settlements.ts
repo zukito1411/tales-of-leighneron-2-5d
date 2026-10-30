@@ -23,7 +23,7 @@ import {coreSettlementDressing} from './settlementDressing';
 import type {SettlementCommon} from './settlementCommons';
 import {HIGHMERE_AVENUES,HIGHMERE_DISTRICTS,HIGHMERE_PLAN,HIGHMERE_SHRINE_SITE,royalWardOverlaps} from './highmerePlan';
 import {civicBoardReserve} from './settlementCivic';
-import {HIGHMERE_CORE_SITES,highmereBoroughPlan} from './highmereBoroughs';
+import {HIGHMERE_CORE_SITES,HIGHMERE_HOUSEHOLD_COURTS,highmereBoroughPlan} from './highmereBoroughs';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
 import {harborBay,onHeadwaterStream} from './worldLandscape';
 import {ELARION_LIFE_TREE_CLEARING,ELARION_LIFE_TREE_LOCAL} from './elarionLifeTree';
@@ -398,6 +398,10 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   };
   const occupied:Rect[]=[];
   const forecourts:Rect[]=[];
+  // More than the narrow 96-unit door lane should remain visually open in
+  // front of Highmere facades. Reserve it for trees/furniture only AFTER all
+  // houses are fitted, so the 100 authored homes keep their current plots.
+  const dressingForecourts:Rect[]=[];
   const within=(r:Rect)=>r.left>=-layout.bounds.width/2+32 && r.right<=layout.bounds.width/2-32
     && r.top>=layout.bounds.y-layout.bounds.height/2+32 && r.bottom<=layout.bounds.y+layout.bounds.height/2-32;
   const enclosed=(r:Rect)=>[r.left,r.right].every(x=>[r.top,r.bottom].every(y=>insideDefense(town.id,town.world.x+x,town.world.y+y,-80)));
@@ -523,6 +527,9 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
         if(refit)lot.plot={left:rect.left-12,right:rect.right+12,top:rect.top-12,bottom:rect.bottom+12};
         occupied.push(rect);occupiedIndex.add({bounds:rect});
         if(forecourt)forecourts.push(forecourt);
+        if(town.id==='highmere')dressingForecourts.push({
+          left:rect.left-24,right:rect.right+24,top:point.y+2,bottom:point.y+180,
+        });
         layout.streets.push({id:'frontage:'+index,width:40,points:[connection,door]});placed=true;break;
       }
       if(placed)break;
@@ -538,8 +545,29 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
       else throw new Error('No clear authored parcel for '+town.id+'/'+lot.label);
     }
   }
-  // Preserve these entrances when fitting shade trees and courtyard props.
-  reserved.push(...forecourts);
+  // A fitted house may move within its plot to clear a road, neighbor or wall.
+  // Its well, flower beds, porch seat and lantern must move by that same
+  // displacement; otherwise they remain at the old empty/blocked lot. Use the
+  // stable source courtyard IDs and alter only optional dressing, not houses,
+  // NPCs, quest objects or authored street geometry.
+  if(town.id==='highmere'&&borough){
+    const homes=new Map(layout.buildings.filter(lot=>!lot.omitted&&lot.wardId?.startsWith('capital:house:'))
+      .map(lot=>[lot.wardId!.slice('capital:house:'.length),lot]));
+    for(const court of HIGHMERE_HOUSEHOLD_COURTS){
+      const placed=homes.get(court.id);
+      if(!placed)continue;
+      const dx=placed.x-court.x,dy=placed.y-court.y;
+      if(dx===0&&dy===0)continue;
+      const prefix='capital:'+court.id+':';
+      for(const detail of borough.details)if(detail.id.startsWith(prefix)){
+        detail.x+=dx;detail.y+=dy;
+      }
+    }
+  }
+  // Keep the actual doors and the full south-facing facades usable. These
+  // supplementary reservations only affect later optional decoration fitting,
+  // never the existing building placement or mandatory public routes.
+  reserved.push(...forecourts,...dressingForecourts);
   if(citadel&&town.id!=='highmere'){
     const t=24;
     reserved.push({left:citadel.left-t,right:citadel.right+t,top:citadel.top-t,bottom:citadel.top+t},
