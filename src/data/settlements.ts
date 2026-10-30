@@ -25,7 +25,7 @@ import {coreSettlementDressing} from './settlementDressing';
 import type {SettlementCommon} from './settlementCommons';
 import {HIGHMERE_AVENUES,HIGHMERE_DISTRICTS,HIGHMERE_PLAN,royalWardOverlaps} from './highmerePlan';
 import {civicBoardReserve} from './settlementCivic';
-import {highmereBoroughPlan} from './highmereBoroughs';
+import {HIGHMERE_HOUSEHOLD_COURTS, highmereBoroughPlan} from './highmereBoroughs';
 import {onStoneBridgeDeck,stoneBridgeScale} from './bridgeDeck';
 import {harborBay,onHeadwaterStream} from './worldLandscape';
 import {ELARION_LIFE_TREE_CLEARING,ELARION_LIFE_TREE_LOCAL} from './elarionLifeTree';
