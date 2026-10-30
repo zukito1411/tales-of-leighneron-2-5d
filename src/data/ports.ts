@@ -1,9 +1,13 @@
+import {HIGHMERE_QUAY} from './highmerePlan';
 import {TOWN_BY_ID} from './towns';
 import {DRAINAGE} from './worldLandscape';
 import type {Vec2} from '../game/types';
 
 export interface Port {id:string;name:string;townId:string;landing:Vec2;quay:Vec2;boat:Vec2;channel:Vec2[];river:boolean;description:string}
 const h=TOWN_BY_ID.highmere.world;
+const capitalPoint=(p:Vec2)=>({x:h.x+p.x,y:h.y+p.y});
+const capitalBoat=capitalPoint(HIGHMERE_QUAY.boat);
+const downstream=DRAINAGE[0].points.findIndex(p=>p.x===capitalBoat.x&&p.y>capitalBoat.y);
 const island=(id:string):Port=>{
  const t=TOWN_BY_ID[id].world,boat={x:t.x+915,y:t.y+1180},landing={x:t.x+700,y:t.y+825};
  return {id,name:id==='tidewatch'?'Tidewatch Harbor':'Skallheim Harbor',townId:id,
@@ -11,9 +15,9 @@ const island=(id:string):Port=>{
   description:id==='tidewatch'?'The harbor crews carry grain, travelers and warnings across the sea.':'The beacon fleet keeps a passage open through the southern ice bay.'};
 };
 export const PORTS:Port[]=[
- {id:'highmere',name:'Highmere River Quay',townId:'highmere',landing:{x:h.x+720,y:h.y+1100},quay:{x:h.x+650,y:h.y+1100},boat:{x:h.x+558,y:h.y+1100},
-  channel:[{x:h.x+558,y:h.y+1100},...DRAINAGE[0].points.slice(8)],river:true,
-  description:'The river packet follows the Crown River to the sea. Ask the captain for passage to the islands.'},
+ {id:'highmere',name:'Highmere River Quay',townId:'highmere',landing:capitalPoint(HIGHMERE_QUAY.landing),quay:capitalPoint(HIGHMERE_QUAY.quay),boat:capitalBoat,
+  channel:[capitalBoat,...DRAINAGE[0].points.slice(downstream)],river:true,
+  description:'Outside Eastgate, follow the paved west-bank promenade south to the Crown River packet. The quay carries passengers to the islands and Ashen Landing.'},
  island('tidewatch'),island('skallheim'),
  {id:'blackspire',name:'Ashen Landing · Darkav',townId:'blackspire',landing:{x:162048,y:27616},quay:{x:162048,y:27616},boat:{x:162263,y:27976},
   channel:[{x:162263,y:27976},{x:162048,y:28744}],river:false,

@@ -16,6 +16,7 @@ import {citadelPlanning,settlementGroundPlan,settlementEnvelope} from '../src/da
 import {fortificationBlocksPoint} from '../src/data/fortifications';
 import {insideDefense} from '../src/data/settlementDefenses';
 import {worldSpriteProfile} from '../src/data/worldSpriteGeometry';
+import {HIGHMERE_PLAN} from '../src/data/highmerePlan';
 
 describe('architecture scale and clearance',()=>{
   it('fits complete house frontages without covering a street or neighboring admitted lot',()=>{
@@ -36,8 +37,13 @@ describe('architecture scale and clearance',()=>{
       expect(active.length).toBe(prior.buildings.length);
       for(const index of prior.buildings)expect(registrations.get(`town:${layout.townId}:building:${index}`)).toBe(1);
       expect.soft([...prior.plantings,...prior.details].filter(id=>registrations.get(`detail:${layout.townId}:${id}`)!==1),layout.townId+' retained details').toEqual([]);
-      expect(layout.plantings.map(p=>p.id).sort(),layout.townId+' trees').toEqual([...prior.plantings].sort());
-      expect(layout.details?.map(p=>p.id).sort(),layout.townId+' details').toEqual([...prior.details].sort());
+      if(layout.townId==='highmere'){
+        for(const id of prior.plantings)expect(layout.plantings.some(p=>p.id===id),id).toBe(true);
+        for(const id of prior.details)expect(layout.details?.some(p=>p.id===id),id).toBe(true);
+      }else{
+        expect(layout.plantings.map(p=>p.id).sort(),layout.townId+' trees').toEqual([...prior.plantings].sort());
+        expect(layout.details?.map(p=>p.id).sort(),layout.townId+' details').toEqual([...prior.details].sort());
+      }
     }
   });
   it('provides a real gate-to-door forecourt and removes empty rectangular corners beside keeps',()=>{
@@ -48,6 +54,11 @@ describe('architecture scale and clearance',()=>{
     expect(gate.world.y-gateDepth-door.y).toBeGreaterThan(HERO_BODY_HEIGHT*8);
     for(const layout of SETTLEMENT_LAYOUTS){
       const town=TOWN_BY_ID[layout.townId],plan=settlementGroundPlan(town),bounds=settlementEnvelope(town);
+      if(town.id==='highmere'){
+        expect(plan.vertices).toHaveLength(HIGHMERE_PLAN.segments);
+        for(const p of plan.vertices)expect(Math.hypot(p.x,p.y)).toBeCloseTo(HIGHMERE_PLAN.radius,5);
+        continue;
+      }
       for(const [i,p] of plan.vertices.entries()){
         const next=plan.vertices[(i+1)%plan.vertices.length];
         expect(p.x===next.x||p.y===next.y,layout.townId).toBe(true);

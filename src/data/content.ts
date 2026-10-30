@@ -1,5 +1,9 @@
 import {applyNativePropReplacements} from './nativePropReplacements';
 import {addSettlementCommons} from './settlementCommons';
+import {CIVIC_BOARD_SITES} from './settlementCivic';
+import {HIGHMERE_DISTRICTS,HIGHMERE_QUAY,HIGHMERE_WALL_APOTHEM} from './highmerePlan';
+import {npcExteriorAnchors,npcStandingReservation} from './npcPositions';
+import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {fitAuthoredProps} from './authoredPropPlacement';
 import {propFitsHabitat} from '../game/systems/propHabitat';
 import {WorldGenerator} from '../game/systems/WorldGenerator';
@@ -12,9 +16,9 @@ import { TOWNS, TOWN_BY_ID } from './towns';
 import { WORLD_ASSET_FRAMES as PROPS,artFrameSize } from './art';
 import { FARM_PLOTS } from './landmarks';
 import type {WardDetail} from './settlementWards';
-import { SETTLEMENT_BY_ID, SETTLEMENT_LAYOUTS, buildingRenderScale, nearbySlots } from './settlements';
+import { SETTLEMENT_BY_ID, SETTLEMENT_LAYOUTS, buildingRenderScale, nearbySlots,worldRectTouchesStreet } from './settlements';
 import { TOWN_SHRINES, townShrineContent } from './townShrines';
-import { HIGHMERE_RIVER, onHighmereRiver,WILDERNESS_BRIDGES } from './rivers';
+import { HIGHMERE_RIVER,HIGHMERE_BRIDGE_SCALE,HIGHMERE_MAIN_BRIDGE, onHighmereRiver,WILDERNESS_BRIDGES } from './rivers';
 import { spriteBounds, propPlacementBounds, overlaps, rectTouchesStreet, propFoundation, type Rect } from './settlementGeometry';
 import { ROAD_ROUTES } from './roadRoutes';
 import {citadelPlanning} from './settlementPlanning';
@@ -109,6 +113,23 @@ for(const [index,[x,y]] of [[-870,-100],[-1080,1040],[1040,1070]].entries())WORL
   description:'You recover a sealed copper fitting for Asha’s irrigation repair.',repeatText:'This store’s fitting has already been recovered.',questTargetId:'cibar-fitting',questEventType:'collect',requiredQuestId:'water-stops',
 });
 const cityPoint=(x:number,y:number)=>({x:highmere.world.x+x,y:highmere.world.y+y});
+const wharfPoint=(x:number,y:number)=>cityPoint(HIGHMERE_QUAY.landing.x+x,HIGHMERE_QUAY.landing.y+y);
+// A working, clearly marked river wharf on the west bank outside Eastgate.
+WORLD_CONTENT.push({id:'port:highmere:notice',kind:'interactable',world:wharfPoint(-180,380),texture:'native_civic_bare',frame:11,
+  scale:.55,solid:true,name:'Highmere River Quay',repeatable:true,
+  description:'The Crown River packet boards at the timber quay. Return north along the paved promenade for Eastgate and the city market.',
+  repeatText:'Island and Ashen Landing passage boards beside the moored packet.'});
+for(const [i,[x,y,frame,scale]] of [
+  [-230,-470,5,.9],[-230,350,9,.7],[-60,560,8,.6],[-240,540,9,.7],
+  [110,-400,0,.65],[110,400,0,.65],[-290,-200,7,.65],
+].entries())WORLD_CONTENT.push({id:'port:highmere:wharf:'+i,kind:'prop',world:wharfPoint(x,y),
+  texture:'native_civic_bare',frame,scale,solid:frame!==0&&frame!==7,label:'Highmere River Quay'});
+WORLD_CONTENT.push({id:'port:highmere:city-direction',kind:'prop',world:cityPoint(HIGHMERE_WALL_APOTHEM+180,260),texture:'native_civic_bare',frame:4,scale:.6,solid:true,label:'Eastgate · Market / River Quay'});
+
+for(const d of HIGHMERE_DISTRICTS)if(!d.id.startsWith('farm:')&&d.id!=='capital-plaza')WORLD_CONTENT.push({
+  id:'district:highmere:'+d.id,kind:'interactable',world:cityPoint(d.x,d.y),texture:'native_civic_bare',frame:11,
+  scale:84/artFrameSize('native_civic_bare',11).height,solid:true,name:d.name,description:d.purpose,
+  repeatText:d.purpose,repeatable:true});
 WORLD_CONTENT.push(
   {id:'clue:grain-receipt',kind:'interactable',world:cityPoint(-1640,1700),texture:'others',frame:6,scale:.65,name:'Torn waybill',description:'The torn waybill bears the royal grain seal. Its date was scratched in after the flour cart crossed the river.',repeatText:'The torn waybill is tucked safely away.',questTargetId:'clue:grain-receipt',questEventType:'investigate',repeatable:true},
   {id:'clue:weighhouse-ledger',kind:'interactable',world:cityPoint(-2250,2340),texture:'others',frame:9,scale:.55,name:'Charred grain tally',description:'Behind a loose stone is a list of the stolen flour sacks. Tovin’s name was forged beside the royal seal.',repeatText:'The hidden tally points to the stolen flour.',questTargetId:'clue:weighhouse-ledger',questEventType:'investigate',repeatable:true},
@@ -135,8 +156,11 @@ for (const [index,bridgeY] of HIGHMERE_RIVER.bridgeY.entries()) {
   const start = HIGHMERE_RIVER.points[segmentIndex], end = HIGHMERE_RIVER.points[segmentIndex + 1];
   const t = end.y === start.y ? 0 : (y - start.y) / (end.y - start.y);
   WORLD_CONTENT.push({ id:`bridge:highmere:${index}`,kind:'prop',world:{ x:start.x + (end.x - start.x) * t,y },
-    texture:'bridges',frame:ROAD_BRIDGE_FRAME,scale:stoneBridgeScale(HIGHMERE_RIVER.width),solid:false,anchor:'center' });
+    texture:'bridges',frame:ROAD_BRIDGE_FRAME,scale:HIGHMERE_BRIDGE_SCALE,solid:false,anchor:'center' });
 }
+WORLD_CONTENT.push({id:'bridge:highmere:main-gate',kind:'prop',world:{x:HIGHMERE_MAIN_BRIDGE.x,y:HIGHMERE_MAIN_BRIDGE.y},
+  texture:'bridges',frame:ROAD_BRIDGE_FRAME,scale:HIGHMERE_MAIN_BRIDGE.scale,rotation:HIGHMERE_MAIN_BRIDGE.heading,
+  solid:false,anchor:'center',label:'King’s Gate Bridge'});
 for (const npc of NPCS) {
   WORLD_CONTENT.push({ id: `npc:${npc.id}`, kind: 'npc', npcId: npc.id,
     world: npcWorldPosition(npc) });
@@ -304,7 +328,7 @@ for(const definition of WORLD_CONTENT){
 // loose-object pass unknowingly move a sign or cache into the same footprint.
 function fixedSettlementPlacement(d:ContentDefinition){
   if(!('frame' in d))return true;
-  return d.kind==='settlement-prop'||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
+  return d.kind==='settlement-prop'||d.id.startsWith('port:')||'townShrineId' in d||'portId' in d||d.id.startsWith('farm:')||d.id.startsWith('bridge:')
     ||d.id.endsWith('harbor-pier')||d.id.startsWith('elarion:whitebough-fence:')
     ||isTreeArt(d.texture??'',d.frame)&&d.id.startsWith('detail:');
 }
@@ -318,7 +342,7 @@ const fittedDetailBounds:Rect[]=[];
 for(const layout of SETTLEMENT_LAYOUTS){
   const town=TOWN_BY_ID[layout.townId];
   const originals=WORLD_CONTENT.filter(d=>'frame' in d&&fixedSettlementPlacement(d)&&Math.abs(d.world.x-town.world.x)<layout.bounds.width&&Math.abs(d.world.y-town.world.y)<layout.bounds.height)
-    .map(d=>'frame' in d?propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y):{left:0,right:0,top:0,bottom:0});
+    .map(d=>'frame' in d?propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center','wallSegment' in d?d.wallSegment:undefined,d.rotation??0):{left:0,right:0,top:0,bottom:0});
   for(const detail of layout.details??[]){
     const rect=spriteBounds(detail.texture,detail.frame,detail.scale,town.world.x+detail.x,town.world.y+detail.y);
     if(detail.id.startsWith('court:')&&originals.some(r=>overlaps(rect,r,12))){
@@ -329,10 +353,14 @@ for(const layout of SETTLEMENT_LAYOUTS){
     fittedDetailBounds.push(rect);
   }
 }
-const placed:Rect[] = WORLD_CONTENT.filter(d=>d.kind==='npc'||'frame' in d&&fixedSettlementPlacement(d))
-  .map(d=>d.kind==='npc' ? {left:d.world.x-32,right:d.world.x+32,top:d.world.y-76,bottom:d.world.y+35}
-    : 'frame' in d ? propPlacementBounds(d.texture??'world_objects',d.frame,'scale' in d?d.scale??1:1,d.world.x,d.world.y) : {left:0,right:0,top:0,bottom:0});
+const exteriorPeople=new Set(INTERIOR_ASSIGNMENTS.map(([id])=>id));
+const placed:Rect[] = NPCS.filter(n=>!exteriorPeople.has(n.id)).flatMap(n=>{const town=TOWN_BY_ID[n.townId];
+  return npcExteriorAnchors(n).map(p=>npcStandingReservation(p,town.world.x,town.world.y));});
+placed.push(...WORLD_CONTENT.flatMap(d=>'frame' in d&&fixedSettlementPlacement(d)
+  ?[propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center',
+    'wallSegment' in d?d.wallSegment:undefined,d.rotation??0)]:[]));
 placed.push(...fittedDetailBounds);
+const placedIndex=new StaticBoundsIndex(placed.map(bounds=>({bounds})));
 for(const d of WORLD_CONTENT) {
   if(!('frame' in d)||fixedSettlementPlacement(d)) continue;
   const texture:ArtTextureKey=d.texture??'world_objects',scale=d.scale??1;
@@ -345,19 +373,21 @@ for(const d of WORLD_CONTENT) {
   for(const radius of [512,1024,1536]){
     for(const p of nearbySlots(preferred,radius)){
       if(radius>512&&Math.max(Math.abs(p.x-preferred.x),Math.abs(p.y-preferred.y))<=(radius===1536?1024:512))continue;
-      const rect=spriteBounds(texture,d.frame,scale,p.x,p.y);
+      const rect=propPlacementBounds(texture,d.frame,scale,p.x,p.y,d.anchor==='center',undefined,d.rotation??0);
       const local={left:rect.left-town.world.x,right:rect.right-town.world.x,top:rect.top-town.world.y,bottom:rect.bottom-town.world.y};
       const fits=[local.left,local.right].every(x=>[local.top,local.bottom].every(y=>insideDefense(town.id,town.world.x+x,town.world.y+y,-64)))
-        && !fortificationBlocksPoint(p.x,p.y,45) && !layout.streets.some(s=>rectTouchesStreet(local,s,12))&&!ROAD_ROUTES.some(r=>rectTouchesStreet(rect,r,12))
+        && !fortificationBlocksPoint(p.x,p.y,45) && !worldRectTouchesStreet(rect,12)
         && ![rect.left,(rect.left+rect.right)/2,rect.right].some(x=>[rect.top,(rect.top+rect.bottom)/2,rect.bottom].some(y=>onHighmereRiver(x,y)))
         && (!layout.waterway || local.right<layout.waterway.x-layout.waterway.width/2-16 || local.left>layout.waterway.x+layout.waterway.width/2+16)
-        && !placed.some(r=>overlaps(rect,r,16)) && !layout.parcels.some(p=>p.terrain==='water' && overlaps(local,{left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
+        && !placedIndex.any({left:rect.left-16,right:rect.right+16,top:rect.top-16,bottom:rect.bottom+16},o=>overlaps(rect,o.bounds,16)) && !layout.parcels.some(p=>p.terrain==='water' && overlaps(local,{left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
       if(fits){position=p;break;}
     }
     if(position)break;
   }
-  if(!position) throw new Error('No clear roadside location for '+d.id);
-  d.world=position;placed.push(spriteBounds(texture,d.frame,scale,position.x,position.y));
+  // The final pass owns complete walls, later quest objects and native art.
+  // Defer a constrained preliminary placement instead of aborting game boot.
+  if(!position)continue;
+  d.world=position;placedIndex.add({bounds:propPlacementBounds(texture,d.frame,scale,position.x,position.y,d.anchor==='center',undefined,d.rotation??0)});
 }
 // Relocated court furniture keeps the same ID and registration; publish its
 // final coordinates back to the layout instead of silently dropping detail.
@@ -422,21 +452,36 @@ for(const town of TOWNS)if(!townsWithContractBoards.has(town.id)){
     name:`${town.name} quest board`,description:'Local hunting contracts and regional bounties.',
     repeatText:'Read the posted contracts.',repeatable:true});
 }
+const primaryBoards=new Set<string>();
+for(const d of WORLD_CONTENT){
+  if(!('contractTownId' in d)||!d.contractTownId||!('frame' in d))continue;
+  const site=CIVIC_BOARD_SITES[d.contractTownId];if(!site||primaryBoards.has(d.contractTownId))continue;
+  primaryBoards.add(d.contractTownId);const town=TOWN_BY_ID[d.contractTownId];
+  d.world={x:town.world.x+site.x,y:town.world.y+site.y};
+  d.scale=92/artFrameSize(d.texture??'others',d.frame).height;
+}
 applyNativePropReplacements(WORLD_CONTENT);
 fitAuthoredProps(WORLD_CONTENT);
 const isRoadsideBoard=(d:ContentDefinition)=>'frame' in d
   &&((d.texture==='others'||d.texture==='native_civic_bare')&&d.frame===11||d.texture==='world_assets'&&d.frame===PROPS.sign);
-const boardObstacles=new StaticBoundsIndex(WORLD_CONTENT.flatMap(d=>'frame' in d&&!isRoadsideBoard(d)
-  ?[{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center')}]:[]));
+const indoorBoardResidents=new Set(INTERIOR_ASSIGNMENTS.map(([id])=>id));
+const boardPeople=NPCS.filter(n=>!indoorBoardResidents.has(n.id)).flatMap(n=>{const town=TOWN_BY_ID[n.townId];
+  return npcExteriorAnchors(n).map(p=>({bounds:npcStandingReservation(p,town.world.x,town.world.y)}));});
+const boardObstacles=new StaticBoundsIndex([...boardPeople,...WORLD_CONTENT.flatMap(d=>'frame' in d&&!isRoadsideBoard(d)
+  ?[{bounds:propPlacementBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y,d.anchor==='center','wallSegment' in d?d.wallSegment:undefined,d.rotation??0)}]:[])]);
 const boardPlacements:Rect[]=[];
+const fittedPrimaryBoards=new Set<string>();
 const boardGeography=new WorldGenerator();
 for(const d of WORLD_CONTENT){
   if(!isRoadsideBoard(d)||!('frame' in d))continue;
   const texture=d.texture??'world_objects',scale=d.scale??1,preferred={...d.world};
   const boardTown='contractTownId' in d&&d.contractTownId?TOWN_BY_ID[d.contractTownId]:undefined;
   const boardSettlement=boardTown?SETTLEMENT_BY_ID[boardTown.id]:undefined;
+  const civic=boardTown&&!fittedPrimaryBoards.has(boardTown.id)?CIVIC_BOARD_SITES[boardTown.id]:undefined;
+  if(civic&&boardTown){preferred.x=boardTown.world.x+civic.x;preferred.y=boardTown.world.y+civic.y;fittedPrimaryBoards.add(boardTown.id);}
   const fits=(p:{x:number;y:number})=>{
-    const rect=spriteBounds(texture,d.frame,scale,p.x,p.y,d.anchor==='center');
+    const rect=propPlacementBounds(texture,d.frame,scale,p.x,p.y,d.anchor==='center',undefined,d.rotation??0);
+    if(civic&&Math.hypot(p.x-preferred.x,p.y-preferred.y)>160)return false;
     // Contract boards belong to their issuing settlement, even when an
     // obstruction makes the shared placement pass search farther afield.
     if(boardTown&&boardSettlement){
@@ -447,21 +492,18 @@ for(const d of WORLD_CONTENT){
     if(!propFitsHabitat(texture,d.frame,boardGeography,p.x,p.y,scale))return false;
     if(rect.left<0||rect.top<0||rect.right>=WORLD_WIDTH||rect.bottom>=WORLD_HEIGHT)return false;
     if(fortificationBlocksPoint(p.x,p.y,50)||harborBay(p.x,p.y)||lakeAt(p.x,p.y))return false;
-    if(ROAD_ROUTES.some(r=>rectTouchesStreet(rect,r,20)))return false;
-    if(SETTLEMENT_LAYOUTS.some(layout=>{const town=TOWN_BY_ID[layout.townId];
-      const local={left:rect.left-town.world.x,right:rect.right-town.world.x,top:rect.top-town.world.y,bottom:rect.bottom-town.world.y};
-      return layout.streets.some(s=>rectTouchesStreet(local,s,20));}))return false;
+    if(worldRectTouchesStreet(rect,20))return false;
     const pad=Math.max(rect.right-rect.left,rect.bottom-rect.top)/2+12;
     if(DRAINAGE.some(r=>pathDistance(p.x,p.y,r.points,160)<r.width/2+pad))return false;
     if(pathDistance(p.x,p.y,LAVA_FLOW,300)<110+pad)return false;
-    return !boardObstacles.query({left:rect.left-16,right:rect.right+16,top:rect.top-16,bottom:rect.bottom+16}).some(o=>overlaps(rect,o.bounds,16))
+    return !boardObstacles.any({left:rect.left-16,right:rect.right+16,top:rect.top-16,bottom:rect.bottom+16},o=>overlaps(rect,o.bounds,16))
       &&!boardPlacements.some(other=>overlaps(rect,other,16));
   };
   const candidates=[preferred,...[96,144,224,320,480,640,960,1280].flatMap(radius=>Array.from({length:16},(_,i)=>({
     x:preferred.x+Math.cos(i*Math.PI/8)*radius,y:preferred.y+Math.sin(i*Math.PI/8)*radius})))];
   const position=candidates.find(fits);
   if(position)d.world=position;
-  boardPlacements.push(spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center'));
+  boardPlacements.push(propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center',undefined,d.rotation??0));
 }
 addSettlementCommons(SETTLEMENT_LAYOUTS,WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 export const CONTENT_BY_ID = Object.fromEntries(WORLD_CONTENT.map(d => [d.id, d])) as Record<string, ContentDefinition>;

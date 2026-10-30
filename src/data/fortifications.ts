@@ -1,20 +1,26 @@
 import {TOWN_BY_ID} from './towns';
 import {artFrameSize,ART_BY_KEY} from './art';
 import type {PropContentDefinition,Vec2} from '../game/types';
-import {outerFortificationBlocksPoint,outerFortificationBlocksPath,curtainBlocksPath,curtainBlocksPoint,ROYAL_GATE_OPENING,type CurtainLine} from './settlementDefenses';
-import {citadelPlanning,fortificationSize} from './settlementPlanning';
+import {outerFortificationBlocksPoint,outerFortificationBlocksPath,CurtainCollision,ROYAL_GATE_OPENING,type CurtainLine} from './settlementDefenses';
+import {fortificationSize} from './settlementPlanning';
+import {HIGHMERE_PLAN,HIGHMERE_ROYAL_GATE_Y,HIGHMERE_ROYAL_POSTERN_Y,ringVertices} from './highmerePlan';
 
-// The keep and its rectangular precinct share a surveyed court. Collision and
-// complete 3D curtain runs use these same endpoints, including the gate opening.
-const town=TOWN_BY_ID.highmere,city=town.world,court=citadelPlanning(town.id)!;
+// The raised royal ward is a true ring. Gates, mesh runs and collision share
+// exact surveyed endpoints; no bounding rectangle becomes an invisible wall.
+const town=TOWN_BY_ID.highmere,city=town.world;
 const size=fortificationSize(town),world=(x:number,y:number):Vec2=>({x:city.x+x,y:city.y+y});
-const vertices=[world(court.left,court.top),world(court.right,court.top),world(court.right,court.bottom),world(court.left,court.bottom)];
-const gate=world(court.x,court.bottom),gateScale=3.1;
-export const ROYAL_WALL_LINES:Array<CurtainLine&{frame:number}>=[
-  {a:vertices[0],b:vertices[1]}, {a:vertices[1],b:vertices[2]}, {a:vertices[3],b:vertices[0]},
-  {a:vertices[3],b:world(court.x+ROYAL_GATE_OPENING.left,court.bottom)},
-  {a:world(court.x+ROYAL_GATE_OPENING.right,court.bottom),b:vertices[2]},
-].map(line=>({...line,townId:town.id,frame:2,thickness:size.thickness}));
+const localVertices=ringVertices(HIGHMERE_PLAN.royalCenter,HIGHMERE_PLAN.royalRadius,HIGHMERE_PLAN.royalSegments);
+const vertices=localVertices.map(p=>world(p.x,p.y));
+const gate=world(0,HIGHMERE_ROYAL_GATE_Y),gateScale=3.1;
+export const ROYAL_WALL_LINES:Array<CurtainLine&{frame:number}>=[];
+for(let i=0;i<vertices.length;i++){
+  const a=vertices[i],b=vertices[(i+1)%vertices.length];
+  const gateEdge=Math.abs(a.y-b.y)<.01&&(Math.abs(a.y-gate.y)<.01||Math.abs(a.y-city.y-HIGHMERE_ROYAL_POSTERN_Y)<.01);
+  const add=(from:Vec2,to:Vec2)=>ROYAL_WALL_LINES.push({a:from,b:to,townId:town.id,frame:2,thickness:size.thickness});
+  if(gateEdge){const left=a.x<b.x?a:b,right=a.x<b.x?b:a;
+    add(left,{x:city.x+ROYAL_GATE_OPENING.left,y:a.y});add({x:city.x+ROYAL_GATE_OPENING.right,y:a.y},right);
+  }else add(a,b);
+}
 
 export const ROYAL_FORTIFICATION_PROPS:PropContentDefinition[]=[];
 const fit=artFrameSize('royal_walls',0).width/ART_BY_KEY.royal_walls.regions![0][2];
@@ -27,20 +33,14 @@ for(const [edge,line] of ROYAL_WALL_LINES.entries()){
     wallSegment:{dx:dx/count,dy:dy/count,height:size.height,thickness:size.thickness}});
 }
 ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:south-gate',kind:'prop',world:gate,texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',label:'Royal Audience Gate'});
+ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:north-postern',kind:'prop',world:world(0,HIGHMERE_ROYAL_POSTERN_Y),texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',label:'Royal Garden Postern'});
 const towerScale=size.towerDiameter/(artFrameSize('royal_walls',3).width*.78);
-for(const [i,p] of vertices.entries())ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:corner:'+i,kind:'prop',world:p,texture:'royal_walls',frame:3,scale:towerScale,solid:true,anchor:'center'});
+for(const [i,p] of vertices.entries())if(i%4===0)ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:corner:'+(i/4),kind:'prop',world:p,texture:'royal_walls',frame:3,scale:towerScale,solid:true,anchor:'center'});
 
-const left=city.x+court.left,right=city.x+court.right,top=city.y+court.top,bottom=city.y+court.bottom;
+const royalCollision=new CurtainCollision(ROYAL_WALL_LINES);
 export function fortificationBlocksPoint(x:number,y:number,radius=12){
-  if(outerFortificationBlocksPoint(x,y,radius))return true;
-  const pad=radius+size.thickness/2;
-  if(x<left-pad||x>right+pad||y<top-pad||y>bottom+pad)return false;
-  return ROYAL_WALL_LINES.some(line=>curtainBlocksPoint(x,y,line,radius));
+  return outerFortificationBlocksPoint(x,y,radius)||royalCollision.blocksPoint(x,y,radius);
 }
 export function fortificationBlocksPath(a:Vec2,b:Vec2,radius=0){
-  if(outerFortificationBlocksPath(a,b,radius))return true;
-  const pad=radius+size.thickness/2;
-  if(Math.max(a.x,b.x)<left-pad||Math.min(a.x,b.x)>right+pad
-    ||Math.max(a.y,b.y)<top-pad||Math.min(a.y,b.y)>bottom+pad)return false;
-  return ROYAL_WALL_LINES.some(line=>curtainBlocksPath(a,b,line,radius));
+  return outerFortificationBlocksPath(a,b,radius)||royalCollision.blocksPath(a,b,radius);
 }

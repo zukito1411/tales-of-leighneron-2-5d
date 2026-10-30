@@ -1,4 +1,5 @@
 import {TOWNS,TOWN_BY_ID} from './towns';
+import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {SETTLEMENT_PROFILES,type SettlementProfileId} from './settlementProfiles';
 import {ROAD_ROUTES} from './roadRoutes';
 import {ART_BY_KEY,artFrameSize} from './art';
@@ -7,6 +8,7 @@ import type {PropContentDefinition,Vec2} from '../game/types';
 import {HIGHMERE_RIVER} from './rivers';
 import {settlementEnvelope,settlementGroundPlan,settlementNorthBoundary,fortificationSize} from './settlementPlanning';
 import {harborBay} from './worldLandscape';
+import {HIGHMERE_AVENUES,HIGHMERE_ROYAL_POSTERN_Y,insideHighmere} from './highmerePlan';
 
 export interface CurtainLine {a:Vec2;b:Vec2;townId:string;gateShoulder?:boolean;thickness?:number;sourceIndex?:number;shorePart?:number}
 export interface DefensiveEntrance {id:string;townId:string;point:Vec2;width:number;kind:'road'|'water';northSouth:boolean;gateArtwork?:boolean}
@@ -48,6 +50,26 @@ export function curtainBlocksPath(a:Vec2,b:Vec2,line:CurtainLine,radius=0){
   if(Math.abs(vy)<.00001){if(y< -half||y>half)return false;}
   else{const t0=(-half-y)/vy,t1=(half-y)/vy;enter=Math.max(enter,Math.min(t0,t1));leave=Math.min(leave,Math.max(t0,t1));}
   return enter<=leave;
+}
+
+/** Immutable segment bounds, shared by outer and inner defensive rings. */
+export class CurtainCollision {
+  private readonly index:StaticBoundsIndex<{bounds:{left:number;right:number;top:number;bottom:number};line:CurtainLine}>;
+  private readonly query={left:0,right:0,top:0,bottom:0};
+  constructor(lines:readonly CurtainLine[]){
+    this.index=new StaticBoundsIndex(lines.map(line=>{const pad=(line.thickness??18)/2;return {line,bounds:{
+      left:Math.min(line.a.x,line.b.x)-pad,right:Math.max(line.a.x,line.b.x)+pad,
+      top:Math.min(line.a.y,line.b.y)-pad,bottom:Math.max(line.a.y,line.b.y)+pad}};}));
+  }
+  blocksPoint(x:number,y:number,radius=0){
+    const q=this.query,pad=radius*Math.SQRT2;q.left=x-pad-.001;q.right=x+pad+.001;q.top=y-pad-.001;q.bottom=y+pad+.001;
+    return this.index.any(q,entry=>curtainBlocksPoint(x,y,entry.line,radius));
+  }
+  blocksPath(a:Vec2,b:Vec2,radius=0){
+    const q=this.query,pad=radius*Math.SQRT2;q.left=Math.min(a.x,b.x)-pad-.001;q.right=Math.max(a.x,b.x)+pad+.001;
+    q.top=Math.min(a.y,b.y)-pad-.001;q.bottom=Math.max(a.y,b.y)+pad+.001;
+    return this.index.any(q,entry=>curtainBlocksPath(a,b,entry.line,radius));
+  }
 }
 
 function dryHarborFoundation(x:number,y:number,clearance:number){
@@ -104,13 +126,21 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
       const hit=intersection(route.points[i-1],route.points[i],vertices[edge],vertices[(edge+1)%vertices.length]);
       if(hit)add(hit,route.width+88,'road',Math.abs(vertices[edge].y-vertices[(edge+1)%vertices.length].y)<1);
     }
-  const northX=town.id==='highmere'?1400:town.id==='oakmere'?-550:0,southX=town.id==='highmere'?-600:0;
+  const northX=town.id==='oakmere'?-550:0,southX=0;
   const north=point(northX,settlementNorthBoundary(town,northX)),south=point(southX,bounds.bottom);
   const gateWidth=town.id==='highmere'?500:town.id==='blackspire'?260:170;
   add(north,gateWidth,'road',true);add(south,gateWidth,town.kind==='harbor'?'water':'road',true);
   if(town.id==='highmere'){
     entrances.filter(e=>Math.hypot(e.point.x-north.x,e.point.y-north.y)<1||Math.hypot(e.point.x-south.x,e.point.y-south.y)<1).forEach(e=>{e.gateArtwork=true;});
-    approaches.push([point(850,-1200),point(850,-2400),point(1400,-2400),north],[point(-600,2250),south]);
+    approaches.push([point(0,HIGHMERE_ROYAL_POSTERN_Y),north],[point(0,0),south,point(0,7600)]);
+    // Only surveyed public streets cut the ring; the quay road stays outside
+    // and shares the single eastern gate with the regional trade route.
+    for(const road of HIGHMERE_AVENUES)for(let i=1;i<road.points.length;i++)for(let edge=0;edge<vertices.length;edge++){
+      const hit=intersection(point(road.points[i-1].x,road.points[i-1].y),point(road.points[i].x,road.points[i].y),vertices[edge],vertices[(edge+1)%vertices.length]);
+      if(hit)add(hit,road.width+88,'road',Math.abs(vertices[edge].y-vertices[(edge+1)%vertices.length].y)<1);
+    }
+    const east=entrances.find(e=>e.kind==='road'&&e.point.x>town.world.x+5000&&Math.abs(e.point.y-town.world.y)<1);
+    if(east){east.width=Math.max(east.width,500);east.gateArtwork=true;}
   }
   else if(town.id==='oakmere')approaches.push([point(-550,-120),north],[point(0,720),south]);
   else {approaches.push([point(0,0),north]);if(town.kind!=='harbor')approaches.push([point(0,0),south]);}
@@ -135,8 +165,9 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
     for(const gap of gaps){between(cursor,gap.lo);cursor=Math.max(cursor,gap.hi);}between(cursor,1);
   }
   for(const entrance of entrances.filter(e=>e.gateArtwork)) {
-    lines.push({townId:town.id,gateShoulder:true,thickness:size.thickness,a:{x:entrance.point.x-entrance.width/2,y:entrance.point.y},b:{x:entrance.point.x+ROYAL_GATE_OPENING.left,y:entrance.point.y}},
-      {townId:town.id,gateShoulder:true,thickness:size.thickness,a:{x:entrance.point.x+ROYAL_GATE_OPENING.right,y:entrance.point.y},b:{x:entrance.point.x+entrance.width/2,y:entrance.point.y}});
+    const along=(n:number)=>entrance.northSouth?{x:entrance.point.x+n,y:entrance.point.y}:{x:entrance.point.x,y:entrance.point.y+n};
+    lines.push({townId:town.id,gateShoulder:true,thickness:size.thickness,a:along(-entrance.width/2),b:along(ROYAL_GATE_OPENING.left)},
+      {townId:town.id,gateShoulder:true,thickness:size.thickness,a:along(ROYAL_GATE_OPENING.right),b:along(entrance.width/2)});
   }
   return {townId:town.id,vertices,lines:town.kind==='harbor'?lines.flatMap(shoreCurtain):lines,entrances,approaches};
 });
@@ -152,23 +183,12 @@ const defenseBounds=SETTLEMENT_DEFENSES.map(defense=>({defense,
 const defenseBoundsById=new Map(defenseBounds.map(bounds=>[bounds.defense.townId,bounds]));
 export function insideDefense(townId:string,x:number,y:number,buffer=0) {
   const bounds=defenseBoundsById.get(townId);if(!bounds)return false;
+  if(townId==='highmere'){const city=TOWN_BY_ID.highmere.world;return insideHighmere(x-city.x,y-city.y,buffer);}
   return bounds.areas.some(area=>x>=area.left-buffer&&x<=area.right+buffer&&y>=area.top-buffer&&y<=area.bottom+buffer);
 }
-export function outerFortificationBlocksPoint(x:number,y:number,radius=12) {
-  return defenseBounds.some(bounds=>{
-    const pad=radius+bounds.halfThickness;
-    return x>=bounds.left-pad&&x<=bounds.right+pad&&y>=bounds.top-pad&&y<=bounds.bottom+pad
-      &&bounds.defense.lines.some(line=>curtainBlocksPoint(x,y,line,radius));
-  });
-}
-export function outerFortificationBlocksPath(a:Vec2,b:Vec2,radius=0) {
-  return defenseBounds.some(bounds=>{
-    const pad=radius+bounds.halfThickness;
-    return Math.min(a.x,b.x)-pad<=bounds.right&&Math.max(a.x,b.x)+pad>=bounds.left
-      &&Math.min(a.y,b.y)-pad<=bounds.bottom&&Math.max(a.y,b.y)+pad>=bounds.top
-      &&bounds.defense.lines.some(line=>curtainBlocksPath(a,b,line,radius));
-  });
-}
+const outerCollision=new CurtainCollision(SETTLEMENT_DEFENSES.flatMap(d=>d.lines));
+export function outerFortificationBlocksPoint(x:number,y:number,radius=12){return outerCollision.blocksPoint(x,y,radius);}
+export function outerFortificationBlocksPath(a:Vec2,b:Vec2,radius=0){return outerCollision.blocksPath(a,b,radius);}
 export const SETTLEMENT_DEFENSE_PROPS:PropContentDefinition[]=[];
 for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defense.townId)!,profile=SETTLEMENT_PROFILES[town.id as SettlementProfileId];
   const baseScale=town.id==='highmere'?1.35:town.kind==='village' ? .75 : 1,size=fortificationSize(town);
@@ -182,6 +202,7 @@ for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defens
       world:{x:a.x+(b.x-a.x)*(i+.5)/count,y:a.y+(b.y-a.y)*(i+.5)/count}});
   }
   for(const [i,point] of defense.vertices.entries()){
+    if(town.id==='highmere'&&i%4!==0)continue;
     const towerScale=size.towerDiameter/(artFrameSize('royal_walls',3).width*.78),clearance=size.towerDiameter/2+32;
     if(town.kind==='harbor'&&!dryHarborFoundation(point.x,point.y,clearance))continue;
     // Side roads can enter exactly at a perimeter vertex. The opening cuts
@@ -190,7 +211,7 @@ for(const defense of SETTLEMENT_DEFENSES){const town=TOWNS.find(t=>t.id===defens
     SETTLEMENT_DEFENSE_PROPS.push({id:`defense:${town.id}:tower:${i}`,kind:'prop',texture:'royal_walls',frame:3,scale:towerScale,solid:true,footprint:{width:57.5*baseScale,height:27.6*baseScale},anchor:'center',world:point,tint:profile.wallTint});
   }
   for(const entrance of defense.entrances) {
-    if(entrance.gateArtwork)SETTLEMENT_DEFENSE_PROPS.push({id:entrance.id+':gatehouse',kind:'prop',world:entrance.point,texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',tint:profile.wallTint,label:entrance.point.y<town.world.y?'Highmere North Gate':'Highmere South Gate'});
+    if(entrance.gateArtwork)SETTLEMENT_DEFENSE_PROPS.push({id:entrance.id+':gatehouse',kind:'prop',world:entrance.point,texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',tint:profile.wallTint,rotation:entrance.northSouth?0:Math.PI/2,label:!entrance.northSouth?'Highmere Eastgate':entrance.point.y<town.world.y?'Highmere North Gate':'Highmere South Gate'});
     // Open side passages end at the actual cut curtains. Do not add round
     // towers on an extrapolated edge, or duplicate the gate sprite's posts.
   }

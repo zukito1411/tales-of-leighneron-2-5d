@@ -53,7 +53,7 @@ export const SETTLEMENT_PROFILES: Record<SettlementProfileId, SettlementProfile>
   highmere: {
     id: 'highmere',citadel:'castle', architecture: 'Trandum royal limestone and blue heraldry',
     defenses: 'High crenellated curtain wall, river gates, and crown towers',
-    bounds: { width: 5600, height: 5200 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0xffffff,buildingTint:0xfff6e5,
+    bounds: { width: 12200, height: 12200 }, wallStyle: 'stone', wallFrame: 18, wallTint: 0xffffff,buildingTint:0xfff6e5,
     wallScale: 1.45, wallSpacing: 224, gateTexture: 'walls', gateFrame: 21, gateWidth: 390, gateScale: .9,
     watchtowerFrame: 9, buildingFrames: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
     decorations: [

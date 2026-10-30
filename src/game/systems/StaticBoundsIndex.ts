@@ -1,10 +1,13 @@
 import {overlaps,type Rect} from '../../data/settlementGeometry';
-/** Immutable authored geometry; query only cells touched by a rectangle. */
+/** Spatial buckets for authored geometry; append while preparing a plan,
+ * then keep inserted bounds fixed. Queries touch only the requested cells. */
 export class StaticBoundsIndex<T extends {bounds:Rect}> {
  private readonly cells=new Map<string,T[]>();
  constructor(items:readonly T[],private readonly size=512){
-  for(const item of items)this.eachCell(item.bounds,key=>{const cell=this.cells.get(key)??[];cell.push(item);this.cells.set(key,cell);});
+  for(const item of items)this.add(item);
  }
+ /** Append-only preparation; callers must not mutate an inserted rectangle. */
+ add(item:T){this.eachCell(item.bounds,key=>{const cell=this.cells.get(key)??[];cell.push(item);this.cells.set(key,cell);});}
  query(bounds:Rect){
   const result=new Set<T>();this.eachCell(bounds,key=>{for(const item of this.cells.get(key)??[])result.add(item);});return [...result];
  }

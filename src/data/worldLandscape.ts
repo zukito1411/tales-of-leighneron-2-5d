@@ -1,10 +1,11 @@
+import {HIGHMERE_PLAN} from './highmerePlan';
 import {chunkCenter,CHUNK_SIZE} from './world';
 import {TOWN_BY_ID} from './towns';
 import type {Vec2} from '../game/types';
 const local=(id:string,x:number,y:number):Vec2=>({x:TOWN_BY_ID[id].world.x+x,y:TOWN_BY_ID[id].world.y+y});
 const chunks=(points:number[][])=>points.map(([x,y])=>chunkCenter(x,y));
 export const DRAINAGE=[
-  {id:'crown-river',width:168,points:[...chunks([[46,12],[39,15]]),...[[1050,-6500],[760,-4000],[560,-1800],[430,-800],[420,0],[540,1000],[950,3300],[1500,6500]].map(([x,y])=>local('highmere',x,y)),...chunks([[30,30],[24,35],[16,38],[2,40]])]},
+  {id:'crown-river',width:168,points:[...chunks([[46,12],[39,15]]),...[[HIGHMERE_PLAN.riverX,-8500],[HIGHMERE_PLAN.riverX,-6500],[HIGHMERE_PLAN.riverX,-4000],[HIGHMERE_PLAN.riverX,0],[HIGHMERE_PLAN.riverX,3600],[5000,6000],[0,6650],[-2800,6500]].map(([x,y])=>local('highmere',x,y)),...chunks([[30,30],[24,35],[16,38],[2,40]])]},
   {id:'willow-tributary',width:120,points:[...chunks([[50,12],[45,17]]),...[[900,-5500],[700,-2600],[600,-1150],[600,1150],[700,2600],[1000,5500]].map(([x,y])=>local('willowcross',x,y)),...chunks([[38,31],[38,34],[34,34],[24,35]])]},
   {id:'rootwater',width:144,points:[...chunks([[65,48],[62,54]]),...[[750,-5500],[550,-2600],[450,-1450],[450,1450],[550,2600],[850,5500]].map(([x,y])=>local('deepford',x,y)),...chunks([[58,70],[55,80]])]},
   // Mountain meltwater and woodland springs join existing headwaters. Roads

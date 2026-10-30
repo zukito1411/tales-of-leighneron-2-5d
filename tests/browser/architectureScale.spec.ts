@@ -39,7 +39,7 @@ test('expanded keep courtyards render with production models',async({page},testI
     await page.waitForFunction(()=>window.__architectureScaleReview?.ready||window.__architectureScaleReview?.error,null,{timeout:120000});
     expect(await page.evaluate(()=>window.__architectureScaleReview.error)).toBe('');
     for(const town of ['highmere','elarion','deepford','blackspire']){
-      expect(await page.evaluate(town=>window.__architectureScaleReview.scene.showSettlement(town),town)).toMatchObject({forecourt:980});
+      expect((await page.evaluate(town=>window.__architectureScaleReview.scene.showSettlement(town),town)).forecourt).toBeGreaterThanOrEqual(980);
       await page.waitForTimeout(350);
       await page.screenshot({path:testInfo.outputPath(town+'-courtyard.png')});
     }

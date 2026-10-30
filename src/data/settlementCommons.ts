@@ -1,11 +1,11 @@
 import type {ContentDefinition,Vec2,WorldPropTexture} from '../game/types';
-import type {SettlementLayout,Street} from './settlements';
+import {worldRectTouchesStreet,type SettlementLayout,type Street} from './settlements';
 import {TOWN_BY_ID} from './towns';
 import {NPCS} from './npcs';
-import {NPC_POSITIONS} from './npcPositions';
+import {npcExteriorAnchors,npcStandingReservation} from './npcPositions';
 import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {artFrameSize} from './art';
-import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,segmentTouchesRect,type Rect} from './settlementGeometry';
+import {spriteBounds,propPlacementBounds,rotateRect,overlaps,rectTouchesStreet,segmentTouchesRect,type Rect} from './settlementGeometry';
 import {insideDefense} from './settlementDefenses';
 import {fortificationBlocksPath} from './fortifications';
 import {settlementGroundPlan} from './settlementPlanning';
@@ -34,9 +34,9 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
     if(!('frame' in d))continue;
     const texture=d.texture??'world_objects',scale=d.scale??.6,profile=worldSpriteProfile(texture,d.frame);
     if(profile?.floor)continue;
-    const painted=spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center');
+    const painted=rotateRect(spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center'),d.world.x,d.world.y,d.rotation??0);
     const body=('solid' in d&&d.solid)||profile?.forceSolid?propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center',
-      'wallSegment' in d?d.wallSegment:undefined):undefined;
+      'wallSegment' in d?d.wallSegment:undefined,d.rotation??0):undefined;
     const bounds=body?{left:Math.min(painted.left,body.left),right:Math.max(painted.right,body.right),
       top:Math.min(painted.top,body.top),bottom:Math.max(painted.bottom,body.bottom)}:painted;
     obstacles.push({bounds,body});
@@ -44,11 +44,8 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
   // Protect future schedules, escort arrivals and rescued contacts too.
   for(const npc of NPCS){
     if(indoor.has(npc.id))continue;
-    const town=TOWN_BY_ID[npc.townId],slots=NPC_POSITIONS[npc.id];
-    const points=slots?[slots.position,slots.home,...slots.schedule,slots.arrival,npc.storyReturn?.position]
-      :[npc.worldOffset,npc.homeLocation,...npc.schedule.map(s=>s.location),npc.storyReturn?.position];
-    for(const p of points)if(p)obstacles.push({person:true,bounds:{left:town.world.x+p.x-38,right:town.world.x+p.x+38,
-      top:town.world.y+p.y-100,bottom:town.world.y+p.y+36}});
+    const town=TOWN_BY_ID[npc.townId];
+    for(const p of npcExteriorAnchors(npc))obstacles.push({person:true,bounds:npcStandingReservation(p,town.world.x,town.world.y)});
   }
   for(const layout of layouts){
     const town=TOWN_BY_ID[layout.townId];
@@ -113,7 +110,7 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
       ];
       furnishings.push({id:'notice',x:-105,y:245,texture:'native_civic_bare',frame:11,height:58,notice:true});
       const templates=furnishings.map(f=>{const scale=f.height/artFrameSize(f.texture,f.frame).height;
-        return {f,scale,bounds:spriteBounds(f.texture,f.frame,scale,f.x,f.y)};});
+        return {f,scale,bounds:propPlacementBounds(f.texture,f.frame,scale,f.x,f.y)};});
       const local:Rect={left:-270,right:270,top:-240,bottom:350};
       const preferred={x:town.world.x+plan.preferred.x,y:town.world.y+plan.preferred.y};
       function* candidates(){
@@ -132,8 +129,7 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
         if(![bounds.left,bounds.right].every(x=>[bounds.top,bounds.bottom].every(y=>insideDefense(town.id,x,y,-96)))
           ||blocked(bounds,false)||courts.some(r=>overlaps(bounds,r,48)))continue;
         const rects=templates.map(t=>move(t.bounds,center));
-        if(rects.some(r=>blocked(r)||layout.streets.some(s=>rectTouchesStreet({left:r.left-town.world.x,right:r.right-town.world.x,
-          top:r.top-town.world.y,bottom:r.bottom-town.world.y},s,16))))continue;
+        if(rects.some(r=>blocked(r)||worldRectTouchesStreet(r,16)))continue;
         if(![center,entry,{x:bounds.left,y:center.y+110},{x:bounds.right,y:center.y+110}].every(p=>walkable(p.x,p.y)))continue;
         const links=layout.streets.flatMap(s=>s.points.slice(1).map((b,i)=>{
           const p=project({x:entry.x-town.world.x,y:entry.y-town.world.y},s.points[i],b);return {x:town.world.x+p.x,y:town.world.y+p.y};

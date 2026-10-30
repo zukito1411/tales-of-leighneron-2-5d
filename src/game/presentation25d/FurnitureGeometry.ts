@@ -11,6 +11,7 @@ import type Phaser from 'phaser';
 import type {HomeFurnitureArt} from '../../data/housing';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
+import {propPassageFootprints} from '../../data/worldPropGroundPlan';
 
 export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
@@ -32,10 +33,7 @@ export interface FurniturePlacement {x:number;y:number;width:number;heading:numb
 /** Structural feet of hollow prefabs. Their openings must never be replaced
  * with one enclosing solid rectangle. Coordinates match the mesh below. */
 export function furniturePassageFootprints(shape:FurnitureShape):ReadonlyArray<readonly [number,number,number,number]> {
-  if(shape.art==='arch'||shape.art==='doorway'||shape.art==='tower-door-open')return [[-.48,-.30,-shape.depth,0],[.30,.48,-shape.depth,0]];
-  if(shape.art==='fence')return [[-.48,.48,-shape.depth*.7,-shape.depth*.3]];
-  if(shape.art==='stairs')return [[-.48,-.43,-shape.depth,0],[.43,.48,-shape.depth,0]];
-  return [];
+  return propPassageFootprints(shape.art,shape.depth);
 }
 export function furniturePlacement(owner:Pick<Phaser.GameObjects.Image,'x'|'y'|'rotation'|'displayWidth'>,shape:FurnitureShape,out:FurniturePlacement){
   const width=Math.abs(owner.displayWidth)*shape.width*(shape.modelScale??1),a=owner.rotation,c=Math.cos(a),s=Math.sin(a);

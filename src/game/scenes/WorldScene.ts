@@ -38,9 +38,10 @@ import {ExteriorPlacement} from '../systems/ExteriorPlacement';
 import {ExteriorAccess} from '../systems/ExteriorAccess';
 import { LEIGNERON } from '../../data/player';
 import { NPCS, NPC_BY_ID } from '../../data/npcs';
-import {npcWorldPosition,npcEscortArrival} from '../../data/npcPositions';
+import {npcWorldPosition,npcEscortArrival,npcStandingReservation} from '../../data/npcPositions';
 import {npcMayPatrol,npcPersonalSpace,npcStandingOffRoad} from '../systems/npcPlacement';
 import { TOWN_BY_ID } from '../../data/towns';
+import {worldRectTouchesStreet} from '../../data/settlements';
 import {REGION_BY_ID} from '../../data/regions';
 import {nearestRespawnTown,respawnArrivalCandidates} from '../systems/respawnLocation';
 import { ROAD_ROUTES } from '../../data/roadRoutes';
@@ -80,7 +81,7 @@ import {M14_ART} from '../../data/m14Art';
 import { progressionStats, playerDamageGrowth, earnedRewards } from '../../data/progression';
 import { localSettlementTravelEnabled } from '../../utils/localSettlementTravel';
 import type { ActiveSkillDefinition } from '../../data/activeSkills';
-import { propFoundation, spriteBounds, overlaps } from '../../data/settlementGeometry';
+import { propFoundation,propPlacementBounds, spriteBounds, overlaps } from '../../data/settlementGeometry';
 import { objectiveIsCurrent,nextObjective } from '../systems/storyProgress';
 import { fortificationBlocksPath, fortificationBlocksPoint } from '../../data/fortifications';
 import { CinematicDirector } from '../systems/CinematicDirector';
@@ -688,12 +689,18 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private findExteriorSlot(preferred:Vec2,kind:'npc'|'quest',id?:string,actor?:Npc,offRoad=false,
     definition?:NpcDefinition,crowd=true):Vec2|null{
     const region=this.worldGenerator.getRegionAt(preferred.x,preferred.y);
+    const definitionForItem=kind==='quest'&&id?CONTENT_BY_ID[id]:undefined;
+    const itemBounds=definitionForItem&&'frame' in definitionForItem?propPlacementBounds(definitionForItem.texture??'world_objects',
+      definitionForItem.frame,definitionForItem.scale??.6,0,0,definitionForItem.anchor==='center',undefined,definitionForItem.rotation??0):undefined;
+    const itemStreetBounds={left:0,right:0,top:0,bottom:0};
     const regional=Boolean(definition?.settlementResident||definition&&citizenModel(definition)!==undefined||actor?.usesRegionalPresentation);
     const fits=(p:Vec2)=>{
       if(this.worldGenerator.getRegionAt(p.x,p.y)!==region||!this.worldGenerator.isWalkable(p.x,p.y))return false;
       if(kind==='quest'){
-        if(this.exteriorPlacement.blocksQuestItem(p,id??'')||this.isBlockedByBuilding(p.x,p.y))return false;
-        if(this.npcs.some(n=>n.active&&!npcPersonalSpace(n,p)))return false;
+        if(itemBounds){const r=itemStreetBounds;r.left=p.x+itemBounds.left;r.right=p.x+itemBounds.right;
+          r.top=p.y+itemBounds.top;r.bottom=p.y+itemBounds.bottom;if(worldRectTouchesStreet(r,16))return false;}
+        if(this.exteriorPlacement.blocksQuestItem(p,id??'',itemBounds?itemStreetBounds:undefined)||this.isBlockedByBuilding(p.x,p.y))return false;
+        if(this.npcs.some(n=>n.active&&(!npcPersonalSpace(n,p)||Boolean(itemBounds&&overlaps(itemStreetBounds,npcStandingReservation(n),12)))))return false;
         for(const [other,point] of this.questObjectSlots)if(other!==id&&Math.hypot(point.x-p.x,point.y-p.y)<64)return false;
       }
       if(kind==='npc'&&(this.exteriorPlacement.blocksNpc(p,undefined,true)||this.isBlockedByBuilding(p.x,p.y)
@@ -701,7 +708,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       for(const [other,entry] of this.interactables)if(other!==id&&entry.actor.active&&entry.actor.visible
         &&Math.hypot(entry.actor.x-p.x,entry.actor.y-p.y)<60)return false;
       const npc=definition??actor?.definition;
-      if(offRoad&&npc&&!npcStandingOffRoad(npc,p))return false;
+      if(offRoad&&!npcStandingOffRoad(npc,p))return false;
       if(crowd&&this.npcs.some(n=>n.active&&n!==actor&&!npcPersonalSpace(n,p)))return false;
       if(kind==='npc'&&crowd&&this.player?.active&&Math.hypot(this.player.x-p.x,this.player.y-p.y)<52)return false;
       return true;
@@ -730,11 +737,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   /** Schedules wait for a validated destination instead of falling back into
    * a wall. Callers retain their current safe position while work is pending. */
   safeExteriorNpcDestination(target:Vec2,npc?:Npc){
-    return this.findExteriorSlot(target,'npc',undefined,npc,false,undefined,false);
+    return this.findExteriorSlot(target,'npc',undefined,npc,true,undefined,true);
   }
   private safeNpcSpawn(preferred:Vec2,definition:NpcDefinition,regional=false):Vec2|null{
     const actor=this.npcs.find(n=>n.active&&n.definition.id===definition.id);
-    return this.findExteriorSlot(preferred,'npc','npc:'+definition.id,actor,regional,definition);
+    return this.findExteriorSlot(preferred,'npc','npc:'+definition.id,actor,!definition.formation&&(regional||!npcMayPatrol(definition)),definition);
   }
 
   create() {
@@ -796,7 +803,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
     const state = useGameStore.getState();
     const nearSaved=[{x:state.worldX,y:state.worldY},...[128,256,512,1024,2048,4096,8192].flatMap(radius=>Array.from({length:24},(_,i)=>({x:state.worldX+Math.cos(i*Math.PI/12)*radius,y:state.worldY+Math.sin(i*Math.PI/12)*radius})))];
-    const safeSaved=nearSaved.find(p=>this.worldGenerator.isWalkable(p.x,p.y))??LEIGNERON.spawn;
+    const safeSaved=nearSaved.find(p=>this.worldGenerator.isWalkable(p.x,p.y)&&!this.exteriorPlacement.blocksAccessPath(p,p))??LEIGNERON.spawn;
     const spawnX=safeSaved.x,spawnY=safeSaved.y;
     this.player = new Player(this, spawnX, spawnY);
     this.levelUpFeedback=new LevelUpFeedback(this);

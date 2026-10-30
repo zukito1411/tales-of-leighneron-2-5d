@@ -1,32 +1,16 @@
 import type Phaser from 'phaser';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
-import {worldSpriteProfile} from '../../data/worldSpriteGeometry';
 import type {Patch} from './ModelMesh';
-import type {FurnitureShape,FurnitureArt} from './FurnitureGeometry';
+import type {FurnitureShape} from './FurnitureGeometry';
 import materials from './worldPropMaterials.json';
+import {worldPropKind,worldPropGroundPlan} from '../../data/worldPropGroundPlan';
 import {SHIP_DECK_HEIGHT} from './WalkSurface';
-
-// Explicit semantic admission: foliage, cacti, bones, reeds, trunks, stumps,
-// fallen logs, flowers and other delicate natural cutouts retain billboards.
-const civic:Readonly<Record<number,FurnitureArt>>={0:'lampPost',1:'lampPost',2:'lampPost',3:'brazier',4:'sign',5:'stall',6:'well',7:'bench',8:'barrels',9:'cargo',10:'fountain',12:'banner',13:'brazier'};
-const story:Readonly<Record<number,FurnitureArt>>={0:'lectern',1:'satchel',2:'ledger',3:'lantern',4:'wagon',5:'dummy',6:'pump',7:'keepsake',8:'keepsake',9:'keepsake',10:'chest',11:'waystone'};
-const volumeDepth:Partial<Record<FurnitureArt,number>>={well:.88,fountain:.42,barrels:.76,cargo:.62,crate:.62,chest:.58,
-  stall:.72,tent:.80,wagon:.68,bench:.38,rock:.58,columns:.56,crystals:.55,waystone:.38,shrine:.45,sack:.50,brazier:.44,satchel:.40,ledger:.62};
-const kinds:Partial<Record<ArtTextureKey,Readonly<Record<number,FurnitureArt>>>>={
-  others:civic,native_civic_bare:civic,native_story_bare:story,native_story_props:story,
-  world_assets:{2:'rock',3:'fence',5:'sign',6:'brazier',7:'cargo'},
-  desert_props:{4:'rock',5:'rock',6:'wagon',7:'sign',8:'cargo',9:'tent',11:'arch'},
-  woodland_props:{8:'rock',9:'rock',11:'sign'},
-  climate_props:{2:'crystals',3:'rock',4:'fence',5:'brazier',6:'crystals',7:'columns',8:'rock',9:'brazier',10:'shrine'},
-  flower_fence:{0:'fence',1:'fence',2:'fence',3:'fence'},
-  native_quest_landmarks:{0:'well',1:'brazier',2:'tent',3:'waystone',4:'sealed-gate',5:'sack'},
-};
 
 /** Shared prefabs keep real atlas registration, authored floor orientation
  * and the original collision survey. Called once when a streamed prop enters. */
 export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,texture:ArtTextureKey,index:number):FurnitureShape|undefined {
-  const art=texture==='elarion_tree'?'life-tree':kinds[texture]?.[index];if(!art)return;
+  const art=worldPropKind(texture,index);if(!art)return;
   const sheet=ART_BY_KEY[texture],frame=actor.frame;
   const meta=frame.customData as {visibleBounds?:{left:number;top:number;width:number;height:number};sourceRegion?:readonly number[]}|undefined;
   const b=meta?.visibleBounds;if(!b)return;
@@ -40,17 +24,10 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
       sourceRegion:[source[0]/1280,source[1]/1280,source[2]/1280,source[3]/1280],
       bounds:{left:-.6,right:.6,bottom:-.03,top:h/w,back:-.35,front:.35}};
   }
-  const profile=worldSpriteProfile(texture,index),polygons=profile?.solids??[];
-  let l=.08,r=.92,t=.70,bottom=.97;
-  if(polygons.length){l=Math.min(...polygons.flatMap(p=>p.map(v=>v[0])));r=Math.max(...polygons.flatMap(p=>p.map(v=>v[0])));
-    t=Math.min(...polygons.flatMap(p=>p.map(v=>v[1])));bottom=Math.max(...polygons.flatMap(p=>p.map(v=>v[1])));}
-  const vertical=texture==='flower_fence'&&index>0;
-  const modelScale=vertical?(bottom-t)*h/w:1;
+  const {l,r,vertical,modelScale,localX,localY,depth}=worldPropGroundPlan(texture,index,w,h)!;
   const modelW=w*modelScale;
-  const localX=vertical?l:(l+r)/2,localY=vertical?(t+bottom)/2:bottom;
   const footX=(b.left*d+localX*w-actor.originX*frame.cutWidth)/modelW;
   const footY=(b.top*d+localY*h-actor.originY*frame.cutHeight)/modelW;
-  const depth=vertical?(r-l)*w/modelW:Math.max(volumeDepth[art]??.10,(bottom-t)*h/w);
   let rise=h/w;
   if(texture==='flower_fence')rise=HERO_BODY_HEIGHT*.95/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   if(art==='cargo'||art==='crate'||art==='barrels'||art==='wagon'||art==='ledger')rise*=.78;

@@ -13,6 +13,9 @@ async function start(){
   try{
     const {default:App}=await import('./App');
     createRoot(document.getElementById('root')!).render(<StrictMode><App/></StrictMode>);
-  }catch(error){window.dispatchEvent(new CustomEvent('mernondna-startup-error',{detail:error}));}
+  }catch(error){
+    console.error('[startup] Application initialization failed:',error);
+    window.dispatchEvent(new CustomEvent('mernondna-startup-error',{detail:error}));
+  }
 }
 void start();

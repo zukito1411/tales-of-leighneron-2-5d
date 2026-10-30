@@ -1,17 +1,18 @@
 import { TOWN_BY_ID } from './towns';
 import {ROAD_ROUTES} from './roadRoutes';
 import {DRAINAGE,pathDistance} from './worldLandscape';
-import {onStoneBridgeDeck,stoneBridgeApproachSpan,stoneBridgeScale} from './bridgeDeck';
+import {onStoneBridgeDeck,stoneBridgeApproachSpan,stoneBridgeScale,royalBridgeRailBlocksPath,ROYAL_BRIDGE_WALK_INSET} from './bridgeDeck';
 import {CHUNK_SIZE} from './world';
+import {HIGHMERE_PLAN} from './highmerePlan';
 
 const highmere = TOWN_BY_ID.highmere.world;
 
-// The capital's river follows a shallow valley through its eastern wards.
-// Four stone causeways carry the city streets between both banks.
+// The capital's river skirts its eastern/southern ramparts. The broad eastern bank
+// crossing and the southern gate bridge share artwork and navigation surveys.
 export const HIGHMERE_RIVER = {
   width:168,
   points:DRAINAGE[0].points,
-  bridgeY:[-650,0,650,1550],
+  bridgeY:[...HIGHMERE_PLAN.bridgeY],
 };
 export const HIGHMERE_BRIDGE_POINTS=HIGHMERE_RIVER.bridgeY.map(crossing=>{
   const y=highmere.y+crossing;
@@ -32,7 +33,7 @@ export function onHighmereRiver(x:number,y:number) {
 }
 
 export function onHighmereBridge(x:number,y:number) {
-  return bridgeCandidates(x,y).some(p=>onStoneBridgeDeck(x,y,p.x,p.y,p.scale));
+  return bridgeCandidates(x,y).some(p=>!p.wilderness&&onStoneBridgeDeck(x,y,p.x,p.y,p.scale,p.heading,ROYAL_BRIDGE_WALK_INSET));
 }
 
 // Continue local river reaches beyond the town survey; never end a river at
@@ -48,12 +49,17 @@ export function onSettlementRiver(x:number,y:number) {
   return SETTLEMENT_RIVERS.some(r=>pathDistance(x,y,r.points,700)<=r.width/2);
 }
 export const WILDERNESS_BRIDGES=ROAD_ROUTES.flatMap(r=>r.crossings.map((p,i)=>({...p,id:`bridge:road:${r.id}:${i}`})));
-type BridgeSurvey={x:number;y:number;scale:number;wilderness:boolean};
+export const HIGHMERE_BRIDGE_SCALE=stoneBridgeScale(HIGHMERE_RIVER.width,HIGHMERE_PLAN.bridgeClearWidth);
+export const HIGHMERE_MAIN_BRIDGE={x:highmere.x+HIGHMERE_PLAN.mainBridge.x,y:highmere.y+HIGHMERE_PLAN.mainBridge.y,
+  scale:HIGHMERE_BRIDGE_SCALE,heading:Math.PI/2};
+type BridgeSurvey={x:number;y:number;scale:number;wilderness:boolean;heading?:number};
 const bridgeCells=new Map<string,BridgeSurvey[]>();
-const bridgeSurveys:BridgeSurvey[]=[...HIGHMERE_BRIDGE_POINTS.map(p=>({...p,scale:stoneBridgeScale(HIGHMERE_RIVER.width),wilderness:false})),
+const bridgeSurveys:BridgeSurvey[]=[...HIGHMERE_BRIDGE_POINTS.map(p=>({...p,scale:HIGHMERE_BRIDGE_SCALE,wilderness:false})),
+  {...HIGHMERE_MAIN_BRIDGE,wilderness:false},
   ...WILDERNESS_BRIDGES.map(p=>({...p,wilderness:true}))];
 for(const p of bridgeSurveys){
-  const half=stoneBridgeApproachSpan(p.scale),height=100;
+  const span=stoneBridgeApproachSpan(p.scale),rotated=Math.abs(Math.sin(p.heading??0))>.5;
+  const half=rotated?180:span,height=rotated?span:Math.max(180,HIGHMERE_PLAN.bridgeClearWidth/2+32);
   for(let cy=Math.floor((p.y-height)/CHUNK_SIZE);cy<=Math.floor((p.y+height)/CHUNK_SIZE);cy++)
     for(let cx=Math.floor((p.x-half)/CHUNK_SIZE);cx<=Math.floor((p.x+half)/CHUNK_SIZE);cx++){
       const key=cx+':'+cy,list=bridgeCells.get(key)??[];list.push(p);bridgeCells.set(key,list);
@@ -65,3 +71,17 @@ function bridgeCandidates(x:number,y:number):readonly BridgeSurvey[]{
 }
 export function onWildernessBridge(x:number,y:number){return bridgeCandidates(x,y).some(p=>
   p.wilderness&&onStoneBridgeDeck(x,y,p.x,p.y,p.scale));}
+
+export function highmereBridgeRailsBlock(from:{x:number;y:number},to=from,radius=0){
+  for(let y=Math.floor((Math.min(from.y,to.y)-radius)/CHUNK_SIZE);y<=Math.floor((Math.max(from.y,to.y)+radius)/CHUNK_SIZE);y++)
+    for(let x=Math.floor((Math.min(from.x,to.x)-radius)/CHUNK_SIZE);x<=Math.floor((Math.max(from.x,to.x)+radius)/CHUNK_SIZE);x++)
+      for(const p of bridgeCells.get(x+':'+y)??noBridges)
+        if(!p.wilderness&&royalBridgeRailBlocksPath(from,to,p.x,p.y,p.scale,p.heading,radius))return true;
+  return false;
+}
+
+const bridgePoint={x:0,y:0};
+export function highmereBridgeRailBlocksPoint(x:number,y:number,radius=0){
+  if(!bridgeCandidates(x,y).some(p=>!p.wilderness))return false;
+  bridgePoint.x=x;bridgePoint.y=y;return highmereBridgeRailsBlock(bridgePoint,bridgePoint,radius);
+}

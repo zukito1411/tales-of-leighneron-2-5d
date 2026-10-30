@@ -15,7 +15,7 @@ export const TOWNS: TownDefinition[] = [
   },
   {
     id: 'highmere', name: 'Highmere', regionId: 'trandum', kind: 'capital', world: place(31, 22), mapPercent: { x: 33, y: 28 },
-    description: 'The crown city of Trandum, built around a river castle and a crowded market ward.',
+    description: 'The kingdom capital: circular limestone ramparts, a raised royal citadel, noble and temple terraces, markets, working households and riverside farmsteads.',
     services: ['Castle', 'Guild Hall', 'Market', 'Smiths', 'Stables'], tags: ['capital', 'human'], starterKnown: true,
   },
   {

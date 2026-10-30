@@ -1,7 +1,7 @@
 import {NPCS} from '../../data/npcs';
 import {WORLD_CONTENT} from '../../data/content';
 import {TOWN_BY_ID} from '../../data/towns';
-import {SETTLEMENT_BY_ID,segmentDistance} from '../../data/settlements';
+import {SETTLEMENT_BY_ID,worldRectTouchesStreet,segmentDistance} from '../../data/settlements';
 import {MARCH_ROUTE} from '../../data/capitalResidents';
 import {spriteBounds,overlaps,propFoundation,type Rect} from '../../data/settlementGeometry';
 import {fortificationBlocksPoint} from '../../data/fortifications';
@@ -15,10 +15,14 @@ export function npcMayPatrol(npc:NpcDefinition){
   ||npc.spriteTexture==='npc_guard'&&TOWN_BY_ID[npc.townId].regionId==='trandum');
 }
 export const npcPersonalSpace=(a:Vec2,b:Vec2)=>Math.abs(a.x-b.x)>=80||Math.abs(a.y-b.y)>=112;
-export function npcStandingOffRoad(npc:NpcDefinition,p:Vec2){
- const town=TOWN_BY_ID[npc.townId],local={x:p.x-town.world.x,y:p.y-town.world.y};
- if(SETTLEMENT_BY_ID[npc.townId].streets.some(s=>s.points.slice(1).some((b,i)=>segmentDistance(local.x,local.y,s.points[i],b)<s.width/2+26)))return false;
- return npc.townId!=='highmere'||!MARCH_ROUTE.slice(1).some((b,i)=>segmentDistance(local.x,local.y,MARCH_ROUTE[i],b)<76);
+const standingStreetQuery={left:0,right:0,top:0,bottom:0};
+export function npcStandingOffRoad(npc:NpcDefinition|undefined,p:Vec2){
+ const q=standingStreetQuery;q.left=q.right=p.x;q.top=q.bottom=p.y;
+ if(worldRectTouchesStreet(q,30))return false;
+ const town=TOWN_BY_ID.highmere,dx=p.x-town.world.x,dy=p.y-town.world.y;
+ if(npc?.townId==='highmere'||Math.abs(dx)<3000&&Math.abs(dy)<1500)
+   for(let i=1;i<MARCH_ROUTE.length;i++)if(segmentDistance(dx,dy,MARCH_ROUTE[i-1],MARCH_ROUTE[i])<76)return false;
+ return true;
 }
 export interface NpcPlacement {position:Vec2;home:Vec2;schedule:Vec2[]}
 

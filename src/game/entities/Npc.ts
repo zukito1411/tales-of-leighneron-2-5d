@@ -22,7 +22,7 @@ import {guardMarchTexture} from '../../data/guardMarchArt';
 import {guardMarchScale} from '../systems/GuardMarchArt';
 import {npcWalkTexture} from '../../data/npcWalkArt';
 import {npcSchedulePosition} from '../../data/npcPositions';
-import {npcMayPatrol} from '../systems/npcPlacement';
+import {npcMayPatrol,npcStandingOffRoad} from '../systems/npcPlacement';
 import {citizenModel,citizenHeight,presentCitizen} from '../systems/RegionalCitizenArt';
 import {npcCombatArt,npcCombatKey,NPC_COMBAT_DIRECTIONS} from '../../data/npcCombatArt';
 
@@ -466,7 +466,7 @@ export class Npc extends DepthSortedSprite {
         }
       } else {
         const destination = patrolDestination(this.routineAnchor, { x: this.x, y: this.y }, this.definition.patrolRadius ?? 110, this.rng,
-          (from, to) => scene.canNpcVisit(from, to));
+          (from, to) => scene.canNpcVisit(from, to)&&npcStandingOffRoad(this.definition,to));
         if (destination) this.target = destination;
         else this.nextPatrolAt = time + 1600;
       }

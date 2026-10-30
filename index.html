@@ -30,12 +30,18 @@
     <div id="root"></div>
     <script>
       (()=>{
-        const report=()=>{
+        const report=event=>{
           document.getElementById('startup-splash')?.remove();
           const root=document.getElementById('root');if(!root)return;
           root.replaceChildren();const box=document.createElement('section');box.style.cssText='padding:24px;color:#f4dfae;font-family:Georgia,serif';
-          const text=document.createElement('p');text.textContent='Tales of Leighneron could not finish loading. Reconnect to the app’s host and retry. Your save has not been deleted.';
-          const retry=document.createElement('button');retry.textContent='Retry opening';retry.onclick=()=>location.reload();box.append(text,retry);root.append(box);
+          const text=document.createElement('p');text.textContent='Tales of Leighneron could not finish loading. Your save has not been deleted.';
+          const cause=event instanceof CustomEvent?event.detail:undefined;
+          const reason=typeof cause?.message==='string'?cause.message:typeof cause==='string'?cause:'';
+          box.append(text);
+          const detail=document.createElement('p');detail.style.cssText='max-width:70ch;white-space:pre-wrap;overflow-wrap:anywhere';
+          detail.textContent=reason?'Startup error: '+reason:'Required application code could not be loaded. Reconnect to the app’s host and retry.';
+          box.append(detail);
+          const retry=document.createElement('button');retry.textContent='Retry opening';retry.onclick=()=>location.reload();box.append(retry);root.append(box);
         };
         window.addEventListener('mernondna-startup-error',report);
         window.addEventListener('error',event=>{if(event.target instanceof HTMLScriptElement)report();},true);

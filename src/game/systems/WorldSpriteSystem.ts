@@ -11,7 +11,7 @@ import {architecturePassageFootprints} from '../../data/architecture';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {worldSpriteProfile,polygonGroundBands,TIMBER_BRIDGE,type GroundPoint} from '../../data/worldSpriteGeometry';
-import {ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
+import {ROYAL_BRIDGE_RAILS,ROYAL_BRIDGE_RAIL_MARGIN,ROYAL_BRIDGE_END_MARGIN,ROAD_BRIDGE_FRAME} from '../../data/bridgeDeck';
 import {segmentTouchesRect} from '../../data/settlementGeometry';
 import {isTreeArt} from '../../data/treeArt';
 import type {Vec2} from '../types';
@@ -129,7 +129,12 @@ export class WorldSpriteSystem {
           groundOffsetY:railGround.y-layer.y});
         actor.once('destroy',()=>layer.destroy());
       }
-      // Bridge rail art is decorative; terrain bounds already constrain the crossing.
+      if(actor.name.startsWith('bridge:highmere:'))for(const [back,front] of ROYAL_BRIDGE_RAILS){
+        const corners=[sourcePoint([90-ROYAL_BRIDGE_END_MARGIN,back-ROYAL_BRIDGE_RAIL_MARGIN]),sourcePoint([393+ROYAL_BRIDGE_END_MARGIN,back-ROYAL_BRIDGE_RAIL_MARGIN]),sourcePoint([90-ROYAL_BRIDGE_END_MARGIN,front+ROYAL_BRIDGE_RAIL_MARGIN]),sourcePoint([393+ROYAL_BRIDGE_END_MARGIN,front+ROYAL_BRIDGE_RAIL_MARGIN])];
+        add(Math.min(...corners.map(p=>p.x)),Math.min(...corners.map(p=>p.y)),Math.max(...corners.map(p=>p.x)),Math.max(...corners.map(p=>p.y)));
+      }
+      // Original timber rail art remains decorative. Royal masonry uses the
+      // same source-space balustrade bounds as its authoritative access checks.
     }else{
       actor.setDepth(profile?.floor?-950:profile?point(.5,profile.sortY).y:actor.y);
       const passage=this.scene.game.registry.get('presentation')==='three-2.5d'&&house

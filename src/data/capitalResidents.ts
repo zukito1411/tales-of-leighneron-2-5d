@@ -1,3 +1,4 @@
+import {HIGHMERE_MARCH_ROUTE,HIGHMERE_MARCH_SPACING,HIGHMERE_MARCH_STATIONS} from './highmerePlan';
 import type { NpcDefinition } from '../game/types';
 
 // Named residents, not anonymous quest-critical filler. Coordinates are local
@@ -574,16 +575,16 @@ export const CAPITAL_RESIDENTS:NpcDefinition[] = [
   }
 ];
 
-export const MARCH_ROUTE=[{x:-2300,y:0},{x:-900,y:0},{x:-900,y:650},{x:-2300,y:650},{x:-2300,y:0}];
+export const MARCH_ROUTE=HIGHMERE_MARCH_ROUTE;
 export const MARCH_SPEED=38;
-export const MARCH_SPACING=100;
-export const MARCH_LENGTH=4100;
+export const MARCH_SPACING=HIGHMERE_MARCH_SPACING;
+export const MARCH_LENGTH=MARCH_ROUTE.slice(1).reduce((sum,p,i)=>sum+Math.hypot(p.x-MARCH_ROUTE[i].x,p.y-MARCH_ROUTE[i].y),0);
 const knights=[["odel-wren","Odel Wren","Sera’s patrol partner"],["bessa-holt","Bessa Holt","Garron’s younger sister"],["hugh-merrit","Hugh Merrit","Caldus’s former apprentice"],["sella-ford","Sella Ford","Eddan’s niece"],["orrik-pike","Orrik Pike","Joren and Halden’s distant cousin"],["mina-thorne","Mina Thorne","Barric’s daughter"]];
 CAPITAL_RESIDENTS.push(...knights.map(([id,name,history],rank):NpcDefinition=>({
  id,name,title:'Crown Road Knight',townId:'highmere',role:'Marches the western ward circuit in a disciplined file',spriteTexture:'npc_royal_guard',spriteFrame:0,
- worldOffset:{x:-2300+rank*MARCH_SPACING,y:0},formation:{id:'western-watch',rank},combatant:true,weaponId:'oak-shield-blade',
+ worldOffset:HIGHMERE_MARCH_STATIONS[id].position,formation:{id:'western-watch',rank},combatant:true,weaponId:'oak-shield-blade',
  faction:'Royal Guard',family:history,connections:[{npcId:'captain-yselle-ward',relationship:'Commanding officer'},{npcId:'ser-caldus-rowe',relationship:'Drill instructor'}],
- homeLocation:{x:-2300+rank*80,y:-420},schedule:[{startHour:6,activity:'Marches the western ward circuit'},{startHour:20,activity:'Stands barracks watch'}],
+ homeLocation:HIGHMERE_MARCH_STATIONS[id].home,schedule:[{startHour:6,activity:'Marches the western market and barracks circuit',location:HIGHMERE_MARCH_STATIONS[id].position},{startHour:20,activity:'Stands barracks watch',location:HIGHMERE_MARCH_STATIONS[id].home}],
  relationshipToLeigneron:{kind:'acquaintance',trust:45,summary:history+'; knows Leigneron through Aldren’s road service.'},
  dialogue:['Our file leaves the crossing clear. Caldus insists on spacing, even on quiet days.','Captain Yselle says the guard serves the kitchens as well as the castle.'],
  dialoguePersonality:'Disciplined but approachable',questIds:[],storyConsequences:['The Guard Trial secures the relief stores; political decisions affect patrol dialogue.'],

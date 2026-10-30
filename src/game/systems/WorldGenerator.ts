@@ -3,12 +3,12 @@ import type { RegionId, TerrainKind, Vec2 } from '../types';
 import { REGIONS } from '../../data/regions';
 import { TOWN_BY_ID, TOWNS } from '../../data/towns';
 import { onRoadRoute,roadSurfaceAt } from '../../data/roadRoutes';
-import { onHighmereBridge, onHighmereRiver, onSettlementRiver,onWildernessBridge } from '../../data/rivers';
+import { highmereBridgeRailBlocksPoint,onHighmereBridge, onHighmereRiver, onSettlementRiver,onWildernessBridge } from '../../data/rivers';
 import {drainageDistance,harborBay,harborShoreDistance,LAVA_FLOW,pathDistance,RIDGES,onHeadwaterStream,WOODLAND_UPLANDS,CROWN_DOWNS} from '../../data/worldLandscape';
 import { CHUNK_SIZE, WORLD_SEED, WORLD_WIDTH, WORLD_HEIGHT } from '../../data/world';
 import { seededRandom } from '../../utils/seededRandom';
 import { FARM_PLOTS } from '../../data/landmarks';
-import {SETTLEMENT_LAYOUTS,settlementAt,settlementTerrain,settlementStreetAt,protectedSettlementAt} from '../../data/settlements';
+import {SETTLEMENT_LAYOUTS,buildingBounds,settlementAt,settlementTerrain,settlementStreetAt,protectedSettlementAt} from '../../data/settlements';
 import {settlementGroundPlan} from '../../data/settlementPlanning';
 import { fortificationBlocksPoint } from '../../data/fortifications';
 import {lakeAt,lakeShoreDistance} from '../../data/landscapeFeatures';
@@ -17,15 +17,43 @@ import {ASHEN_DOCK_ROAD,onPortDeck} from '../../data/ports';
 import {onFlagshipBoarding,flagshipWalkable} from '../../data/pirateFlagship';
 import {inTowerClearing,onTowerApproach} from '../../data/towerOfMight';
 import {RIVER_BED,SEA_BED} from '../../data/waterLevels';
+import {HIGHMERE_PLAN,highmereElevation,insideHighmere} from '../../data/highmerePlan';
+import {StaticBoundsIndex} from './StaticBoundsIndex';
 
+const smoothFoundation=(t:number)=>{t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);};
 const noise2D = createNoise2D(seededRandom(WORLD_SEED));
 const mainlandRegions=REGIONS.filter(region=>!['darkav','frostlands','portquill'].includes(region.id));
 // Rectangular foundations use the same bounds as their walls and road gates.
 const foundations=SETTLEMENT_LAYOUTS.flatMap(layout=>{
   const town=TOWN_BY_ID[layout.townId];
+  if(town.id==='highmere')return [];
   return settlementGroundPlan(town).rectangles.map(bounds=>({left:town.world.x+bounds.left,right:town.world.x+bounds.right,
     top:town.world.y+bounds.top,bottom:town.world.y+bounds.bottom}));
 });
+
+// Flat foundations follow the new terraces, with a soft grade outside each
+// occupied plot. A house never sinks into a radial hill through its back wall.
+const capitalLayout=SETTLEMENT_LAYOUTS.find(l=>l.townId==='highmere')!;
+const capitalPads=new StaticBoundsIndex(capitalLayout.buildings.filter(l=>!l.omitted).map(lot=>{
+  const r=buildingBounds(lot),inner={left:r.left-32,right:r.right+32,top:r.top-32,bottom:lot.y+120};
+  return {inner,height:highmereElevation(lot.x,lot.y),bounds:{left:inner.left-256,right:inner.right+256,top:inner.top-256,bottom:inner.bottom+256}};
+}));
+const capitalHeightQuery={left:0,right:0,top:0,bottom:0};
+function capitalGroundHeight(x:number,y:number){
+  const base=highmereElevation(x,y);let distance=Infinity,target=base;
+  const q=capitalHeightQuery;q.left=x-.001;q.right=x+.001;q.top=y-.001;q.bottom=y+.001;
+  capitalPads.any(q,pad=>{
+    const r=pad.inner,d=Math.hypot(Math.max(r.left-x,0,x-r.right),Math.max(r.top-y,0,y-r.bottom));
+    if(d<distance){distance=d;target=pad.height;}
+    return d===0;
+  });
+  return distance<256?base+(target-base)*(1-smoothFoundation(distance/256)):base;
+}
+function capitalApproachAt(x:number,y:number,clearance=0){
+  const town=TOWN_BY_ID.highmere.world,dx=x-town.x,dy=y-town.y;
+  if(Math.abs(dx)>8000+clearance||Math.abs(dy)>8000+clearance)return;
+  return settlementStreetAt(capitalLayout,dx,dy,clearance);
+}
 
 const TERRAIN_INDEX: Record<TerrainKind, number> = {
   grass: 0,
@@ -61,6 +89,12 @@ export class WorldGenerator {
     // immediate banks a shallow shoulder so it is not lost at that sampling
     // alignment. The existing grid/cache/budget are unchanged.
     if(bank>=0&&bank<48&&terrain!=='ice'&&terrain!=='lava')return RIVER_BED*.65*(1-bank/48)**2;
+    const capital=TOWN_BY_ID.highmere.world,cx=x-capital.x,cy=y-capital.y;
+    const capitalDistance=Math.hypot(cx,cy);
+    if(capitalDistance<HIGHMERE_PLAN.radius+384&&insideHighmere(cx,cy,384)){
+      const edge=smoothFoundation(Math.max(0,capitalDistance-HIGHMERE_PLAN.radius)/384);
+      if(edge===0)return capitalGroundHeight(cx,cy);
+    }
     let foundation=1;
     for(const f of foundations){
       const dx=Math.max(f.left-x,0,x-f.right),dy=Math.max(f.top-y,0,y-f.bottom);
@@ -70,6 +104,9 @@ export class WorldGenerator {
       const t=Math.min(1,outside/384);foundation=Math.min(foundation,t*t*(3-2*t));
     }
     if(terrain==='lava'||terrain==='ice'||terrain==='farmland')return 0;
+    if(capitalDistance<HIGHMERE_PLAN.radius+384){
+      foundation=Math.min(foundation,smoothFoundation(Math.max(0,capitalDistance-HIGHMERE_PLAN.radius)/384));
+    }
     const coast=Math.max(0,Math.min(1,(Math.min(bank,harborShoreDistance(x,y),lakeShoreDistance(x,y))-120)/700));
     const biome=this.getBiomeAt(x,y),amplitude=biome==='highland'?165:biome==='snowfield'?115:biome==='volcanic'?95:biome==='forest'?58:biome==='coast'?14:36;
     const hill=Math.max(0,noise2D(x*.0008,y*.0008)*.55+noise2D(x*.00032,y*.00032)*.30+noise2D(x*.0018,y*.0018)*.15+.35);
@@ -161,6 +198,7 @@ export class WorldGenerator {
     }
 
     if(onSettlementRiver(worldX,worldY))return 'water';
+    const capitalStreet=capitalApproachAt(worldX,worldY);if(capitalStreet)return capitalStreet.surface??'stone';
     if(regionId==='darkav'){const lair=dragonLairTerrain(worldX,worldY);if(lair)return lair;}
     if(regionId==='darkav'&&pathDistance(worldX,worldY,ASHEN_DOCK_ROAD,80)<48)return 'ash';
 
@@ -193,7 +231,7 @@ export class WorldGenerator {
     if(onFlagshipBoarding(worldX,worldY))return flagshipWalkable(worldX,worldY);
     return Number.isFinite(worldX) && Number.isFinite(worldY) && worldX >= 0 && worldY >= 0
       && worldX < WORLD_WIDTH && worldY < WORLD_HEIGHT && (onPortDeck(worldX,worldY)||!['water','lava'].includes(this.getTerrainAt(worldX, worldY)))
-      && !fortificationBlocksPoint(worldX,worldY);
+      && !fortificationBlocksPoint(worldX,worldY)&&!highmereBridgeRailBlocksPoint(worldX,worldY);
   }
 
   /** Ground motion must not leap over a narrow channel between valid endpoints.
@@ -220,7 +258,7 @@ export class WorldGenerator {
       const town = TOWN_BY_ID[layout.townId];
       if (settlementStreetAt(layout,worldX-town.world.x,worldY-town.world.y,clearance)) return true;
     }
-    return onRoadRoute(worldX,worldY,clearance);
+    return Boolean(capitalApproachAt(worldX,worldY,clearance))||onRoadRoute(worldX,worldY,clearance);
   }
 
   getTownAt(worldX: number, worldY: number, radius?: number) {

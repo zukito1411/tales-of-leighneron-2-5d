@@ -1,3 +1,4 @@
+import {HIGHMERE_SHRINE_SITE} from './highmerePlan';
 import { TOWNS } from './towns';
 import type { InteractableContentDefinition, Vec2 } from '../game/types';
 import {artFrameSize} from './art';
@@ -9,7 +10,7 @@ export interface TownShrine {
 }
 
 export const TOWN_SHRINES:TownShrine[] = TOWNS.map(town => {
-  const offset = town.id === 'oakmere' ? { x:40,y:-270 } : town.id === 'highmere' ? { x:-300,y:320 } : { x:140,y:-110 };
+  const offset = town.id === 'oakmere' ? { x:40,y:-270 } : town.id === 'highmere' ? HIGHMERE_SHRINE_SITE : { x:140,y:-110 };
   const world = { x:town.world.x + offset.x,y:town.world.y + offset.y };
   const texture=town.id==='elarion'?'elven_villas':'world_buildings',frame=town.id==='elarion'?4:3,size=artFrameSize(texture,frame);
   return { townId:town.id,contentId:town.id === 'oakmere' ? 'shrine:oakmere-road'

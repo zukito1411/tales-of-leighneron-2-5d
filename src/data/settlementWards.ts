@@ -4,6 +4,7 @@ import {wardPlanning,settlementEnvelope} from './settlementPlanning';
 import {SETTLEMENT_PROFILES,type SettlementProfileId} from './settlementProfiles';
 import type {BuildingLot,LandParcel,Planting,Street} from './settlements';
 import type {Rect} from './settlementGeometry';
+import {highmereWardSite,highmereWardActivities} from './highmerePlan';
 
 export interface WardDetail extends Vec2 {
   id:string; texture:WorldPropTexture; frame:number; scale:number;
@@ -30,6 +31,7 @@ export const WARD_THEMES:Record<SettlementProfileId,WardTheme>={
 };
 
 export function wardActivityPoints(townId:string,side:-1|1) {
+  if(townId==='highmere')return highmereWardActivities(side);
   const profile=SETTLEMENT_PROFILES[townId as SettlementProfileId],hy=profile.bounds.height/2+160;
   const avenue=side*(profile.bounds.width/2+260);
   return {
@@ -42,7 +44,7 @@ export function wardActivityPoints(townId:string,side:-1|1) {
 export interface WardPlan {streets:Street[];parcels:LandParcel[];buildings:BuildingLot[];plantings:Planting[];details:WardDetail[]}
 export function settlementWardPlan(town:TownDefinition):WardPlan {
   const profile=SETTLEMENT_PROFILES[town.id as SettlementProfileId],theme=WARD_THEMES[profile.id];
-  const half=profile.bounds.width/2,hy=profile.bounds.height/2+160;
+  const half=town.id==='highmere'?2800:profile.bounds.width/2,hy=town.id==='highmere'?2760:profile.bounds.height/2+160;
   const result:WardPlan={streets:[],parcels:[],buildings:[],plantings:[],details:[]};
   const urban=town.kind==='capital'||town.kind==='stronghold';
   const {columns,spacing,lowerStreetY}=wardPlanning(town),envelope=settlementEnvelope(town);
@@ -170,6 +172,40 @@ export function settlementWardPlan(town:TownDefinition):WardPlan {
         regional('grove-mushrooms',outlook-120,170,'woodland_props',10,.26);
       }
       regional('garden-waymarker',avenue+130,-hy*.5,'woodland_props',11,.42,true);
+    }
+  }
+  if(town.id==='highmere'){
+    // Existing stable slots and complete artwork acquire new neighborhood
+    // positions. Keep all retained wells, awnings, flower beds and tree IDs.
+    result.streets=[];result.parcels=[];
+    for(const side of [-1,1] as const){
+      const index=side===-1?0:1,id=`ward:highmere:${index}`;
+      const lots=result.buildings.filter(l=>l.wardId===id);
+      for(const [i,lot] of lots.entries()){
+        const row=Math.floor(i/columns),col=i%columns,point=highmereWardSite(side,row,col);
+        Object.assign(lot,point,{plot:{left:point.x-400,right:point.x+400,top:point.y-920,bottom:point.y+80}});
+        if(row===0){lot.label=(side===-1?'Noble Quarter Residence ':'Dawn Terrace House ')+(col+1);
+          lot.purpose=side===-1?'Upper noble residence and embassy garden':'Temple terrace, pilgrims and royal garden keepers';
+          lot.frame=side===1&&col===0?4:1;lot.appearance={texture:'capital_buildings',frame:lot.frame};}
+      }
+      const trees=result.plantings.filter(t=>t.wardId===id);
+      for(const [i,tree] of trees.entries()){
+        const a=(side===1?-.45:.55)*Math.PI+i/Math.max(1,trees.length-1)*Math.PI*.90;
+        tree.x=Math.cos(a)*5520;tree.y=Math.sin(a)*5520;
+      }
+      for(const detail of result.details.filter(d=>d.id.startsWith(id+':'))){
+        detail.x=side*(2600+(Math.abs(detail.x)-3060)*.48);detail.y=detail.y*2+650;
+      }
+      result.parcels.push({id:id+':market-green',purpose:theme.names[index]+' shared market court',terrain:'stone',x:side*3500,y:400,width:800,height:750});
+      for(let i=0;i<9;i++)result.details.push({id:id+':processional-lamp:'+i,x:side*230,y:650+i*540,texture:'others',frame:1,scale:.55,solid:false});
+      result.details.push(
+        {id:id+':royal-court-fountain',x:side*900,y:-2200,texture:'others',frame:10,scale:.85,solid:true},
+        {id:id+':royal-court-seat',x:side*760,y:-1930,texture:'others',frame:7,scale:.65,solid:false},
+        {id:id+':royal-court-banner',x:side*270,y:-2700,texture:'others',frame:12,scale:.7,solid:true},
+        {id:id+':royal-court-lantern',x:side*600,y:-2500,texture:'others',frame:1,scale:.6,solid:false},
+        {id:id+':royal-court-flowers',x:side*1040,y:-1770,texture:'woodland_props',frame:1,scale:.4,solid:false},
+      );
+      for(const [i,y] of [-4300,-3500,-2400].entries())result.plantings.push({id:id+':royal-garden-tree:'+i,x:side*1550,y,frame:0,scale:1.2,wardId:id,purpose:'Royal side gardens beside the clear processional route'});
     }
   }
   return result;

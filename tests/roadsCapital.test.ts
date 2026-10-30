@@ -3,6 +3,7 @@ import { ROAD_ROUTES,segmentDistance } from '../src/data/roadRoutes';
 import { ROAD_CONNECTIONS,TOWN_BY_ID } from '../src/data/towns';
 import { SETTLEMENT_BY_ID } from '../src/data/settlements';
 import { HIGHMERE_RIVER,onHighmereBridge,onHighmereRiver } from '../src/data/rivers';
+import {HIGHMERE_PLAN} from '../src/data/highmerePlan';
 import { WorldGenerator } from '../src/game/systems/WorldGenerator';
 
 describe('authored mainland circulation and Highmere',() => {
@@ -29,7 +30,7 @@ describe('authored mainland circulation and Highmere',() => {
     expect(layout.buildings.length).toBeGreaterThanOrEqual(18);
     expect(layout.parcels.some(p => p.id === 'crown-ward')).toBe(true);
     expect(world.getTerrainAt(city.x,city.y)).toBe('stone');
-    const riverX = city.x + 420;
+    const riverX = city.x + HIGHMERE_PLAN.riverX;
     expect(onHighmereRiver(riverX,city.y - 300)).toBe(true);
     expect(world.getTerrainAt(riverX,city.y - 300)).toBe('water');
     for (const bridgeY of HIGHMERE_RIVER.bridgeY.filter(y=>y<=650)) {

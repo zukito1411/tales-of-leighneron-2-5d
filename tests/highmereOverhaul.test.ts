@@ -1,4 +1,6 @@
+import {MARCH_LENGTH,MARCH_SPEED} from '../src/data/capitalResidents';
 import { describe,it,expect,beforeEach } from 'vitest';
+import {HIGHMERE_PLAN,HIGHMERE_ROYAL_GATE_Y} from '../src/data/highmerePlan';
 import { RecoverySystem } from '../src/game/systems/RecoverySystem';
 import { ROYAL_WALL_LINES,ROYAL_FORTIFICATION_PROPS,fortificationBlocksPoint,fortificationBlocksPath } from '../src/data/fortifications';
 import { TOWN_BY_ID } from '../src/data/towns';
@@ -18,32 +20,36 @@ describe('Highmere playable story and city overhaul',()=>{
   const city=TOWN_BY_ID.highmere.world,world=new WorldGenerator();
   const waitForUiAction=()=>new Promise<void>(resolve=>setTimeout(resolve,125));
   beforeEach(()=>useGameStore.getState().resetGame());
-  it('builds seven districts, preserves original lots and connects a larger capital',()=>{
+  it('builds inhabited districts, preserves original lots and connects a larger capital',()=>{
     const layout=SETTLEMENT_BY_ID.highmere;
     expect(layout.bounds.width*layout.bounds.height).toBeGreaterThan(3500*2800*2);
     expect(layout.buildings.filter(lot=>!lot.wardId)).toHaveLength(34);
     expect(layout.buildings.length).toBeGreaterThan(34);
-    for(const id of ['crown-ward','central-ward','military-ward','market-ward','west-homes','lower-ward','outer-ward'])expect(layout.parcels.some(p=>p.id===id)).toBe(true);
+    for(const id of ['capital-plaza','noble-quarter','temple-terrace','guild-market','commoner-quarter','rural-quarter','royal-gardens'])expect(layout.parcels.some(p=>p.id===id)).toBe(true);
     const route=npcStreetRoute('highmere',{x:-2100,y:1900},{x:-1000,y:-1550},(a,b)=>!fortificationBlocksPath({x:city.x+a.x,y:city.y+a.y},{x:city.x+b.x,y:city.y+b.y},12));
     expect(route.length).toBeGreaterThan(2);
     expect(route.at(-1)).toEqual({x:-1000,y:-1550});
   });
   it('joins original-perspective curtains to a passable south-facing audience gate',()=>{
-    expect(ROYAL_FORTIFICATION_PROPS.filter(p=>p.frame===5)).toHaveLength(1);
+    expect(ROYAL_FORTIFICATION_PROPS.filter(p=>p.frame===5)).toHaveLength(2);
     expect(ROYAL_FORTIFICATION_PROPS.every(p=>!p.rotation)).toBe(true);
     for(const line of ROYAL_WALL_LINES)expect(fortificationBlocksPoint((line.a.x+line.b.x)/2,(line.a.y+line.b.y)/2)).toBe(true);
-    expect(world.isWalkable(city.x-1000,city.y-1300)).toBe(true);
-    expect(fortificationBlocksPath({x:city.x-1000,y:city.y-1200},{x:city.x-1000,y:city.y-1450},12)).toBe(false);
-    expect(fortificationBlocksPath({x:city.x-1150,y:city.y-1200},{x:city.x-1150,y:city.y-1450},12)).toBe(true);
+    expect(world.isWalkable(city.x,city.y+HIGHMERE_ROYAL_GATE_Y+100)).toBe(true);
+    expect(fortificationBlocksPath({x:city.x,y:city.y+HIGHMERE_ROYAL_GATE_Y+120},{x:city.x,y:city.y+HIGHMERE_ROYAL_GATE_Y-120},12)).toBe(false);
+    expect(fortificationBlocksPath({x:city.x+400,y:city.y+HIGHMERE_ROYAL_GATE_Y+120},{x:city.x+400,y:city.y+HIGHMERE_ROYAL_GATE_Y-120},12)).toBe(true);
   });
-  it('keeps four crossings walkable on decks rather than decorative rails',()=>{
+  it('keeps the eastern crossing and main gate bridge broad and walkable',()=>{
     const bridges=WORLD_CONTENT.filter(d=>d.id.startsWith('bridge:highmere:'));
-    expect(bridges).toHaveLength(4);
-    for(const bridge of bridges){for(const dx of [-120,-60,0,60,120])expect(world.isWalkable(bridge.world.x+dx,bridge.world.y)).toBe(true);
-      expect(world.isWalkable(bridge.world.x,bridge.world.y+55)).toBe(false);}
+    expect(bridges).toHaveLength(2);
+    for(const bridge of bridges){
+      const angle='rotation' in bridge?bridge.rotation??0:0,c=Math.cos(angle),s=Math.sin(angle);
+      for(const along of [-120,-60,0,60,120])expect(world.isWalkable(bridge.world.x+along*c,bridge.world.y+along*s)).toBe(true);
+      expect(world.isWalkable(bridge.world.x-180*s,bridge.world.y+180*c)).toBe(false);
+      expect(HIGHMERE_PLAN.bridgeClearWidth).toBeGreaterThanOrEqual(220);
+    }
   });
   it('maintains separated marching positions through corners and a closed circuit',()=>{
-    expect(formationPosition(4100/38*1000,0)).toEqual(formationPosition(0,0));
+    expect(formationPosition(MARCH_LENGTH/MARCH_SPEED*1000,0)).toEqual(formationPosition(0,0));
     for(let time=0;time<100000;time+=1500){const positions=Array.from({length:6},(_,rank)=>formationPosition(time,rank));
       for(let i=0;i<positions.length;i++)for(let j=i+1;j<positions.length;j++)expect(Math.hypot(positions[i].x-positions[j].x,positions[i].y-positions[j].y)).toBeGreaterThanOrEqual(65);}
   });
