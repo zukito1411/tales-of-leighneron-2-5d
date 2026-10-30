@@ -551,7 +551,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   // stable source courtyard IDs and alter only optional dressing, not houses,
   // NPCs, quest objects or authored street geometry.
   if(town.id==='highmere'&&borough){
-    const homes=new Map(layout.buildings.filter(lot=>!lot.omitted&&lot.wardId?.startsWith('capital:house:'))
+    const homes=new Map<string,BuildingLot>(layout.buildings.filter(lot=>!lot.omitted&&lot.wardId?.startsWith('capital:house:'))
       .map(lot=>[lot.wardId!.slice('capital:house:'.length),lot]));
     for(const court of HIGHMERE_HOUSEHOLD_COURTS){
       const placed=homes.get(court.id);
