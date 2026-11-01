@@ -5,7 +5,7 @@ export const CINDERPEAK={x:LAVA_FLOW[0].x,y:LAVA_FLOW[0].y-1700,radius:1650,heig
 export interface VolcanoPulse {seconds:number;intensity:number;active:boolean}
 const random=seededRandom('darkav:cinderpeak:3d:v1');
 const variation=Array.from({length:96},()=>random());
-export function cinderpeakVariation(i:number){return variation[(Math.round(i)%96+96)%96];}
+export function cinderpeakVariation(i:number){const lo=Math.floor(i),t=i-lo;return variation[(lo%96+96)%96]*(1-t)+variation[((lo+1)%96+96)%96]*t;}
 export function cinderpeakRidge(i:number){const a=i/96*Math.PI*2;return 1+.055*Math.sin(a*7)+.025*Math.cos(a*13)+cinderpeakVariation(i)*.025;}
 export function cinderpeakOutline():GroundPoint[]{return variation.map((_,i)=>{
  const a=i/96*Math.PI*2,r=CINDERPEAK.radius*cinderpeakRidge(i);return [CINDERPEAK.x+Math.cos(a)*r,CINDERPEAK.y+Math.sin(a)*r];

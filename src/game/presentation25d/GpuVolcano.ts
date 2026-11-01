@@ -15,7 +15,7 @@ const fragment=`uniform sampler2D artwork;uniform float time;uniform float pulse
  uniform vec2 fogFocus;uniform vec3 fogColor;varying vec2 tex;varying float heat;varying vec3 n;varying vec2 ground;
  void main(){
   vec2 tile=heat>.5?vec2(2.0,2.0):vec2(3.0,3.0);
-  vec2 p=fract(tex+(heat>.5?vec2(0.0,-time*.025):vec2(0.0)));
+  vec2 p=fract(tex+(heat>.5?vec2(0.0,time*.025):vec2(0.0)));
   vec3 paint=texture2D(artwork,vec2(tile.x,3.0-tile.y)*.25+(.004+p*.992)*.25).rgb;
   vec3 light=min(vec3(1.05),structureFill+structureKey*max(0.0,dot(normalize(n),structureLightDirection)));
   vec3 color=paint*light;
@@ -51,7 +51,7 @@ export class GpuVolcano {
   const N=96,R=11,H=CINDERPEAK.height;
   const point=(t:number,i:number,lift=0)=>{
    const a=i/N*Math.PI*2,v=cinderpeakVariation(i),r=(CINDERPEAK.craterRadius+(CINDERPEAK.radius-CINDERPEAK.craterRadius)*Math.pow(1-t,.82))*cinderpeakRidge(i);
-   const y=H*Math.pow(t,1.20)+(Math.sin(a*5)*24+(v-.5)*70)*t;
+   const y=H*Math.pow(t,1.20)-140*Math.pow(1-t,8)+(Math.sin(a*5)*24+(v-.5)*70)*t;
    return new Vector3(Math.cos(a)*r,y+lift,Math.sin(a)*r);
   };
   for(let row=0;row<=R;row++)for(let i=0;i<=N;i++)push(point(row/R,i),i/N*15,row/R*9);
@@ -63,7 +63,7 @@ export class GpuVolcano {
    const a=i/N*Math.PI*2,p=point(1,i);if(row){p.x=Math.cos(a)*CINDERPEAK.craterRadius*.62;p.z=Math.sin(a)*CINDERPEAK.craterRadius*.62;p.y=H-230;}
    push(p,i/N*5,row,row?1:0);
   }
-  for(let i=0;i<N;i++){const a=inner+i,b=a+1,c=a+N+1,d=c+1;indices.push(a,b,c,b,d,c);}
+  for(let i=0;i<N;i++){const a=inner+i,b=a+1,c=a+N+1,d=c+1;indices.push(a,c,b,b,c,d);}
   const center=push(new Vector3(0,H-229,0),.5,.5,1),rim=pos.length/3;
   for(let i=0;i<=N;i++){const a=i/N*Math.PI*2;push(new Vector3(Math.cos(a)*CINDERPEAK.craterRadius*.63,H-229,Math.sin(a)*CINDERPEAK.craterRadius*.63),.5+Math.cos(a)*.5,.5+Math.sin(a)*.5,1);}
   for(let i=0;i<N;i++)indices.push(center,rim+i+1,rim+i);
@@ -79,7 +79,7 @@ export class GpuVolcano {
   this.geometry.setAttribute('position',new BufferAttribute(new Float32Array(pos),3));this.geometry.setAttribute('uv',new BufferAttribute(new Float32Array(uv),2));
   this.geometry.setAttribute('molten',new BufferAttribute(new Float32Array(heat),1));this.geometry.setIndex(indices);this.geometry.computeVertexNormals();
   const random=seededRandom('darkav:lava-ejecta:v1'),launch=new Float32Array(128*4),sizes=new Float32Array(128);
-  for(let i=0;i<128;i++){const a=random()*Math.PI*2,speed=65+random()*170;launch.set([Math.cos(a)*speed,700+random()*470,Math.sin(a)*speed,i/128*8.4],i*4);sizes[i]=9+random()*14;}
+  for(let i=0;i<128;i++){const a=random()*Math.PI*2,speed=65+random()*170;launch.set([Math.cos(a)*speed,700+random()*470,Math.sin(a)*speed,((i*.61803398875)%1)*8.4],i*4);sizes[i]=9+random()*14;}
   this.ejectGeometry.setAttribute('launch',new InstancedBufferAttribute(launch,4));this.ejectGeometry.setAttribute('rockSize',new InstancedBufferAttribute(sizes,1));
   this.material=new ShaderMaterial({uniforms:{...atmosphere,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,side:DoubleSide});
   this.ejectMaterial=new ShaderMaterial({uniforms:{...atmosphere,...this.uniforms},vertexShader:ejectVertex,fragmentShader:ejectFragment});

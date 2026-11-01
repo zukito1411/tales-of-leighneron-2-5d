@@ -2239,7 +2239,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       const npcPosition=admitted??(position?this.safeNpcSpawn(position,npcDefinition,regional):null);
       if(!npcPosition)throw new Error('No valid exterior position for NPC '+definition.id);
       const authoredHome=npcWorldPosition(npcDefinition,'home');
-      const safeHome=this.safeExteriorNpcDestination(authoredHome)??npcPosition;
+      const safeHome=(npcDefinition.campId
+        ?this.findExteriorSlot(authoredHome,'npc',definition.id+':home',undefined,true,npcDefinition)
+        :this.safeExteriorNpcDestination(authoredHome))??npcPosition;
       const npc = new Npc(this, npcDefinition, npcPosition.x, npcPosition.y, safeHome);
       if(this.cinematicDirector?.active&&!npc.definition.formation)npc.storyRest();
       this.groundShadows.register(npc);

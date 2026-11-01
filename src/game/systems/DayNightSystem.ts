@@ -107,11 +107,11 @@ export class DayNightSystem {
       }
       if(spatial&&shape){
         const p=furniturePlacement(actor,shape,{x:0,y:0,width:0,heading:0,lift:0}),w=p.width,H=shape.rise;
-        const art=shape.art,bulb=art==='lantern'||art==='lampPost',brazier=art==='brazier';
-        if(tree||bulb||brazier){
+        const art=shape.art,bulb=art==='lantern'||art==='lampPost',brazier=art==='brazier',campfire=art==='campfire';
+        if(tree||bulb||brazier||campfire){
           const lamp=tree?LIFE_TREE_LIGHTS[index]:undefined;
           const right=lamp?.[0]??(art==='lampPost'?shape.ornamentX??.25:0);
-          const height=lamp?lamp[1]*H:H*(brazier?.76:art==='lantern'?.46:.56);
+          const height=lamp?lamp[1]*H:H*(campfire?.44:brazier?.76:art==='lantern'?.46:.56);
           const depth=lamp?.[2]??-shape.depth/2;
           const a=shape.heading??0,c=Math.cos(a),sn=Math.sin(a);
           node.fixture={owner:actor,right:((shape.footX??0)+right*c-depth*sn)*w,

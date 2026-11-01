@@ -1,0 +1,400 @@
+{
+  "seed": 18472311,
+  "version": 1,
+  "sites": [
+    {
+      "id": "wildcamp:trandum:0",
+      "region": "trandum",
+      "kind": "adventurer",
+      "x": 39994,
+      "y": 50308,
+      "bounds": {
+        "left": 39494,
+        "right": 40494,
+        "top": 49808,
+        "bottom": 50808
+      }
+    },
+    {
+      "id": "wildcamp:trandum:1",
+      "region": "trandum",
+      "kind": "knight",
+      "x": 27320,
+      "y": 50373,
+      "bounds": {
+        "left": 26820,
+        "right": 27820,
+        "top": 49873,
+        "bottom": 50873
+      }
+    },
+    {
+      "id": "wildcamp:trandum:2",
+      "region": "trandum",
+      "kind": "hostile",
+      "x": 24253,
+      "y": 30741,
+      "bounds": {
+        "left": 23753,
+        "right": 24753,
+        "top": 30241,
+        "bottom": 31241
+      }
+    },
+    {
+      "id": "wildcamp:trandum:3",
+      "region": "trandum",
+      "kind": "adventurer",
+      "x": 39952,
+      "y": 28477,
+      "bounds": {
+        "left": 39452,
+        "right": 40452,
+        "top": 27977,
+        "bottom": 28977
+      }
+    },
+    {
+      "id": "wildcamp:narenthil:0",
+      "region": "narenthil",
+      "kind": "adventurer",
+      "x": 88320,
+      "y": 32233,
+      "bounds": {
+        "left": 87820,
+        "right": 88820,
+        "top": 31733,
+        "bottom": 32733
+      }
+    },
+    {
+      "id": "wildcamp:narenthil:1",
+      "region": "narenthil",
+      "kind": "knight",
+      "x": 83117,
+      "y": 28386,
+      "bounds": {
+        "left": 82617,
+        "right": 83617,
+        "top": 27886,
+        "bottom": 28886
+      }
+    },
+    {
+      "id": "wildcamp:narenthil:2",
+      "region": "narenthil",
+      "kind": "hostile",
+      "x": 73490,
+      "y": 21515,
+      "bounds": {
+        "left": 72990,
+        "right": 73990,
+        "top": 21015,
+        "bottom": 22015
+      }
+    },
+    {
+      "id": "wildcamp:narenthil:3",
+      "region": "narenthil",
+      "kind": "adventurer",
+      "x": 86149,
+      "y": 18076,
+      "bounds": {
+        "left": 85649,
+        "right": 86649,
+        "top": 17576,
+        "bottom": 18576
+      }
+    },
+    {
+      "id": "wildcamp:nardorous:0",
+      "region": "nardorous",
+      "kind": "adventurer",
+      "x": 118507,
+      "y": 39582,
+      "bounds": {
+        "left": 118007,
+        "right": 119007,
+        "top": 39082,
+        "bottom": 40082
+      }
+    },
+    {
+      "id": "wildcamp:nardorous:1",
+      "region": "nardorous",
+      "kind": "knight",
+      "x": 111210,
+      "y": 38671,
+      "bounds": {
+        "left": 110710,
+        "right": 111710,
+        "top": 38171,
+        "bottom": 39171
+      }
+    },
+    {
+      "id": "wildcamp:nardorous:2",
+      "region": "nardorous",
+      "kind": "hostile",
+      "x": 119475,
+      "y": 36010,
+      "bounds": {
+        "left": 118975,
+        "right": 119975,
+        "top": 35510,
+        "bottom": 36510
+      }
+    },
+    {
+      "id": "wildcamp:rindass:0",
+      "region": "rindass",
+      "kind": "adventurer",
+      "x": 122781,
+      "y": 82913,
+      "bounds": {
+        "left": 122281,
+        "right": 123281,
+        "top": 82413,
+        "bottom": 83413
+      }
+    },
+    {
+      "id": "wildcamp:rindass:1",
+      "region": "rindass",
+      "kind": "knight",
+      "x": 109977,
+      "y": 86662,
+      "bounds": {
+        "left": 109477,
+        "right": 110477,
+        "top": 86162,
+        "bottom": 87162
+      }
+    },
+    {
+      "id": "wildcamp:rindass:2",
+      "region": "rindass",
+      "kind": "hostile",
+      "x": 111221,
+      "y": 60792,
+      "bounds": {
+        "left": 110721,
+        "right": 111721,
+        "top": 60292,
+        "bottom": 61292
+      }
+    },
+    {
+      "id": "wildcamp:rindass:3",
+      "region": "rindass",
+      "kind": "adventurer",
+      "x": 121460,
+      "y": 71174,
+      "bounds": {
+        "left": 120960,
+        "right": 121960,
+        "top": 70674,
+        "bottom": 71674
+      }
+    },
+    {
+      "id": "wildcamp:druganwoods:0",
+      "region": "druganwoods",
+      "kind": "adventurer",
+      "x": 99853,
+      "y": 99482,
+      "bounds": {
+        "left": 99353,
+        "right": 100353,
+        "top": 98982,
+        "bottom": 99982
+      }
+    },
+    {
+      "id": "wildcamp:druganwoods:1",
+      "region": "druganwoods",
+      "kind": "knight",
+      "x": 83582,
+      "y": 107910,
+      "bounds": {
+        "left": 83082,
+        "right": 84082,
+        "top": 107410,
+        "bottom": 108410
+      }
+    },
+    {
+      "id": "wildcamp:druganwoods:2",
+      "region": "druganwoods",
+      "kind": "hostile",
+      "x": 75530,
+      "y": 86704,
+      "bounds": {
+        "left": 75030,
+        "right": 76030,
+        "top": 86204,
+        "bottom": 87204
+      }
+    },
+    {
+      "id": "wildcamp:druganwoods:3",
+      "region": "druganwoods",
+      "kind": "adventurer",
+      "x": 95371,
+      "y": 88225,
+      "bounds": {
+        "left": 94871,
+        "right": 95871,
+        "top": 87725,
+        "bottom": 88725
+      }
+    },
+    {
+      "id": "wildcamp:portquill:0",
+      "region": "portquill",
+      "kind": "adventurer",
+      "x": 49623,
+      "y": 122315,
+      "bounds": {
+        "left": 49123,
+        "right": 50123,
+        "top": 121815,
+        "bottom": 122815
+      }
+    },
+    {
+      "id": "wildcamp:portquill:1",
+      "region": "portquill",
+      "kind": "knight",
+      "x": 33217,
+      "y": 122121,
+      "bounds": {
+        "left": 32717,
+        "right": 33717,
+        "top": 121621,
+        "bottom": 122621
+      }
+    },
+    {
+      "id": "wildcamp:portquill:2",
+      "region": "portquill",
+      "kind": "hostile",
+      "x": 28715,
+      "y": 101595,
+      "bounds": {
+        "left": 28215,
+        "right": 29215,
+        "top": 101095,
+        "bottom": 102095
+      }
+    },
+    {
+      "id": "wildcamp:portquill:3",
+      "region": "portquill",
+      "kind": "adventurer",
+      "x": 50020,
+      "y": 98684,
+      "bounds": {
+        "left": 49520,
+        "right": 50520,
+        "top": 98184,
+        "bottom": 99184
+      }
+    },
+    {
+      "id": "wildcamp:frostlands:0",
+      "region": "frostlands",
+      "kind": "adventurer",
+      "x": 135424,
+      "y": 106562,
+      "bounds": {
+        "left": 134924,
+        "right": 135924,
+        "top": 106062,
+        "bottom": 107062
+      }
+    },
+    {
+      "id": "wildcamp:frostlands:1",
+      "region": "frostlands",
+      "kind": "knight",
+      "x": 135762,
+      "y": 112718,
+      "bounds": {
+        "left": 135262,
+        "right": 136262,
+        "top": 112218,
+        "bottom": 113218
+      }
+    },
+    {
+      "id": "wildcamp:frostlands:2",
+      "region": "frostlands",
+      "kind": "hostile",
+      "x": 135639,
+      "y": 103611,
+      "bounds": {
+        "left": 135139,
+        "right": 136139,
+        "top": 103111,
+        "bottom": 104111
+      }
+    },
+    {
+      "id": "wildcamp:darkav:0",
+      "region": "darkav",
+      "kind": "adventurer",
+      "x": 174657,
+      "y": 18458,
+      "bounds": {
+        "left": 174157,
+        "right": 175157,
+        "top": 17958,
+        "bottom": 18958
+      }
+    },
+    {
+      "id": "wildcamp:darkav:1",
+      "region": "darkav",
+      "kind": "knight",
+      "x": 150122,
+      "y": 8784,
+      "bounds": {
+        "left": 149622,
+        "right": 150622,
+        "top": 8284,
+        "bottom": 9284
+      }
+    },
+    {
+      "id": "wildcamp:darkav:2",
+      "region": "darkav",
+      "kind": "hostile",
+      "x": 148861,
+      "y": 13152,
+      "bounds": {
+        "left": 148361,
+        "right": 149361,
+        "top": 12652,
+        "bottom": 13652
+      }
+    },
+    {
+      "id": "wildcamp:darkav:3",
+      "region": "darkav",
+      "kind": "adventurer",
+      "x": 173697,
+      "y": 11552,
+      "bounds": {
+        "left": 173197,
+        "right": 174197,
+        "top": 11052,
+        "bottom": 12052
+      }
+    }
+  ],
+  "omitted": [
+    "wildcamp:nardorous:3",
+    "wildcamp:frostlands:3"
+  ]
+}

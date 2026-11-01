@@ -415,8 +415,10 @@ export class Npc extends DepthSortedSprite {
         if(safe){
           this.routineKey=period;this.routineAnchor=safe;
           this.target=null;this.npcDetour=null;this.returningHome=false;
-          this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
-            (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+          this.route=this.definition.campId
+            ?(scene.canNpcVisit(this,this.routineAnchor)?[{...this.routineAnchor}]:[])
+            :npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
+              (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
         }
       }
     }
