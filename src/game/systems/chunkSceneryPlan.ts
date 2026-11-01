@@ -1,3 +1,4 @@
+import {wildernessCampReservations} from '../../data/wildernessCampSites';
 import {CHUNK_SIZE} from '../../data/world';
 import {WORLD_CONTENT} from '../../data/content';
 import {StaticBoundsIndex} from './StaticBoundsIndex';
@@ -18,6 +19,7 @@ export function* planChunkScenerySteps(world:WorldGenerator,chunkX:number,chunkY
         return {...d.world,...('frame' in d?{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y)}:{}),
           ...(arena?{bounds:arena}:{})};
       });
+      reservations.push(...wildernessCampReservations({left:cx-CHUNK_SIZE,right:cx+CHUNK_SIZE,top:cy-CHUNK_SIZE,bottom:cy+CHUNK_SIZE}));
       const nearbyLandmarks=yield* planLandmarkScenerySteps(chunkX,chunkY,world,true);
       const landmarkDetails=nearbyLandmarks.filter(d=>Math.floor(d.x/CHUNK_SIZE)===chunkX&&Math.floor(d.y/CHUNK_SIZE)===chunkY);
       const landmarks=nearbyLandmarks.map(d=>({...d,bounds:spriteBounds(d.texture,d.frame,d.scale,d.x,d.y)}));

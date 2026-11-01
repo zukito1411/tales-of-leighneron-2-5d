@@ -1,5 +1,7 @@
 import {EntranceWalkSurfaces} from '../presentation25d/EntranceWalkSurfaces';
-import {CAPITAL_SHOPFRONTS,capitalTrade} from '../../data/highmereStreetStyle';
+import {CAPITAL_SHOPFRONTS} from '../../data/highmereStreetStyle';
+import {settlementTrade} from '../../data/settlementTradeSigns';
+import {cinderpeakOutline} from '../../data/cinderpeak';
 import {bridgeShape} from '../presentation25d/BridgeGeometry';
 import {dockShape} from '../presentation25d/DockGeometry';
 import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
@@ -76,14 +78,14 @@ export class WorldSpriteSystem {
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')sizeHouseForPlayer(house,Math.abs(actor.displayHeight));
     if(house?.segment){house.segment.height=wallSegment?.height??Math.max(HERO_BODY_HEIGHT*2.4,visible.height*scale*.82);house.segment.thickness=wallSegment?.thickness??Math.max(32,32*scale);}
     if(house&&this.scene.game.registry.get('presentation')==='three-2.5d')this.entranceSurfaces.register(actor,house,worldHeight(this.scene,actor.x,actor.y),!staged);
-    if(house){house.shopfront=CAPITAL_SHOPFRONTS[actor.name];house.tradeSign=capitalTrade(actor.name);(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;}
+    if(house){house.shopfront=CAPITAL_SHOPFRONTS[actor.name];house.tradeSign=settlementTrade(actor.name);(actor.getData(PRESENTATION_HINT) as PresentationHint).house=house;}
     if(!house&&this.scene.game.registry.get('presentation')==='three-2.5d'){
       const furniture=texture==='port_dock'?dockShape(actor,false):texture==='bridges'&&(frame===5||frame===6)?dockShape(actor,true):texture==='pirate_flagship'?shipShape('ship'):texture==='bridges'&&frame===ROAD_BRIDGE_FRAME?bridgeShape(actor):worldPropShape(actor,texture,frame);
       if(furniture)actor.setData(PRESENTATION_HINT,{plane:'upright',furniture} satisfies PresentationHint);
     }
     if(this.scene.game.registry.get('presentation')==='three-2.5d'&&!(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
-    if(!profile?.floor&&texture!=='port_dock'){
+    if(!profile?.floor&&texture!=='port_dock'&&!(texture==='darkav_volcano'&&this.scene.game.registry.get('presentation')==='three-2.5d')){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
         ||texture==='world_objects'&&frame<4;
       const tree=isTreeArt(texture,frame),groundY=profile?.sortY??.96;
@@ -144,7 +146,9 @@ export class WorldSpriteSystem {
       actor.setDepth(profile?.floor?-950:profile?point(.5,profile.sortY).y:actor.y);
       const passage=this.scene.game.registry.get('presentation')==='three-2.5d'&&house
         ?architecturePassageFootprints(house.profile):undefined;
-      if(passage&&(solid||profile?.forceSolid)){
+      if(texture==='darkav_volcano'&&this.scene.game.registry.get('presentation')==='three-2.5d'){
+        for(const rect of polygonGroundBands(cinderpeakOutline(),32))add(rect.left,rect.top,rect.right,rect.bottom);
+      }else if(passage&&(solid||profile?.forceSolid)){
         const width=visible.width*scale;
         for(const part of passage){
           const dx=(x:number)=>(visible.left+x*visible.width-sheet.frameWidth*actor.originX)*scale;

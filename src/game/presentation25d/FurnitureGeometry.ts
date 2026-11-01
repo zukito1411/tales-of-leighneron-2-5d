@@ -15,7 +15,7 @@ import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 import {propPassageFootprints} from '../../data/worldPropGroundPlan';
 
-export type PropArt='life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
+export type PropArt='campfire'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
@@ -294,6 +294,13 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   }else if(art==='stairs'){
     for(let i=0;i<STAIR_STEPS;i++)box(-STAIR_HALF_WIDTH,STAIR_HALF_WIDTH,0,H*(i+1)/STAIR_STEPS,-D*(i+1)/STAIR_STEPS,-D*i/STAIR_STEPS,stone);
     for(const x of [-.46,.46]){m.beam([x,H*.16,-.02],[x,H*.97,-D],.025,trim);for(let i=0;i<3;i++)m.beam([x,H*i/3,-D*i/3],[x,H*i/3+H*.20,-D*i/3],.016,trim);}
+  }else if(art==='campfire'){
+    const z=-D/2;
+    for(let i=0;i<10;i++){const a=i/10*Math.PI*2;const x=Math.cos(a)*.34,d=z+Math.sin(a)*D*.39;
+      m.cylinder(x,d,0,H*.15,.09,.075,stone,8);}
+    m.beam([-.25,H*.09,z-.09],[.25,H*.13,z+.09],.055,wood,8);
+    m.beam([-.23,H*.12,z+.10],[.23,H*.16,z-.10],.05,wood,8);
+    m.fire(0,H*.12,z,.70,H*.86,[.15,.01,.88,.44]);
   }else if(art==='lantern'||art==='lampPost'||art==='brazier'||art==='pump'||art==='signature'&&/obsidian/.test(kit)){
     const z=-D/2;
     if(art!=='lantern'){

@@ -12,7 +12,7 @@ import {SHIP_DECK_HEIGHT} from './WalkSurface';
  * and the original collision survey. Called once when a streamed prop enters. */
 export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,texture:ArtTextureKey,index:number):FurnitureShape|undefined {
   const style=capitalPropStyle(actor.name);
-  const art=style==='cafe-table'||style==='cloth-counter'?'table':style==='cafe-chair'?'chair':style==='flower-pot'?'planter':style==='arms-rack'?'weaponRack':worldPropKind(texture,index);if(!art)return;
+  const art=actor.name.startsWith('wildcamp:')&&actor.name.endsWith(':fire')?'campfire':style==='cafe-table'||style==='cloth-counter'?'table':style==='cafe-chair'?'chair':style==='flower-pot'?'planter':style==='arms-rack'?'weaponRack':worldPropKind(texture,index);if(!art)return;
   const sheet=ART_BY_KEY[texture],frame=actor.frame;
   const meta=frame.customData as {visibleBounds?:{left:number;top:number;width:number;height:number};sourceRegion?:readonly number[]}|undefined;
   const b=meta?.visibleBounds;if(!b)return;
@@ -31,6 +31,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   const footX=(b.left*d+localX*w-actor.originX*frame.cutWidth)/modelW;
   const footY=(b.top*d+localY*h-actor.originY*frame.cutHeight)/modelW;
   let rise=h/w;
+  if(art==='campfire')rise=HERO_BODY_HEIGHT*.7/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   if(texture==='flower_fence')rise=HERO_BODY_HEIGHT*.95/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   if(art==='cargo'||art==='crate'||art==='barrels'||art==='wagon'||art==='ledger')rise*=.78;
   else if(art==='keepsake')rise=.04;
@@ -58,7 +59,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
     paintOffset:vertical?0:.5-(l+r)/2,ornamentX:art==='lampPost'?(index===1?.5:.78)-(l+r)/2:undefined,
     bounds:{left:-.60+Math.min(0,.5-(l+r)/2),right:.60+Math.max(0,.5-(l+r)/2),bottom:0,top:rise*1.25,back:-Math.max(depth*1.1,depth/2+.5),front:Math.max(.16,.5-depth/2,art==='wagon'?rise*.22-depth*.2+.03:0)},
     heading:vertical?Math.PI/2:0,quarterTurnUV:vertical,
-    key:['world',style??'',texture,index,left,top,width,height,rise,depth,modelScale].join(':')};
+    key:['world',art,style??'',texture,index,left,top,width,height,rise,depth,modelScale].join(':')};
 }
 
 /** The ship's source is already a measured ground plan, not an elevation. */

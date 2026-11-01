@@ -11,7 +11,7 @@ import {WorldGenerator} from './WorldGenerator';
 import type {NpcDefinition,Vec2} from '../types';
 
 export function npcMayPatrol(npc:NpcDefinition){
- return !npc.stationary&&(npc.spriteTexture==='npc_royal_guard'||npc.spriteTexture==='npc_elven_guard_idle'
+ return !npc.stationary&&(Boolean(npc.campId)||npc.spriteTexture==='npc_royal_guard'||npc.spriteTexture==='npc_elven_guard_idle'
   ||npc.spriteTexture==='npc_guard'&&TOWN_BY_ID[npc.townId].regionId==='trandum'
   ||npc.townRoutine&&npc.townId==='highmere'&&['npc_villager','npc_attendant','npc_blacksmith','npc_adventurer'].includes(npc.spriteTexture??''));
 }

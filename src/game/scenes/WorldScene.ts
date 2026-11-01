@@ -5,6 +5,7 @@ import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presen
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {groundWorldView,onCombatEffect,onWorldLabel} from '../presentation25d/plane';
 import Phaser from 'phaser';
+import type {VolcanoPulse} from '../../data/cinderpeak';
 import {housingFor} from '../../data/housing';
 import {isGameDisposing} from '../systems/gameLifetime';
 import {PLAYER_HOMES,PLAYER_HOME_BY_ID,isPlayerHome} from '../../data/playerHomes';
@@ -160,8 +161,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private flagshipArt!:PirateFlagshipArt;
   private volcanicTremor!:VolcanicTremor;
   private volcanicShake!:VolcanicCameraShake;
-  private readonly onVolcanicRumble=(seconds:number,intensity:number)=>this.volcanicShake.setRumble(seconds,intensity);
-  private readonly onVolcanicSilence=()=>this.volcanicShake.stopRumble();
+  readonly presentationVolcano:VolcanoPulse={seconds:0,intensity:0,active:false};
+  private readonly onVolcanicRumble=(seconds:number,intensity:number)=>{
+    this.volcanicShake.setRumble(seconds,intensity);
+    this.presentationVolcano.seconds=seconds;this.presentationVolcano.intensity=intensity;this.presentationVolcano.active=true;
+  };
+  private readonly onVolcanicSilence=()=>{this.volcanicShake.stopRumble();this.presentationVolcano.active=false;this.presentationVolcano.intensity=0;};
   private eventDirector!: EventDirector;
   private readonly enemies = new Set<Enemy>();
   private readonly npcs: Npc[] = [];
@@ -720,7 +725,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const access=this.exteriorAccess;
     function* candidates():Generator<Vec2,void>{
       yield {...preferred};
-      const radii=(definition??actor?.definition)?.workplaceId?[48,72,96,128]:[48,72,96,128,176,224,288,352,448,576,768,960,1200,1536];
+      const resident=definition??actor?.definition;
+      const radii=(resident?.workplaceId||resident?.campId)?[48,72,96,128]:[48,72,96,128,176,224,288,352,448,576,768,960,1200,1536];
       for(const radius of radii){
         const count=radius>=448?32:16;
         for(let i=0;i<count;i++){
@@ -927,10 +933,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         // its surviving actors must not strand them dormant on a meadow edge.
         const habitatPoint=m14&&!mission?definition.encounterBehavior?.home??runtime:runtime;
         const summon=Boolean(this.contentManager.getSummonOwner(definition.id));
+        const camp=Boolean(definition.encounterId?.startsWith('wildcamp:'));
         return this.isEnemyTerritory(runtime.x,runtime.y)
-          &&(summon||Boolean(mission)||!m14&&!['rindass-orc-raider','rindass-orc-spearman'].includes(definition.enemyId)
+          &&(summon||camp||Boolean(mission)||!m14&&!['rindass-orc-raider','rindass-orc-spearman'].includes(definition.enemyId)
             ||creatureFitsHabitat(ENEMY_BY_ID[definition.enemyId],this.habitatAt(habitatPoint.x,habitatPoint.y)))
-          &&(summon||this.m14LocationAllowed(definition.enemyId,habitatPoint.x,habitatPoint.y))
+          &&(summon||camp||this.m14LocationAllowed(definition.enemyId,habitatPoint.x,habitatPoint.y))
           &&this.m14Art.ensure(definition.enemyId)
           &&this.encounterCapacity(definition.bossId?'boss':'restore')>0;
       },
@@ -2318,7 +2325,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const origin=worldPropOrigin(texture,frame,anchor);
     actor.setOrigin(origin.x,origin.y).setScale(artScale(texture) * scale).setDepth(actor.y).setRotation(rotation);
     this.worldSprites.register(actor,texture,frame,scale,solid,foundation,anchor==='center',false,wallSegment);
-    this.dayNight.register(actor,texture,frame,scale);
+    if(texture!=='darkav_volcano'||this.game.registry.get('presentation')!=='three-2.5d')this.dayNight.register(actor,texture,frame,scale);
     this.treeSway.register(actor,texture,frame);
   }
 

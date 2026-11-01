@@ -1,3 +1,5 @@
+import {GpuVolcano} from './GpuVolcano';
+import {CINDERPEAK,type VolcanoPulse} from '../../data/cinderpeak';
 import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
 import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
 import {PAINTED_MODEL_ATLASES} from './PaintedMaterials';
@@ -78,6 +80,7 @@ interface PresentationScene extends Phaser.Scene {
   readonly presentationWeather?:WeatherSystem;
   readonly presentationLighting?:DayNightSystem;
   readonly presentationWater?:WaterSurfaceSystem;
+  readonly presentationVolcano?:VolcanoPulse;
 }
 const VERTICES=[[-.5,-.5],[.5,-.5],[-.5,.5],[.5,.5],[0,0]] as const;
 function sceneWhiteSource(scene:Phaser.Scene){return scene.textures.getFrame('__WHITE')?.source;}
@@ -126,6 +129,7 @@ export class ThreePresentation {
   private readonly gpuWeather:GpuWeather;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
+  private readonly volcano:GpuVolcano;
   private readonly atmosphere={billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},tradeAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},
@@ -203,6 +207,7 @@ export class ThreePresentation {
     this.gpuClouds=new GpuCloudShadows(this.world,this.elevation,this.atmosphere);
     this.gpuWeather=new GpuWeather(this.screen,this.elevation);this.gpuNight=new GpuNightMask(this.screen);
     this.gpuWater=new GpuWater(this.world,this.elevation,this.atmosphere,this.textures);
+    this.volcano=new GpuVolcano(this.world,this.atmosphere);
     this.flash.renderOrder=Number.MAX_SAFE_INTEGER-1;this.fade.renderOrder=Number.MAX_SAFE_INTEGER;
     this.flash.visible=this.fade.visible=false;this.screen.add(this.flash,this.fade);
     const canvas=this.renderer.domElement;canvas.className='three-world-canvas';
@@ -215,7 +220,7 @@ export class ThreePresentation {
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();},
       ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
-    this.preparePrograms(this.shaderWarmup.ready);
+    this.preparePrograms(Promise.all([this.shaderWarmup.ready,this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}));
     bindResourcePreparation(game,{
       request:source=>{this.textures.get(source,this.frame);},warm:source=>this.textures.prefetch(source,this.frame),ready:source=>this.textures.ready(source),
       viewReady:(scene,point)=>this.programsReady&&!this.contextLost&&this.presentedScene===scene
@@ -315,6 +320,7 @@ export class ThreePresentation {
     }
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
     this.atmosphere.fogRange.value.set(this.interior?0:FOG_START,this.interior?0:VIEW_DISTANCE);
+    this.volcano.update(presentation.presentationFocus,this.heightAt(CINDERPEAK.x,CINDERPEAK.y),this.atmosphere.natureAtlas.value,this.atmosphere.visualTime.value,presentation.presentationVolcano,this.interior);
     this.gpuShadows.update(scene,presentation.presentationShadows,minute,weather?.cloudCover??0,this.orbit.yaw,this.frame,this.interior,this.orbit.bounds);
     this.gpuClouds.update(this.sky.artwork,this.sky.ready,focus,minute,weather?.presentation,this.interior||!presentation.presentationFocus);
     this.gpuWater.update(scene,presentation.presentationWater,focus,this.frame,this.interior);
@@ -438,6 +444,7 @@ export class ThreePresentation {
 
   private collect(object:Phaser.GameObjects.GameObject,camera:Phaser.Cameras.Scene2D.Camera,parentAlpha:number,inherited?:PresentationHint,parentAnchor?:{x:number;y:number}){
     if(!object.active||!('visible' in object)||!object.visible||object.cameraFilter&camera.id)return;
+    if((object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite)&&object.texture.key==='darkav_volcano')return;
     if(object.name==='interior-furniture-contact'&&!getGraphicEffects().dynamicShadows)return;
     let alpha=parentAlpha*('alpha' in object&&typeof object.alpha==='number'?object.alpha:1);
     if(alpha<=.001)return;
@@ -996,7 +1003,7 @@ export class ThreePresentation {
     // meshes and gameplay survive; their GPU residency fences do not.
     this.gpuTimer=new GpuTimer(this.renderer.getContext() as WebGL2RenderingContext);
     this.textures.invalidate();
-    try{this.preparePrograms(this.shaderWarmup.compile(this.renderer,this.orbit.camera),true);}
+    try{this.preparePrograms(Promise.all([this.shaderWarmup.compile(this.renderer,this.orbit.camera),this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}),true);}
     catch(error){this.failPresentation(error);}
   };
   destroy(){
@@ -1011,7 +1018,7 @@ export class ThreePresentation {
     this.preparationEpoch++;this.recoveryDeadline.clear();
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
-    releaseLifeTreeGeometry();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
+    releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();

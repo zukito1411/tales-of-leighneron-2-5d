@@ -1,3 +1,4 @@
+import {cinderpeakOutline} from '../../data/cinderpeak';
 import type {ContentDefinition,Vec2} from '../types';
 import {highmereBridgeRailsBlock} from '../../data/rivers';
 import {StaticBoundsIndex} from './StaticBoundsIndex';
@@ -29,6 +30,11 @@ export class ExteriorPlacement {
       if(profile?.floor)continue;
       const solid=('solid' in d&&d.solid)||Boolean(profile?.forceSolid);
       if(!solid)continue;
+      if(texture==='darkav_volcano'){
+        const outline=cinderpeakOutline(),solids=polygonGroundBands(outline,32);
+        const bounds={left:Math.min(...outline.map(p=>p[0])),right:Math.max(...outline.map(p=>p[0])),top:Math.min(...outline.map(p=>p[1])),bottom:Math.max(...outline.map(p=>p[1]))};
+        entries.push({id:d.id,bounds,solids,footY:d.world.y});continue;
+      }
       const source=spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center');
       // Curved curtain walls are checked against their surveyed endpoints in
       // fortificationBlocksPoint(). A gate's opening must remain traversable,

@@ -1,3 +1,4 @@
+import {friendlyCampAt} from '../../data/wildernessCampSites';
 import { createNoise2D } from 'simplex-noise';
 import type { RegionId, TerrainKind, Vec2 } from '../types';
 import { REGIONS } from '../../data/regions';
@@ -252,7 +253,7 @@ export class WorldGenerator {
   }
 
   canCreatureOccupy(worldX: number, worldY: number) {
-    return this.isWalkable(worldX,worldY) && !protectedSettlementAt(worldX,worldY);
+    return this.isWalkable(worldX,worldY) && !protectedSettlementAt(worldX,worldY) && !friendlyCampAt(worldX,worldY);
   }
 
   isRoad(worldX: number, worldY: number, clearance = 0) {

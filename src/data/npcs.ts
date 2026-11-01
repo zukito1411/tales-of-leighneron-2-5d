@@ -291,3 +291,10 @@ export function registerHighmereStreetNpc(npc:NpcDefinition){
  if(NPC_BY_ID[npc.id])return NPC_BY_ID[npc.id];
  NPCS.push(npc);NPC_BY_ID[npc.id]=npc;return npc;
 }
+
+/** Final camp plans register occupants without modifying approved NPCs. */
+export function registerWildernessNpc(npc:NpcDefinition){
+ if(!npc.campId||!npc.id.startsWith('wildcamp:'))throw new Error('Invalid wilderness resident');
+ if(NPC_BY_ID[npc.id])return NPC_BY_ID[npc.id];
+ NPCS.push(npc);NPC_BY_ID[npc.id]=npc;return npc;
+}

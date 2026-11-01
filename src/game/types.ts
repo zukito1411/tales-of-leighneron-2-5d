@@ -87,6 +87,8 @@ export interface NpcDefinition {
   stationary?: boolean;
   /** Fixed counter being attended; spawn clearance stays within its vicinity. */
   workplaceId?: string;
+  /** Stable wilderness activity anchor, independent of a settlement routine. */
+  campId?: string;
   /** Offscreen return after a rescue; local coordinates in the home town. */
   storyReturn?: {questId:string;objectiveId:string;position:Vec2};
 }

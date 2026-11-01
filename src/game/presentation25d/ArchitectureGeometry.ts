@@ -106,7 +106,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     const path:P2[]=[[-.5,1],[.5,1],[.5,.16],[0,0],[-.5,.16]],x=X(cx);
     const p=(u:number,v:number):V3=>[x+u*w*W,y+v*h,z+.002*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,y+v*h] as const),z,z-.004*W,atlasMaterial('furnishings',elf?7:/inn/.test(id)?13:6,W*.20,W*.30));
-    if(shape.tradeSign&&!emission){
+    if(shape.tradeSign&&shape.tradeSign!=='crown'&&!emission){
       const size=Math.min(w*W*.82,h*.65),bottom=y+(h-size)*.5;
       paintCapitalTradeBadge(m,shape.tradeSign,x-size/2,bottom,x+size/2,bottom+size,z+.0025*W);
     }else detailPolygon(path,p,tile);
