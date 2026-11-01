@@ -12,7 +12,7 @@ The Three presentation replaces the original flat painting with ridged basalt, a
 
 The existing VolcanicTremor media clock owns each eruption, including pauses, buffering and region exits. Lava follows upward ballistic paths in one retained GPU instance batch; surface flow travels downhill. High/Normal/Low use 128/80/48 projectiles, spread across the complete quake timeline. There is no per-frame particle allocation or geometry rebuilding.
 
-Only the distant landmark compresses depth into the existing far plane. Normal terrain view distance, streaming, atmosphere, sky, manual camera zoom and wall transparency remain unchanged. Its finite shader programs are prepared behind the existing startup/context-restoration readiness fence and disposed during teardown.
+Only the distant landmark compresses depth into the existing far plane. Normal terrain view distance, streaming, atmosphere, sky, manual camera zoom and wall transparency remain unchanged. The shell culls back faces, so a camera entering its volume does not draw an inside wall over the player. Its finite shader programs are prepared behind the existing startup/context-restoration readiness fence and disposed during teardown.
 
 ## Camps
 

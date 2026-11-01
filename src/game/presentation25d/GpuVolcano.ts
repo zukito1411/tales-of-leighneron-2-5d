@@ -1,4 +1,4 @@
-import {BufferAttribute,BufferGeometry,DoubleSide,InstancedBufferAttribute,InstancedMesh,Mesh,Scene,ShaderMaterial,SphereGeometry,Vector3,type Camera,type Texture,type WebGLRenderer} from 'three';
+import {BufferAttribute,BufferGeometry,InstancedBufferAttribute,InstancedMesh,Mesh,Scene,ShaderMaterial,SphereGeometry,Vector3,type Camera,type Texture,type WebGLRenderer} from 'three';
 import {CINDERPEAK,cinderpeakRidge,cinderpeakVariation,type VolcanoPulse} from '../../data/cinderpeak';
 import {seededRandom} from '../../utils/seededRandom';
 import {getEffectsQuality} from '../systems/effectsQuality';
@@ -81,7 +81,10 @@ export class GpuVolcano {
   const random=seededRandom('darkav:lava-ejecta:v1'),launch=new Float32Array(128*4),sizes=new Float32Array(128);
   for(let i=0;i<128;i++){const a=random()*Math.PI*2,speed=65+random()*170;launch.set([Math.cos(a)*speed,700+random()*470,Math.sin(a)*speed,((i*.61803398875)%1)*8.4],i*4);sizes[i]=9+random()*14;}
   this.ejectGeometry.setAttribute('launch',new InstancedBufferAttribute(launch,4));this.ejectGeometry.setAttribute('rockSize',new InstancedBufferAttribute(sizes,1));
-  this.material=new ShaderMaterial({uniforms:{...atmosphere,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,side:DoubleSide});
+  // Outward faces and inward crater faces are already wound correctly.
+  // Cull the shell interior when an orbit camera enters the mountain, so
+  // its back faces cannot cover the player or force camera auto-zoom.
+  this.material=new ShaderMaterial({uniforms:{...atmosphere,...this.uniforms},vertexShader:vertex,fragmentShader:fragment});
   this.ejectMaterial=new ShaderMaterial({uniforms:{...atmosphere,...this.uniforms},vertexShader:ejectVertex,fragmentShader:ejectFragment});
   this.surface=new Mesh(this.geometry,this.material);this.ejecta=new InstancedMesh(this.ejectGeometry,this.ejectMaterial,128);
   this.surface.frustumCulled=this.ejecta.frustumCulled=false;this.surface.visible=this.ejecta.visible=false;
