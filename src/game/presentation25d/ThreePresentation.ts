@@ -190,7 +190,7 @@ export class ThreePresentation {
   private frameDiagnostics=getFrameDiagnosticsEnabled();
   private diagnosticsParent:HTMLElement|null=null;
   private diagnosticsPanel:HTMLPreElement|null=null;
-  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0};
+  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
   private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
@@ -392,8 +392,10 @@ export class ThreePresentation {
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
-    this.firstPersonFeedback.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled===true,this.game.loop.delta);
     this.gpuTimer.end();
+    const feedbackStart=this.frameDiagnostics?performance.now():0;
+    this.firstPersonFeedback.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled===true,this.game.loop.delta);
+    if(this.frameDiagnostics){const cost=performance.now()-feedbackStart;this.diag.feedback+=cost;this.diag.feedbackWorst=Math.max(this.diag.feedbackWorst,cost);}
     this.presentedScene=scene;
     if(presentation.presentationFocus)this.game.registry.set('presentationInitialViewReady',true);
     camera.dirty=false;
@@ -434,7 +436,7 @@ export class ThreePresentation {
     const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
       backgroundWork:frameWork(this.game).stats(),drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
-      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
+      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
       gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
       staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds,dispatchHits:this.cachedDispatchHits},shadowModels:this.gpuShadows.stats()};
@@ -447,6 +449,7 @@ export class ThreePresentation {
         +'Simulation CPU: '+n(result.simulationCpuMs??0)+' | GPU: '+(result.gpuMs===null?'unavailable':n(result.gpuMs))+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
+        +'FPP feedback CPU avg/peak: '+n(result.feedbackAvgMs)+' / '+n(result.feedbackPeakMs)+'\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
         +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
@@ -457,7 +460,7 @@ export class ThreePresentation {
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }
-    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,deltaMax:0});
+    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,feedback:0,feedbackWorst:0,deltaMax:0});
     this.diagnosticAt=done;
   }
 

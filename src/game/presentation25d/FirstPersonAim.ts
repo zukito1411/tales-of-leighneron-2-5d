@@ -14,10 +14,11 @@ export function firstPersonAimScore(scene:Phaser.Scene,x:number,y:number,height=
   const ground=worldHeight(scene,x,y),camera=view.camera;
   center.set(x,ground+base+height/2,y).project(camera);
   if(center.z<-1||center.z>1)return Infinity;
-  bottom.set(x,ground+base,y).project(camera);top.set(x,ground+base+height,y).project(camera);
   edge.set(x+Math.cos(view.yaw)*halfWidth,ground+base+height/2,y-Math.sin(view.yaw)*halfWidth).project(camera);
   const pad=.018,halfX=Math.max(.012,Math.abs(edge.x-center.x))+pad;
+  if(Math.abs(center.x)>halfX)return Infinity;
+  bottom.set(x,ground+base,y).project(camera);top.set(x,ground+base+height,y).project(camera);
   const low=Math.min(bottom.y,top.y)-pad,high=Math.max(bottom.y,top.y)+pad;
-  if(Math.abs(center.x)>halfX||low>0||high<0)return Infinity;
+  if(low>0||high<0)return Infinity;
   return Math.abs(center.x)/halfX+Math.abs(center.y)/Math.max(.025,(high-low)/2)*.35;
 }

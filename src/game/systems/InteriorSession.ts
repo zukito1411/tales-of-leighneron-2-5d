@@ -711,10 +711,11 @@ export class InteriorSession {
       if(npc.storyMoving){npc.updatePatrol(time,delta);npc.advanceCinematic(delta);}
       npc.setDepth(DEPTH+npc.y-this.origin.y);
     }
-    const near=this.residents.find(n=>this.reachableResident(n));
+    const firstPerson=isFirstPersonView(this.scene);
+    const near=firstPerson?undefined:this.residents.find(n=>this.reachableResident(n));
     // Only the nearby prompt is sampled. Actually paying for a bed always
     // rechecks reachability at input time, without a per-frame furniture scan.
-    if(time>=this.nextBedHintAt){
+    if(!firstPerson&&time>=this.nextBedHintAt){
       this.nextBedHintAt=time+150;
       this.nearInnBed=this.innBeds.some(point=>this.bedReachable(point));
       this.nearHomeBed=this.homeBedInReach();
@@ -741,7 +742,7 @@ export class InteriorSession {
         ...(MAP_BLACKSMITHS.has(n.definition.id)?{service:'blacksmith' as const}:{})})),
         ...this.innBedMarkers,...this.scene.dungeonMarkers,
         ...this.scene.getCombatEnemies().filter(e=>e.active&&e.hp>0).map(e=>({id:e.instanceId,kind:'enemy' as const,label:e.definition.name,x:e.x,y:e.y}))],
-      interaction:isFirstPersonView(this.scene)?this.scene.firstPersonInteraction()?.label??null:this.entry.id===TOWER_ENTRY_ID&&nearExit?'Entry door sealed — clear the floor and use the central portal':this.scene.storyCombatActive?(nearExit?'Leave building':this.scene.storyInteraction):near?`Talk to ${near.definition.name}`:nearExit?'Leave building':this.scene.storyInteraction??
+      interaction:firstPerson?this.scene.firstPersonInteractionHint():this.entry.id===TOWER_ENTRY_ID&&nearExit?'Entry door sealed — clear the floor and use the central portal':this.scene.storyCombatActive?(nearExit?'Leave building':this.scene.storyInteraction):near?`Talk to ${near.definition.name}`:nearExit?'Leave building':this.scene.storyInteraction??
         (nearHomeBed?(innRestAvailable(this.scene.getWorldHour()*60)?'Sleep in your bed until 06:00':'Home bed — available from 18:00'):nearBed?(innRestAvailable(this.scene.getWorldHour()*60)?`Sleep until 06:00 — ${INN_REST_COST}G`:'Guest bed — available from 18:00'):
         this.scene.companionActor&&Math.hypot(this.scene.companionActor.x-x,this.scene.companionActor.y-y)<180?'Talk to Alice Fen':null)});
     }
