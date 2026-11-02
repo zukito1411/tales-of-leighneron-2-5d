@@ -70,6 +70,8 @@ export class Player extends DepthSortedSprite {
   private readonly swordVisual:EquippedSwordVisual;
   private readonly awakenedVisual:AwakenedHeroVisual;
   private weaponDrawnRemaining=0;
+  /** Both camera views use the same active-play combat-rest state. */
+  get presentationWeaponDrawn(){return Boolean(this.attackVisual?.active)||this.skills.isCasting||this.weaponDrawnRemaining>0;}
   // Arcade Physics applies its final displacement in POST_UPDATE, after the
   // scene's updatePlayer call. Attach visual layers only once that is done.
   private readonly syncSwordAfterPhysics=()=>{
@@ -110,10 +112,9 @@ export class Player extends DepthSortedSprite {
     const actor=this.awakenedVisual.update(this.skills.weaponActor??this.attackVisual??this);
     this.shadowVisual=actor;
     if(this.skills.hidesWeapon){this.swordVisual.hide();return;}
-    const attacking=Boolean(this.attackVisual?.active)||this.skills.isCasting;
     const facing=this.presentationDirection;
     this.swordVisual.update(actor,
-      !attacking&&this.weaponDrawnRemaining===0,
+      !this.presentationWeaponDrawn,
       facing.y<0&&Math.abs(facing.y)>=Math.abs(facing.x));
   }
   private vitalRevision=useGameStore.getState().vitalRevision;

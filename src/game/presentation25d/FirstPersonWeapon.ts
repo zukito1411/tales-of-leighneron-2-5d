@@ -49,7 +49,10 @@ export class FirstPersonWeapon {
     const key=id+':'+source.path;
     if(key!==this.loadedKey&&key!==this.loadingKey&&key!==this.failedKey)this.load(key,source);
     const mesh=this.mesh,ready=Boolean(mesh&&this.loadedKey===key);
-    this.rig.visible=ready&&!player.skills.hidesWeapon;if(!mesh||!ready)return;
+    // Keep the equipped mesh prepared while resting so the first swing never
+    // waits for another image decode or shader compilation. Player owns the
+    // same draw/rest timer used by the third-person sword's back mount.
+    this.rig.visible=ready&&player.presentationWeaponDrawn&&!player.skills.hidesWeapon;if(!mesh||!ready)return;
     const cast=player.skills.presentationCast;
     mesh.visible=this.rig.visible;
     this.camera.aspect=width/Math.max(1,height);this.camera.updateProjectionMatrix();
