@@ -147,8 +147,14 @@ export class FirstPersonWeapon {
 
 function bladeGeometry(pixels:Uint8ClampedArray,width:number,height:number,source:SwordSource){
   const positions:number[]=[],uv:number[]=[],colors:number[]=[],indices:number[]=[],length=source.bladeLength;
+  const bladeAxisX=Math.sin(source.nativeAngle),bladeAxisY=Math.cos(source.nativeAngle);
   const vertex=(x:number,y:number,z:number,u:number,v:number,shade:number)=>{
-    positions.push((x-source.gripX)/length,(source.gripY-y)/length,z);uv.push(u,1-v);colors.push(shade,shade,shade);
+    const localX=(x-source.gripX)/length,localY=(source.gripY-y)/length;
+    // Extend the exposed blade 18% along its registered grip-to-tip axis.
+    // Preserve the lower quarter for the grip, guard and their ornamentation;
+    // diagonal/curved artwork keeps its width, thickness and hand registration.
+    const extension=Math.max(0,localX*bladeAxisX+localY*bladeAxisY-.24)*.18;
+    positions.push(localX+bladeAxisX*extension,localY+bladeAxisY*extension,z);uv.push(u,1-v);colors.push(shade,shade,shade);
   };
   const opaque=(x:number,y:number)=>x>=0&&y>=0&&x<width&&y<height&&pixels[(Math.floor(y)*width+Math.floor(x))*4+3]>100;
   // Decode-time only: derive the actual silhouette's cross sections, including
