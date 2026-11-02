@@ -21,7 +21,22 @@ interface SpearFlight {
 /** Shared fixed pool for spears and stones; shots never home or allocate trails. */
 export class SpearProjectileSystem {
   private readonly pool:SpearFlight[]=[];
+  private readonly threat={x:0,y:0,progress:0};
   constructor(private readonly scene:WorldScene) {}
+
+  /** A fixed eight-shot pool, sampled only by the first-person HUD. */
+  firstPersonThreat(){
+    const p=this.scene.player;let soonest=.75,found=false;
+    for(const f of this.pool){
+      if(!f.sprite.active||f.target)continue;
+      const speed2=f.vx*f.vx+f.vy*f.vy;if(speed2<1)continue;
+      const t=((p.x-f.x)*f.vx+(p.y-f.y)*f.vy)/speed2;
+      if(t<0||t>soonest||Math.hypot(p.x-f.x-f.vx*t,p.y-f.y-f.vy*t)>PLAYER_HIT_RADIUS+8
+        ||!this.scene.hasClearPath(f.x,f.y,p.x,p.y,f.source??undefined))continue;
+      soonest=t;found=true;this.threat.x=f.x;this.threat.y=f.y;this.threat.progress=1-t/.75;
+    }
+    return found?this.threat:null;
+  }
 
   fire(source:Enemy,target:Vec2,npc:Npc|null=null){
     let flight=this.pool.find(item=>!item.sprite.active);
@@ -66,7 +81,7 @@ export class SpearProjectileSystem {
       const t=lengthSq?Phaser.Math.Clamp(((victim.x-flight.x)*segmentX+(victim.y-flight.y)*segmentY)/lengthSq,0,1):0;
       const gap=Math.hypot(victim.x-(flight.x+segmentX*t),victim.y-(flight.y+segmentY*t));
       if(gap<=PLAYER_HIT_RADIUS&&this.scene.hasClearPath(flight.x,flight.y,victim.x,victim.y,victim)){
-        if(flight.target)this.scene.damageRoadNpc(flight.target,flight.damage);else this.scene.damagePlayer(flight.damage);
+        if(flight.target)this.scene.damageRoadNpc(flight.target,flight.damage);else this.scene.damagePlayer(flight.damage,flight);
         this.scene.playEffect('hit',victim.x,victim.y,new Phaser.Math.Vector2(flight.vx,flight.vy).normalize());
         this.deactivate(flight);continue;
       }

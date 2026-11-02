@@ -379,7 +379,7 @@ export class BossCombat {
   private hurtPlayer(move:BossMove,angle=this.area!.angle){
     if(this.hit)return;this.hit=true;
     const player=this.scene.player;
-    this.scene.damagePlayer(Math.round(this.enemy.definition.damage*move.damage));
+    this.scene.damagePlayer(Math.round(this.enemy.definition.damage*move.damage),this.enemy);
     this.scene.playEffect('hit',player.x,player.y,new Phaser.Math.Vector2(Math.cos(angle),Math.sin(angle)));
   }
   private approach(move:BossMove,delta:number){

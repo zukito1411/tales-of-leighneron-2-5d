@@ -207,7 +207,7 @@ export class DragonCombat {
         // Match the marked triangle, including its far chord and rear edge.
         if(insideBreathCone(player.x-this.breathOrigin.x,player.y-this.breathOrigin.y,this.breathDirection.x,this.breathDirection.y,this.breathRange)
           &&this.scene.hasClearPath(this.breathOrigin.x,this.breathOrigin.y,player.x,player.y,e))
-          this.scene.damagePlayer(Math.round(e.definition.damage*.38*(this.move?.damage??1)));
+          this.scene.damagePlayer(Math.round(e.definition.damage*.38*(this.move?.damage??1)),this.breathOrigin);
       }
       if(this.age>=DRAGON_BREATH.burningMs+DRAGON_BREATH.fadeMs)this.recover();
     }else if(this.phase==='flight'){
@@ -384,7 +384,7 @@ export class DragonCombat {
   private slam(x:number,y:number,radius:number,multiplier:number){
     const player=this.scene.player;
     if(Math.hypot(player.x-x,player.y-y)<=radius&&this.scene.hasClearPath(x,y,player.x,player.y))
-      this.scene.damagePlayer(Math.round(this.enemy.definition.damage*multiplier));
+      this.scene.damagePlayer(Math.round(this.enemy.definition.damage*multiplier),{x,y});
     this.scene.shakeCombatCamera(170,.003);this.scene.playAudio('sfx-heavy-slam',.45);
     this.effects.impact({id:'dragon-impact'},{kind:'circle',x,y,radius,angle:0});
     const shock=this.move?.dragonAftershock;
@@ -406,7 +406,7 @@ export class DragonCombat {
       shock.fired=true;this.effects.impact({id:'dragon-aftershock'},shock.area);
       const p=this.scene.player;
       if(attackAreaContains(shock.area,p.x,p.y)&&this.scene.hasClearPath(shock.area.x,shock.area.y,p.x,p.y,this.enemy))
-        this.scene.damagePlayer(Math.round(this.enemy.definition.damage*shock.damage));
+        this.scene.damagePlayer(Math.round(this.enemy.definition.damage*shock.damage),shock.area);
       this.scene.playAudio('sfx-heavy-slam',.35);
     }
     if(shock.fired)this.aftershockWarning.graphics.setAlpha(Math.max(0,1-(shock.age-shock.windup)/160));

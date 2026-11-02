@@ -41,7 +41,7 @@ export class StormHazardSystem {
       this.scene.shakeCombatCamera(180,.003);
       const p=this.scene.player;
       if(Math.hypot(p.x-strike.area.x,p.y-strike.area.y)<=STORM_RADIUS+8&&!this.sheltered(p.x,p.y))
-        this.scene.damagePlayer(Math.ceil(p.maxHp*STORM_DAMAGE_FRACTION));
+        this.scene.damagePlayer(Math.ceil(p.maxHp*STORM_DAMAGE_FRACTION),strike.area);
     }
     if(strike.age>=STORM_WARNING_MS+600)this.strike=null;
   }

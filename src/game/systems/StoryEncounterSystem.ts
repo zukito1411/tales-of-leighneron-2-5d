@@ -12,6 +12,7 @@ import type {Enemy} from '../entities/Enemy';
 import type {Npc} from '../entities/Npc';
 import type {Vec2} from '../types';
 import {onWorldLabel} from '../presentation25d/plane';
+import {firstPersonAimScore,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
 
 /** Finite quest-owned Enemy actors. Combat, targeting, art and damage remain
  * the ordinary game systems. Only permission, waves and lifecycle live here. */
@@ -33,6 +34,13 @@ export class StoryEncounterSystem {
   constructor(private readonly scene:WorldScene){this.allies=new StoryAllySystem(scene);}
   get active(){return this.encounter!==null;}
   get id(){return this.encounter?.id;}
+  firstPersonInteraction():FirstPersonInteraction|null {
+    const label=this.prompt;if(!label)return null;
+    // Placement recovery is a non-spatial action; keep the quest recoverable.
+    const score=this.placementPaused?0:firstPersonAimScore(this.scene,this.anchor.x,this.anchor.y,100,45);
+    if(!Number.isFinite(score)||!this.placementPaused&&!this.scene.hasClearPath(this.scene.player.x,this.scene.player.y,this.anchor.x,this.anchor.y))return null;
+    return {label,score,activate:()=>{this.interact();}};
+  }
   get prompt(){
     const e=this.encounter;if(!e)return null;
     if(this.placementPaused)return 'Retry attackers from open ground';

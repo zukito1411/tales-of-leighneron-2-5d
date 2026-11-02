@@ -1,0 +1,24 @@
+.fpp-feedback { position:absolute; inset:0; z-index:7; pointer-events:none; color:#f5e7c9; font:13px Georgia,serif; text-shadow:0 1px 3px #000,0 0 2px #000; }
+.fpp-feedback[hidden],.fpp-feedback [hidden] { display:none!important; }
+.fpp-reticle { position:absolute; left:50%; top:50%; width:15px; height:15px; transform:translate(-50%,-50%); border:1px solid #f4eee0b0; border-radius:50%; box-shadow:0 0 2px #000; display:grid; place-items:center; }
+.fpp-reticle-dot { width:3px; height:3px; background:currentColor; border-radius:50%; }
+.fpp-reticle[data-state=ready] { color:#c1edb0; border-color:#c1edb0; }
+.fpp-reticle[data-state=target] { color:#f1b886; border-style:dashed; }
+.fpp-reticle[data-state=interact] { color:#f5d481; border-color:#f5d481; }
+.fpp-focus { position:absolute; left:50%; top:calc(50% + 22px); transform:translateX(-50%); text-align:center; width:min(230px,40vw); }
+.fpp-focus-name { font-weight:bold; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fpp-focus-health { width:90%; height:4px; background:#17120ee6; border:1px solid #ad8b5a; margin:5px auto; }
+.fpp-focus-health-fill { display:block; width:100%; height:100%; background:#c45943; transform-origin:left center; }
+.fpp-focus-status,.fpp-lock-status { font:11px system-ui,sans-serif; }
+.fpp-lock-status { position:absolute; left:50%; top:calc(50% - 31px); transform:translateX(-50%); color:#e9cb8d; max-width:40vw; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.fpp-interaction { position:absolute; left:50%; top:calc(50% + 86px); transform:translateX(-50%); padding:5px 9px; max-width:44vw; text-align:center; background:#1b160edb; border:1px solid #b6995c99; border-radius:5px; }
+.fpp-danger { position:absolute; left:50%; top:24%; transform:translateX(-50%); max-width:44vw; padding:6px 10px; border:1px solid #efa35e; border-radius:5px; background:#291b15dd; text-align:center; font:600 12px system-ui,sans-serif; color:#ffdb9c; }
+.fpp-direction { position:absolute; transform:translate(-50%,-50%); color:#ffd18b; text-align:center; font:20px system-ui,sans-serif; }
+.fpp-direction-arrow { display:block; transform:rotate(var(--fpp-bearing)); }
+.fpp-direction-caption { display:block; font-size:10px; }
+.fpp-direction-track { display:block; width:28px; height:3px; margin:3px auto; background:#281b13d9; }
+.fpp-direction-fill { display:block; width:100%; height:100%; background:#ffc579; transform-origin:left; }
+.fpp-direction-hit { color:#ff8e75; font-size:28px; transform:translate(-50%,-50%) rotate(var(--fpp-bearing)); }
+.fpp-hit-flash { position:absolute; inset:0; box-shadow:inset 0 0 25px 9px #d34327; opacity:0; }
+.game-shell[data-first-person=true] .interaction-hint { display:none; }
+@media (max-height:480px) { .fpp-focus { top:calc(50% + 15px); font-size:11px; } .fpp-interaction { top:calc(50% + 68px); font-size:11px; } .fpp-danger { top:17%; font-size:11px; padding:3px 7px; } }

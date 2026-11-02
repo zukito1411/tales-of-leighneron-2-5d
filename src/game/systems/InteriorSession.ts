@@ -26,6 +26,8 @@ import {interiorFloorSurfaces} from './interiorFloorSurfaces';
 import {furniturePlacement,furniturePassageFootprints} from '../presentation25d/FurnitureGeometry';
 import {polygonGroundBands,type GroundPoint} from '../../data/worldSpriteGeometry';
 import {stairSurfaceHeight,type StairWalkSurface} from '../presentation25d/WalkSurface';
+import {isFirstPersonView} from '../presentation25d/plane';
+import {firstPersonAimScore,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
 
 const DEPTH=10_000_000;
 const SOURCE='interior-source',ATLAS='interior-furniture';
@@ -182,11 +184,11 @@ export class InteriorSession {
     }
   }
 
-  nearest(x:number,y:number){
+  nearest(x:number,y:number,accept?:(entry:InteriorEntry)=>boolean){
     let nearest:InteriorEntry|undefined,distance=95;
     for(const entries of [INTERIOR_ENTRIES,this.scene.dungeonEntries])for(const entry of entries){
       const d=Math.hypot(entry.door.x-x,entry.door.y-y);
-      if(d<distance&&this.scene.interiorDoorClear(entry.door.x,entry.door.y)
+      if(d<distance&&(!accept||accept(entry))&&this.scene.interiorDoorClear(entry.door.x,entry.door.y)
         &&this.scene.hasClearPath(x,y,entry.door.x,entry.door.y)){nearest=entry;distance=d;}
     }
     return nearest;
@@ -739,7 +741,7 @@ export class InteriorSession {
         ...(MAP_BLACKSMITHS.has(n.definition.id)?{service:'blacksmith' as const}:{})})),
         ...this.innBedMarkers,...this.scene.dungeonMarkers,
         ...this.scene.getCombatEnemies().filter(e=>e.active&&e.hp>0).map(e=>({id:e.instanceId,kind:'enemy' as const,label:e.definition.name,x:e.x,y:e.y}))],
-      interaction:this.entry.id===TOWER_ENTRY_ID&&nearExit?'Entry door sealed — clear the floor and use the central portal':this.scene.storyCombatActive?(nearExit?'Leave building':this.scene.storyInteraction):near?`Talk to ${near.definition.name}`:nearExit?'Leave building':this.scene.storyInteraction??
+      interaction:isFirstPersonView(this.scene)?this.scene.firstPersonInteraction()?.label??null:this.entry.id===TOWER_ENTRY_ID&&nearExit?'Entry door sealed — clear the floor and use the central portal':this.scene.storyCombatActive?(nearExit?'Leave building':this.scene.storyInteraction):near?`Talk to ${near.definition.name}`:nearExit?'Leave building':this.scene.storyInteraction??
         (nearHomeBed?(innRestAvailable(this.scene.getWorldHour()*60)?'Sleep in your bed until 06:00':'Home bed — available from 18:00'):nearBed?(innRestAvailable(this.scene.getWorldHour()*60)?`Sleep until 06:00 — ${INN_REST_COST}G`:'Guest bed — available from 18:00'):
         this.scene.companionActor&&Math.hypot(this.scene.companionActor.x-x,this.scene.companionActor.y-y)<180?'Talk to Alice Fen':null)});
     }
@@ -762,7 +764,36 @@ export class InteriorSession {
     const dx=x-this.origin.x-this.plan.entrance.x,dy=y-this.origin.y-this.plan.entrance.y;
     return this.plan.entranceWidth?Math.abs(dx)<=this.plan.entranceWidth/2-12&&Math.abs(dy)<80:Math.hypot(dx,dy)<80;
   }
+  firstPersonInteraction():FirstPersonInteraction|null {
+    if(!this.ready||!this.plan||!this.entry||this.cinematicContext)return null;
+    const scene=this.scene,p=scene.player;
+    let best=scene.firstPersonStoryInteraction();
+    const consider=(label:string,point:Vec2,height:number,width:number,activate:()=>void)=>{
+      const score=firstPersonAimScore(scene,point.x,point.y,height,width);
+      if(Number.isFinite(score)&&(!best||score<best.score))best={label,score,activate};
+    };
+    const south=this.entry.id===TOWER_ENTRY_ID?TOWER_SOUTH_DOOR:{x:this.plan.entrance.x,y:this.plan.entrance.y+55};
+    const nearExit=this.entry.id===TOWER_ENTRY_ID?Math.hypot(p.x-this.origin.x-south.x,p.y-this.origin.y-south.y)<130:this.nearEntrance(p.x,p.y);
+    if(nearExit&&this.clearPath(p,this.localPoint(this.plan.entrance)))consider(this.entry.id===TOWER_ENTRY_ID?'Entry door sealed — use the central portal':'Leave building',this.localPoint(south),140,(this.plan.entranceWidth??114)/2,
+      ()=>{if(this.entry?.id===TOWER_ENTRY_ID)scene.notify('Clear the floor and use the central return portal.');else this.exit();});
+    if(scene.storyCombatActive)return best;
+    for(const npc of this.residents)if(npc.active&&npc.visible&&this.reachableResident(npc))
+      consider(`Talk to ${npc.definition.name}`,npc,Math.min(110,npc.displayHeight*npc.originY),24,()=>this.talk(npc));
+    for(const foot of this.innBeds)if(this.bedReachable(foot))consider(innRestAvailable(scene.getWorldHour()*60)?`Sleep until 06:00 — ${INN_REST_COST}G`:'Guest bed — available from 18:00',
+      {x:foot.x,y:foot.y-42},75,40,()=>scene.restAtInn());
+    if(isPlayerHome(this.entry.id)&&housingFor(useGameStore.getState().housing,this.entry.id).owned)
+      for(const item of this.homeItems??[])if(this.homeBedReachable(item)){
+        const r=furnitureFootprint(item);
+        consider(innRestAvailable(scene.getWorldHour()*60)?'Sleep in your bed until 06:00':'Home bed — available from 18:00',
+          this.localPoint({x:r.x+r.width/2,y:r.y+r.height/2}),75,Math.max(r.width,r.height)/2,()=>scene.restAtHome());
+      }
+    const companion=scene.companionActor;
+    if(companion?.active&&companion.visible&&Math.hypot(companion.x-p.x,companion.y-p.y)<=180&&this.clearPath(p,companion,companion))
+      consider(`Talk to ${companion.definition.name}`,companion,85,24,()=>{scene.talkToCompanion();});
+    return best;
+  }
   interact(){
+    if(isFirstPersonView(this.scene)){const target=this.firstPersonInteraction();if(target)target.activate();return;}
     if(this.homeBedInReach()){
       this.scene.restAtHome();return;
     }

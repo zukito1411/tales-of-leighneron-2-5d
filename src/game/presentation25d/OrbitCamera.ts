@@ -17,7 +17,6 @@ export class OrbitCamera {
   private readonly lookTarget=new Vector3();
   private combatLocked=false;
   firstPerson=false;private savedPitch=42*RAD;
-  private readonly crosshair:HTMLDivElement;
   private wasLocked=false;private releasing=false;
   private readonly altKeys=new Set<string>();
   private resumeCapture=false;private destroyed=false;
@@ -34,9 +33,6 @@ export class OrbitCamera {
     this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · R lock · Esc to release';
     Object.assign(this.hint.style,{position:'absolute',left:'50%',top:'12px',transform:'translateX(-50%)',zIndex:'8',padding:'7px 12px',background:'#18201ee6',color:'#f2e6c7',border:'1px solid #8b7954',borderRadius:'5px',fontSize:'12px',cursor:'pointer'});
     this.hint.hidden=true;parent.append(this.hint);this.hint.addEventListener('click',this.capture);
-    this.crosshair=document.createElement('div');this.crosshair.setAttribute('aria-label','First-person aim');
-    this.crosshair.textContent='·';this.crosshair.hidden=true;
-    Object.assign(this.crosshair.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',color:'#f4eee0',font:'32px Georgia',textShadow:'0 0 3px #000',pointerEvents:'none',zIndex:'6'});parent.append(this.crosshair);
     this.hint.textContent='Mouse look · click to capture · hold Alt for cursor · R lock · Esc to release';
     canvas.addEventListener('pointerdown',this.down);canvas.addEventListener('pointermove',this.touchMove);canvas.addEventListener('pointerup',this.up);canvas.addEventListener('pointercancel',this.up);
     canvas.addEventListener('wheel',this.wheel,{passive:false});canvas.addEventListener('contextmenu',this.contextMenu);
@@ -117,7 +113,6 @@ export class OrbitCamera {
       else this.pitch=this.targetPitch=this.savedPitch;
       this.firstPerson=firstPerson;this.initialized=false;
     }
-    this.crosshair.hidden=!firstPerson||!enabled;
     if(this.enabled&&!enabled){if(!this.altKeys.size)this.resumeCapture=false;this.release();}this.enabled=enabled;
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
     this.combatLocked=enabled&&Boolean(lockedTarget)&&!firstPerson;
@@ -185,7 +180,7 @@ export class OrbitCamera {
   }
   destroy(){
     this.destroyed=true;this.enabled=false;
-    this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();this.crosshair.remove();
+    this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();
     this.canvas.removeEventListener('pointerdown',this.down);this.canvas.removeEventListener('pointermove',this.touchMove);this.canvas.removeEventListener('pointerup',this.up);this.canvas.removeEventListener('pointercancel',this.up);
     this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('contextmenu',this.contextMenu);
     document.removeEventListener('mousemove',this.mouseMove);document.removeEventListener('mouseup',this.mouseUp);document.removeEventListener('pointerlockchange',this.lockChanged);

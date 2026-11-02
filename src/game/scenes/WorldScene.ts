@@ -6,6 +6,7 @@ import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {StormHazardSystem} from '../systems/StormHazardSystem';
 import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
 import {meleeReach} from '../systems/combatSpacing';
+import {firstPersonAimScore,FIRST_PERSON_DAMAGE_EVENT,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
 import {marketWorkstation} from '../../data/marketWorkstations';
 import Phaser from 'phaser';
 import type {VolcanoPulse} from '../../data/cinderpeak';
@@ -1491,8 +1492,52 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return entry;
   }
 
+  /** Resolve again at input time: an old HUD prompt never authorizes an action. */
+  firstPersonInteraction():FirstPersonInteraction|null {
+    const p=this.player,s=useGameStore.getState();
+    if(!isFirstPersonView(this)||!p?.active||p.hp<=0||s.panel||s.dialogue||s.cinematic||s.housingEditing||s.screenTransition||s.passage)return null;
+    if(this.interiors.active)return this.interiors.firstPersonInteraction();
+    let best=this.firstPersonStoryInteraction();
+    if(this.storyCombatActive)return best;
+    const consider=(label:string,x:number,y:number,height:number,width:number,activate:()=>void)=>{
+      const score=firstPersonAimScore(this,x,y,height,width);
+      if(Number.isFinite(score)&&(!best||score<best.score))best={label,score,activate};
+    };
+    const building=this.interiors.nearest(p.x,p.y,e=>Number.isFinite(firstPersonAimScore(this,e.door.x,e.door.y,110,34)));
+    if(building){const home=PLAYER_HOME_BY_ID[building.id];
+      const label=home?housingFor(s.housing,home.id).owned?`Enter ${home.homeName}`:`Home for sale · Speak with ${home.agentName}`:`Enter ${building.name}`;
+      consider(label,building.door.x,building.door.y,110,34,()=>this.interiors.enter(building));
+    }
+    for(const npc of this.npcs){
+      if(!npc.active||!npc.visible||npc.adventureCompanion||npc.definition.id.startsWith('road-life:'))continue;
+      const front=npc.counterApproach;
+      if((npc.x-p.x)**2+(npc.y-p.y)**2>=72*72&&(!front||(front.x-p.x)**2+(front.y-p.y)**2>=72*72))continue;
+      if(!Number.isFinite(firstPersonAimScore(this,npc.x,npc.y,Math.min(110,npc.displayHeight*npc.originY),24)))continue;
+      if(this.npcTalkDistance(npc,p.x,p.y)<Infinity)consider(`Talk to ${npc.definition.name}`,npc.x,npc.y,Math.min(110,npc.displayHeight*npc.originY),24,()=>s.startDialogue(npc.definition.id));
+    }
+    const shrine=this.nearbyElarionShrine(p.x,p.y);
+    for(const entry of this.interactables.values()){
+      const {actor,definition}=entry;if(!actor.active||!actor.visible)continue;
+      const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;
+      const special=entry===shrine;
+      if(!special&&(Math.hypot(point.x-p.x,point.y-p.y)>=72||!this.hasClearPath(p.x,p.y,point.x,point.y,actor)))continue;
+      consider(definition.name,special?actor.x:point.x,special?actor.y+64:point.y,special?110:75,special?40:32,()=>this.useInteractable(definition,actor));
+    }
+    const companion=this.companionActor;
+    if(companion?.active&&companion.visible&&Math.hypot(companion.x-p.x,companion.y-p.y)<=180&&this.hasClearPath(p.x,p.y,companion.x,companion.y))
+      consider(`Talk to ${companion.definition.name}`,companion.x,companion.y,85,24,()=>{this.talkToCompanion();});
+    return best;
+  }
+  firstPersonStoryInteraction(){return this.dungeons?.firstPersonInteraction()??this.storyEncounters?.firstPersonInteraction()??null;}
+  firstPersonProjectileThreat(){return this.inInterior?null:this.spearProjectiles.firstPersonThreat();}
+
   tryInteract(x: number, y: number) {
     if (useGameStore.getState().panel || useGameStore.getState().dialogue) return;
+    if(isFirstPersonView(this)){
+      const target=this.firstPersonInteraction();
+      if(target)target.activate();else this.notify('Look at something nearby to interact.');
+      return;
+    }
     if(this.interiors.active){this.interiors.interact();return;}
     if(this.interactWithStory())return;
     const building=this.interiors.nearest(x,y);
@@ -1785,11 +1830,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return false;
   }
 
-  damagePlayer(amount: number) {
+  damagePlayer(amount: number,source?:Readonly<Vec2>) {
     if(this.cinematicDirector?.active||this.passage?.active||this.screenTransition.active||this.restSession)return;
     const state=useGameStore.getState();if(!this.focused||state.panel||state.dialogue||this.inInterior&&!this.storyCombatActive)return;
     this.storyEncounters?.interruptWork();
-    this.player.takeDamage(amount);
+    const before=this.player.hp;this.player.takeDamage(amount);
+    if(this.player.hp<before&&isFirstPersonView(this))this.events.emit(FIRST_PERSON_DAMAGE_EVENT,source);
   }
 
   playEffect(kind: 'fortification' | 'hit' | 'heal' | 'slash' | 'teleport', x: number, y: number, direction?: Phaser.Math.Vector2) {
@@ -2220,7 +2266,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       &&this.hasClearPath(this.player.x,this.player.y,companion.x,companion.y))interaction=`Talk to ${companion.definition.name}`;
     if(this.storyCombatActive)interaction=this.storyInteraction;
     store.setNavigation({ heading: Math.atan2(this.player.lastDirection.x,-this.player.lastDirection.y), target: this.questTarget,
-      playerPosition:{x:this.player.x,y:this.player.y},markers,interaction });
+      playerPosition:{x:this.player.x,y:this.player.y},markers,interaction:isFirstPersonView(this)?this.firstPersonInteraction()?.label??null:interaction });
   }
 
   private drawQuestGuide(blocked: boolean) {

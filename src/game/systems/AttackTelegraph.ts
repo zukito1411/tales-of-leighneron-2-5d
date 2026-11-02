@@ -5,6 +5,10 @@ import {ATTACK_WARNING_FRAMES,ATTACK_WARNING_TEXTURE,windupProgress,type AttackA
 
 export const TELEGRAPH_PRESENTATION='attackTelegraphPresentation';
 export interface TelegraphPresentation {area:AttackArea|null;progress:number;color:number}
+const liveTelegraphs=new WeakMap<Phaser.Scene,Set<AttackTelegraph>>();
+const noTelegraphs:ReadonlySet<AttackTelegraph>=new Set();
+/** Only live, drawn warnings; first-person feedback never scans scene children. */
+export function activeAttackTelegraphs(scene:Phaser.Scene):ReadonlySet<AttackTelegraph>{return liveTelegraphs.get(scene)??noTelegraphs;}
 
 /** A full-size boundary remains fixed while the interior fills toward impact. */
 export class AttackTelegraph {
@@ -16,7 +20,13 @@ export class AttackTelegraph {
   private readonly gpu:boolean;
   private readonly presentation:TelegraphPresentation={area:null,progress:0,color:0};
   progress=0;
+  threatensPlayer=true;
+  get area(){return this.presentation.area;}
+  private readonly live:Set<AttackTelegraph>;
   constructor(scene:Phaser.Scene,name:string,preserveRune=true){
+    let live=liveTelegraphs.get(scene);
+    if(!live){live=new Set();liveTelegraphs.set(scene,live);scene.events.once('shutdown',()=>{live!.clear();liveTelegraphs.delete(scene);});}
+    this.live=live;
     this.gpu=scene.game.registry.get('presentation')==='three-2.5d';
     this.graphics=onGround(scene.add.graphics().setName(name).setVisible(false),3);
     if(this.gpu)this.graphics.setData(TELEGRAPH_PRESENTATION,this.presentation);
@@ -24,6 +34,7 @@ export class AttackTelegraph {
       .setOrigin(.5).setVisible(false).setName(name+':rune'),2.5);
   }
   draw(area:AttackArea,progress:number,depth:number,color=0xf3aa57){
+    this.live.add(this);
     const g=this.graphics,p=windupProgress(progress,1),r=area.radius;
     this.progress=p;
     setDepthIfChanged(g,depth).setVisible(true).setPosition(area.x,area.y).setRotation(area.angle);
@@ -75,6 +86,6 @@ export class AttackTelegraph {
     }
     return this;
   }
-  clear(){if(this.graphics.visible)this.graphics.clear().setVisible(false);this.rune?.setVisible(false);this.progress=0;this.lastProgress=-1;}
-  destroy(){this.graphics.destroy();this.rune?.destroy();}
+  clear(){this.live.delete(this);this.presentation.area=null;if(this.graphics.visible)this.graphics.clear().setVisible(false);this.rune?.setVisible(false);this.progress=0;this.lastProgress=-1;}
+  destroy(){this.live.delete(this);this.graphics.destroy();this.rune?.destroy();}
 }

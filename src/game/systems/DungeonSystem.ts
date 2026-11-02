@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import {isFirstPersonView} from '../presentation25d/plane';
+import {firstPersonAimScore,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
 import {DUNGEONS,DUNGEON_BY_ID,DUNGEON_WAVE_SIZES,DUNGEON_LEADER_SCALE,dungeonWave,dungeonEnemyId,dungeonCleared,dungeonResetReady,type DungeonDefinition} from '../../data/dungeons';
 import {CAVE_ART_PATH,CAVE_ART_FRAMES} from '../../data/caveArt';
 import type {InteriorEntry} from '../../data/interiors';
@@ -293,21 +295,31 @@ export class DungeonSystem {
     this.caption=onWorldLabel(this.scene.add.text(p.x,p.y-82,claimed?'Claimed':'War chest',{fontFamily:'Georgia, serif',fontSize:'12px',color:'#ffe3a2',stroke:'#1b140e',strokeThickness:3})
       .setOrigin(.5),p);
   }
+  firstPersonInteraction():FirstPersonInteraction|null {
+    const label=this.prompt;if(!label)return null;
+    let score=Infinity;
+    const consider=(p:Vec2)=>{if(this.interactionNear(p))score=Math.min(score,firstPersonAimScore(this.scene,p.x,p.y,110,45));};
+    if(this.portal)consider(this.scene.dungeonPoint(TOWER_PORTAL));
+    if(this.chestPoint)consider(this.chestPoint);
+    if(this.session?.tower)consider(this.scene.dungeonPoint(TOWER_NORTH_DOOR));
+    return Number.isFinite(score)?{label,score,activate:()=>{this.interact();}}:null;
+  }
+  private interactionNear(point:Vec2){return this.near(point)&&(!isFirstPersonView(this.scene)||Number.isFinite(firstPersonAimScore(this.scene,point.x,point.y,110,45)));}
   get prompt(){
     if(!this.session)return null;
     const progress=this.progress(this.session);
     if(this.session.tower){
       if(this.practice){
-        if(this.portal&&this.near(this.scene.dungeonPoint(TOWER_PORTAL)))return 'Finish practice — return to Oakmere';
-        return dungeonCleared(this.session,progress)&&this.near(this.scene.dungeonPoint(TOWER_NORTH_DOOR))?'Choose another practice floor':null;
+        if(this.portal&&this.interactionNear(this.scene.dungeonPoint(TOWER_PORTAL)))return 'Finish practice — return to Oakmere';
+        return dungeonCleared(this.session,progress)&&this.interactionNear(this.scene.dungeonPoint(TOWER_NORTH_DOOR))?'Choose another practice floor':null;
       }
-      if(this.portal&&this.near(this.scene.dungeonPoint(TOWER_PORTAL)))return 'Return to Oakmere — confirm chamber reset';
-      if(this.chestPoint&&this.near(this.chestPoint))return progress?.claimed?'War chest claimed':'Open the Tower of Might war chest';
-      if(!dungeonCleared(this.session,progress)||!this.near(this.scene.dungeonPoint(TOWER_NORTH_DOOR)))return null;
+      if(this.portal&&this.interactionNear(this.scene.dungeonPoint(TOWER_PORTAL)))return 'Return to Oakmere — confirm chamber reset';
+      if(this.chestPoint&&this.interactionNear(this.chestPoint))return progress?.claimed?'War chest claimed':'Open the Tower of Might war chest';
+      if(!dungeonCleared(this.session,progress)||!this.interactionNear(this.scene.dungeonPoint(TOWER_NORTH_DOOR)))return null;
       const next=TOWER_FLOORS[TOWER_FLOORS.findIndex(d=>d.id===this.session!.id)+1];
       return next?'Ascend to '+next.name.replace('Tower of Might · ',''):'Tower conquered — use the central portal';
     }
-    if(!this.chestPoint||!this.near(this.chestPoint))return null;
+    if(!this.chestPoint||!this.interactionNear(this.chestPoint))return null;
     if(progress?.claimed){const minutes=Math.max(0,Math.ceil(((progress.respawnAt??0)-Date.now())/60000));
       return minutes?`War chest · resets in ${minutes}m`:'War chest · leave to reset the cave';}
     return 'Open cave war chest';
@@ -332,8 +344,8 @@ export class DungeonSystem {
     if(this.scene.time.now<this.nextTowerInteractionAt)return true;
     if(s.panel||s.dialogue||s.cinematic||s.hp<=0||s.activeSkillStatus.casting)return true;
     this.nextTowerInteractionAt=this.scene.time.now+400;
-    if(this.portal&&this.near(this.scene.dungeonPoint(TOWER_PORTAL))){this.requestTowerReturn();return true;}
-    if(this.chestPoint&&this.near(this.chestPoint)){
+    if(this.portal&&this.interactionNear(this.scene.dungeonPoint(TOWER_PORTAL))){this.requestTowerReturn();return true;}
+    if(this.chestPoint&&this.interactionNear(this.chestPoint)){
       s.claimDungeonChest(d.id);
       if(useGameStore.getState().dungeons[d.id]?.claimed){
         this.chest?.setFrame('openChest');this.caption?.setText('Claimed');this.scene.syncState();saveGame();

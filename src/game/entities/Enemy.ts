@@ -701,6 +701,7 @@ export class Enemy extends DepthSortedSprite {
     this.attackTelegraphStartedAt=time;
     this.attackTelegraphWindup=windup/rate;
     this.attackShade?.destroy();this.attackShade=new AttackTelegraph(scene,`attack-windup-fill:${this.instanceId}`,false);
+    this.attackShade.threatensPlayer=!ambient;
     const layout=enemyAttackWarningLayout(attackStyle,radius,this.attackTelegraphAngle);
     this.attackTelegraph=null;
     if(!ranged)this.attackTelegraph=scene.add.image(this.x,this.y,ATTACK_WARNING_TEXTURE,layout.frame)
@@ -758,7 +759,7 @@ export class Enemy extends DepthSortedSprite {
       this.playMonsterAttackFoley('impact');
       scene.playEffect('hit', player.x, player.y, toPlayer);
       if(ambient)scene.damageRoadNpc(player as Npc,this.definition.damage);
-      else scene.damagePlayer(this.definition.damage);
+      else scene.damagePlayer(this.definition.damage,this);
     }};
   }
 

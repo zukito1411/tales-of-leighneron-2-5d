@@ -37,6 +37,7 @@ import {GpuCloudShadows} from './GpuCloudShadows';
 import {GpuWeather} from './GpuWeather';
 import {GpuStormLightning} from './GpuStormLightning';
 import {FirstPersonWeapon} from './FirstPersonWeapon';
+import {FirstPersonFeedback} from './FirstPersonFeedback';
 import type {Player} from '../entities/Player';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import type {StormBolt} from '../systems/StormHazardSystem';
@@ -117,6 +118,7 @@ export class ThreePresentation {
   private readonly screen=new Scene();
   private readonly orbit:OrbitCamera;
   private readonly firstPersonWeapon:FirstPersonWeapon;
+  private readonly firstPersonFeedback:FirstPersonFeedback;
   private firstPersonPlayer:Player|undefined;
   private readonly elevation=new ElevationField();
   private readonly budget:RenderBudget;
@@ -235,6 +237,7 @@ export class ThreePresentation {
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();},
       ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
     this.firstPersonWeapon=new FirstPersonWeapon(this.renderer);
+    this.firstPersonFeedback=new FirstPersonFeedback(parent);
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
     this.preparePrograms(Promise.all([this.shaderWarmup.ready,this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}));
     bindResourcePreparation(game,{
@@ -318,6 +321,7 @@ export class ThreePresentation {
       this.atmosphere.billboardPitch.value.x,this.atmosphere.billboardPitch.value.y,this.yawCos,this.yawSin);
     this.elevation.prepare(this.orbit.bounds,this.heightEnabled,this.orbit.focusGround);
     if(this.heightEnabled&&!this.elevation.initialized){
+      this.firstPersonFeedback.suspend();
       // POST_RENDER still fires on an undrawn preparation tick. Keep the
       // world-ready/save fence closed until the full-height view is rendered.
       this.game.registry.set('presentationInitialViewReady',false);
@@ -388,6 +392,7 @@ export class ThreePresentation {
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
+    this.firstPersonFeedback.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled===true,this.game.loop.delta);
     this.gpuTimer.end();
     this.presentedScene=scene;
     if(presentation.presentationFocus)this.game.registry.set('presentationInitialViewReady',true);
@@ -1020,7 +1025,7 @@ export class ThreePresentation {
     console.error('[2.5d] Graphics preparation failed',reason);
     this.programsReady=false;this.preparationEpoch++;
     this.game.registry.set('presentationProgramsReady',false);
-    this.orbit.suspend();
+    this.orbit.suspend();this.firstPersonFeedback.suspend();
     this.recoveryDeadline.clear();
     this.game.registry.set('presentationRecovering',false);
     this.game.registry.set('presentationError','The graphics could not be prepared. Return to the menu and reopen your save.');
@@ -1048,7 +1053,7 @@ export class ThreePresentation {
     if(this.stopped||this.contextLost)return;
     this.reportGraphicsFault('context-lost',{status:'statusMessage' in event?String(event.statusMessage).slice(0,2000):undefined});
     this.contextLost=true;this.programsReady=false;this.preparationEpoch++;
-    this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();
+    this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();this.firstPersonFeedback.suspend();
     this.game.registry.set('presentationRecovering',true);
     this.game.registry.set('presentationProgramsReady',false);
     this.game.loop.sleep();
@@ -1080,7 +1085,7 @@ export class ThreePresentation {
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
     releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuLightning.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
-    this.firstPersonWeapon.destroy();this.firstPersonPlayer=undefined;
+    this.firstPersonWeapon.destroy();this.firstPersonFeedback.destroy();this.firstPersonPlayer=undefined;
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();
     this.drawnSprites=new WeakMap();this.foregroundAlpha=new WeakMap();this.foreground.clear();
