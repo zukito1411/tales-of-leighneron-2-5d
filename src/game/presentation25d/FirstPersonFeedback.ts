@@ -2,7 +2,6 @@ import type {Player} from '../entities/Player';
 import type {Enemy} from '../entities/Enemy';
 import type {WorldScene} from '../scenes/WorldScene';
 import type {Vec2} from '../types';
-import {useGameStore} from '../../store/gameStore';
 import {BASIC_ATTACK_CHAIN} from '../../data/basicAttackCombo';
 import {activeAttackTelegraphs} from '../systems/AttackTelegraph';
 import {attackAreaContains} from '../systems/attackWarning';
@@ -21,12 +20,6 @@ export class FirstPersonFeedback {
   private readonly root=element('div','fpp-feedback');
   private readonly shell:HTMLElement;
   private readonly reticle=element('div','fpp-reticle');
-  private readonly focus=element('div','fpp-focus');
-  private readonly name=element('div','fpp-focus-name');
-  private readonly status=element('div','fpp-focus-status');
-  private readonly health=element('div','fpp-focus-health');
-  private readonly healthFill=element('span','fpp-focus-health-fill');
-  private readonly lock=element('div','fpp-lock-status');
   private readonly interaction=element('div','fpp-interaction');
   private readonly danger=element('div','fpp-danger');
   private readonly flash=element('div','fpp-hit-flash');
@@ -49,10 +42,9 @@ export class FirstPersonFeedback {
     this.root.setAttribute('aria-label','First-person combat awareness');this.root.hidden=true;
     this.reticle.setAttribute('aria-label','First-person aim');
     this.reticle.append(element('span','fpp-reticle-dot'));
-    this.health.append(this.healthFill);this.focus.append(this.name,this.health,this.status);
     this.danger.textContent='MOVE · Incoming attack';
     this.hit.textContent='▲';
-    this.root.append(this.flash,this.reticle,this.focus,this.lock,this.interaction,this.danger,this.hit);
+    this.root.append(this.flash,this.reticle,this.interaction,this.danger,this.hit);
     for(let i=0;i<3;i++){
       const node=element('div','fpp-direction fpp-direction-warning'),arrow=element('span','fpp-direction-arrow');arrow.textContent='▲';
       const caption=element('small','fpp-direction-caption');caption.textContent='Attack';
@@ -67,7 +59,7 @@ export class FirstPersonFeedback {
   }
   private hide(){
     this.active=false;this.root.hidden=true;this.hitRemaining=0;this.nextSample=0;
-    this.focus.hidden=this.lock.hidden=this.interaction.hidden=this.danger.hidden=this.hit.hidden=true;
+    this.interaction.hidden=this.danger.hidden=this.hit.hidden=true;
     for(const w of this.warnings){w.used=false;w.node.hidden=true;}
   }
   suspend(){this.hide();}
@@ -100,23 +92,14 @@ export class FirstPersonFeedback {
     }
     const interaction=scene.firstPersonInteraction();
     text(this.interaction,interaction?this.interactHint+' · '+interaction.label:'');this.interaction.hidden=!interaction;
-    this.focus.hidden=!target;
     let ready=false;
     if(target){
       const weapon=scene.getEquippedWeapon(),step=p.presentationAttack?.step??BASIC_ATTACK_CHAIN[0];
       const dx=target.x-p.x,dy=target.y-p.y,distance=Math.hypot(dx,dy);
       const reach=meleeReach(scene,weapon.reach,weapon.kind)*step.reachMultiplier+(target.definition.boss?18:8);
       ready=target.canBeTargeted&&distance<=reach&&(distance===0||(p.lastDirection.x*dx+p.lastDirection.y*dy)/distance>=step.coneDot);
-      text(this.name,target.definition.name);
-      const locked=scene.targeting.lockedTarget===target;
-      text(this.status,(locked?'Locked':'Aimed')+' · '+(!target.canBeTargeted?'Invulnerable':ready?'In reach':'Out of reach'));
-      this.healthFill.style.transform=`scaleX(${Math.max(0,Math.min(1,target.hp/Math.max(1,target.definition.hp)))})`;
-      this.health.setAttribute('aria-label',`${Math.ceil(target.hp)} of ${target.definition.hp} health`);
     }
     this.reticle.dataset.state=target?(ready?'ready':'target'):interaction?'interact':'idle';
-    const locked=useGameStore.getState().targetLock;
-    this.lock.hidden=!locked||scene.targeting.lockedTarget===target;
-    text(this.lock,locked?'Locked: '+locked.name:'');
     for(const w of this.warnings){w.used=false;w.node.hidden=true;}
     let threatened=false;
     for(const warning of activeAttackTelegraphs(scene)){

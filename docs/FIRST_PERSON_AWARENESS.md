@@ -1,16 +1,17 @@
 # First-person combat awareness and interactions
 
-The first-person HUD owns the center reticle, aimed enemy name/health, reach
-status, lock identity, an aimed interaction prompt, three directional warning
-slots and a short indicator for actual health loss. Third-person HUD and
-interaction selection keep their existing behavior.
+The first-person HUD owns the center reticle, an aimed interaction prompt,
+three directional warning slots and a short indicator for actual health loss.
+Enemy names and health remain on the existing overhead indicators; the center
+has no duplicate enemy health, lock labels or reach text. Third-person HUD
+and interaction selection keep their existing behavior.
 
 - Perception samples run at most ten times per second. Enemy candidates come
   from the existing live combat list. Warning candidates come from active
   AttackTelegraph instances; spear/stone prediction uses the existing eight-shot
   pool. No scene-child/world scans, image decoding or GPU readbacks are added.
 - The reticle projects authored target volumes through the current camera.
-  Names/health require visibility and clear cover checks. Reach uses the
+  Its color feedback requires visibility and clear cover checks. Reach uses the
   equipped weapon, current combo step, normal boss padding and facing cone;
   a lock never grants extra reach or authorizes a hit.
 - Screen warnings reuse the actual circle, ring, cone and line hit areas.
