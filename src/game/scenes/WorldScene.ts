@@ -79,6 +79,7 @@ import { artScale, artFrameSize, worldPropOrigin } from '../../data/art';
 import { repairCreaturePlacements,findCreaturePlacement } from '../systems/creaturePlacement';
 import {EnemyNavigation} from '../systems/EnemyNavigation';
 import {normalizePirateCrews} from '../systems/pirateCrewMigration';
+import {relocateFlagship} from '../systems/flagshipRelocation';
 import {normalizeGoblinCrews} from '../systems/goblinCrewMigration';
 import {M14ArtResidency} from '../systems/M14ArtResidency';
 import {M14_ART} from '../../data/m14Art';
@@ -835,6 +836,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.nextAmbientIntervalMs = 11000; this.nextRoadBanditsAt=0; this.encounters.clear();
     this.focused = true; this.wasBlocked = false;
 
+    const before=useGameStore.getState(),relocation=relocateFlagship(before.worldContent,{x:before.worldX,y:before.worldY});
+    if(relocation.world!==before.worldContent)before.hydrate({worldContent:relocation.world,worldX:relocation.player.x,worldY:relocation.player.y});
     const state = useGameStore.getState();
     const nearSaved=[{x:state.worldX,y:state.worldY},...[128,256,512,1024,2048,4096,8192].flatMap(radius=>Array.from({length:24},(_,i)=>({x:state.worldX+Math.cos(i*Math.PI/12)*radius,y:state.worldY+Math.sin(i*Math.PI/12)*radius})))];
     const safeSaved=nearSaved.find(p=>this.worldGenerator.isWalkable(p.x,p.y)&&!this.exteriorPlacement.blocksAccessPath(p,p))??LEIGNERON.spawn;
@@ -903,9 +906,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       frameWork:()=>frameWork(this.game),
       initialState: initialContentState,
       keepActive:(definition,actor)=>definition.kind==='npc'&&definition.npcId===ALICE_NPC_ID&&aliceIsFollowing(useGameStore.getState().storyFlags)
-        ||actor instanceof Enemy&&actor.active&&actor.isAlive&&Math.hypot(actor.x-this.player.x,actor.y-this.player.y)
-          <=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384,
-            actor===this.targeting?.lockedTarget?TargetingSystem.breakRange:0),
+        ||actor instanceof Enemy&&actor.active&&actor.isAlive&&(actor===this.targeting?.lockedTarget
+          ||Math.hypot(actor.x-this.player.x,actor.y-this.player.y)<=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384)),
       canActivate: (definition, runtime) => {
         if(definition.kind==='creature'&&this.storyCombatActive)return false;
         if(definition.kind==='npc'&&NPC_INTERIOR_BY_ID[definition.npcId])return false;

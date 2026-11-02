@@ -106,6 +106,8 @@ export class ThreePresentation {
   private timingFrame=-1;
   private readonly billboardRight={value:new Vector2(1,0)};
   private readonly neutralModel=new Matrix4();
+  private readonly viewProjection=new Matrix4();
+  private readonly clipModel=new Matrix4();
   private staticModelHits=0;private staticModelBuilds=0;
   private readonly staticPackets=new WeakMap<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,StaticPacket>();
   private readonly world=new Scene();
@@ -297,6 +299,7 @@ export class ThreePresentation {
     const eye=this.firstPersonPlayer?HERO_BODY_HEIGHT*.8+this.firstPersonPlayer.presentationElevation+this.firstPersonPlayer.skills.presentationElevation:undefined;
     this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget,eye);
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
+    this.viewProjection.multiplyMatrices(this.orbit.camera.projectionMatrix,this.orbit.camera.matrixWorldInverse);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
     const lean=billboardLean(this.orbit.pitch);this.atmosphere.billboardPitch.value.set(Math.cos(lean),Math.sin(lean));
@@ -872,15 +875,25 @@ export class ThreePresentation {
       return this.visibility.ground(left,top,right,bottom);
     }
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
+    // Fuse model, billboard lean, view and projection once per object rather
+    // than applying three matrices separately to every silhouette corner.
+    this.clipModel.copy(this.model);
+    if(billboardFloor!==undefined){
+      const e=this.clipModel.elements,pitch=this.atmosphere.billboardPitch.value;
+      for(let column=0;column<4;column++){
+        const i=column*4,h=e[i+1]-(column===3?billboardFloor:0);
+        e[i]-=h*pitch.y*this.yawSin;e[i+2]-=h*pitch.y*this.yawCos;
+        e[i+1]=(column===3?billboardFloor:0)+h*pitch.x;
+      }
+    }
+    this.clipModel.premultiply(this.viewProjection);
     const count=furniture||backDepth>0?8:4;
     for(let i=0;i<count;i++){const [x,y]=VERTICES[furniture||backDepth>0?i%4:i];
       if(furniture){const b=furniture.bounds;
         this.projected.set(b?(x<0?b.left:b.right):x*1.1,b?(y<0?b.bottom:b.top):(y+.5)*furniture.rise*1.06,
           b?(i>=4?b.back:b.front):i>=4?-Math.max(furniture.depth*1.1,furniture.depth/2+.5):Math.max(.025,.5-furniture.depth/2));}
       else this.projected.set(x,y+(y>0?heightLift:0),i>=4&&backDepth>0?-backDepth:centeredWall?backDepth:0);
-      this.projected.applyMatrix4(this.model);
-      if(billboardFloor!==undefined)this.leanPoint(this.projected,billboardFloor);
-      this.projected.project(this.orbit.camera);
+      this.projected.applyMatrix4(this.clipModel);
       left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);top=Math.min(top,this.projected.y);bottom=Math.max(bottom,this.projected.y);
       depth+=this.projected.z/count;near=Math.min(near,this.projected.z);far=Math.max(far,this.projected.z);}
     // Bounds depth is used only for upright foreground fading. Terrain uses

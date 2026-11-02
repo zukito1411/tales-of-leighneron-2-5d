@@ -37,7 +37,7 @@ import {lakeAt} from './landscapeFeatures';
 import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {WORLD_WIDTH,WORLD_HEIGHT} from './world';
 import {PORTS} from './ports';
-import {FLAGSHIP_CONTENT,shipPoint} from './pirateFlagship';
+import {FLAGSHIP_CONTENT,FLAGSHIP_GANGPLANK,shipPoint} from './pirateFlagship';
 import {addCampaignWorldContent} from './campaignWorld';
 import {ROAD_BRIDGE_FRAME,stoneBridgeScale} from './bridgeDeck';
 import {ELARION_LIFE_TREE_ID,ELARION_LIFE_TREE_POSITION,ELARION_LIFE_TREE_SCALE} from './elarionLifeTree';
@@ -416,7 +416,7 @@ WORLD_CONTENT.push(...ROYAL_FORTIFICATION_PROPS,...SETTLEMENT_DEFENSE_PROPS,...D
 WORLD_CONTENT.push(...FLAGSHIP_CONTENT,{id:'loot:pirate-flagship:cargo',kind:'loot-container',world:shipPoint(535,920),
   texture:'others',frame:9,scale:.45,solid:false,name:'Captured cargo chest',rewardGold:35,
   description:'The crew kept a share of its stolen cargo here. You recover thirty-five coins.',repeatText:'The stolen cargo chest is empty.'});
-WORLD_CONTENT.push({id:'sign:pirate-flagship',kind:'interactable',world:shipPoint(1060,855),texture:'world_assets',
+WORLD_CONTENT.push({id:'sign:pirate-flagship',kind:'interactable',world:shipPoint(FLAGSHIP_GANGPLANK.right+60,855),texture:'world_assets',
   frame:PROPS.sign,scale:.6,solid:false,name:'Outlaw anchorage',
   description:'The Salt King’s flagship is moored west of this shore. Cross the eastern gangplank on foot; armed deckhands guard the cargo. The harbor ferry remains at Tidewatch’s civilian quay.',
   repeatText:'The pirate flagship lies west across the wooden gangplank. The Salt King commands his crew from the aft deck.'});

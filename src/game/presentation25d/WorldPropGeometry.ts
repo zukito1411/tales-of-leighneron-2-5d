@@ -7,7 +7,7 @@ import type {FurnitureShape} from './FurnitureGeometry';
 import materials from './worldPropMaterials.json';
 import {worldPropKind,worldPropGroundPlan} from '../../data/worldPropGroundPlan';
 import {SHIP_DECK_HEIGHT} from './WalkSurface';
-import {FLAGSHIP} from '../../data/pirateFlagship';
+import {FLAGSHIP,FLAGSHIP_GANGPLANK} from '../../data/pirateFlagship';
 
 /** Shared prefabs keep real atlas registration, authored floor orientation
  * and the original collision survey. Called once when a streamed prop enters. */
@@ -67,7 +67,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
 export function shipShape(art:'ship'|'ship-stern'|'ship-mast'|'ship-pennant'):FurnitureShape {
   const shape:FurnitureShape={art,kit:'flagship',key:art,left:0,top:0,width:1,height:1,rise:1,depth:.2,patch:[.34,.47,.38,.53],fixedGround:SHIP_DECK_HEIGHT};
   if(art==='ship'){
-    shape.depth=1.5;shape.bounds={left:-.39,right:.49,bottom:-.18,top:.08,back:-.60,front:.74};
+    shape.depth=1.5;shape.bounds={left:-.39,right:(FLAGSHIP_GANGPLANK.right-512)/1024+.02,bottom:-.18,top:.08,back:-.60,front:.74};
   }else if(art==='ship-stern'){
     // Deck expansion must not turn the stern cabin into a camera-height wall.
     // Keep its complete model at a readable human-scale height.

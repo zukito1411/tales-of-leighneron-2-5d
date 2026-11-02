@@ -10,8 +10,7 @@ export class TargetingSystem {
   selected:Enemy|null=null;
   private manual:Enemy|null=null;
   private locked:Enemy|null=null;
-  private sightCheckAt=0;private lastClearAt=0;
-  get lockedTarget(){const e=this.locked;return e?.active&&e.visible&&e.isAlive&&e.canRemainLocked?e:null;}
+  get lockedTarget(){const e=this.locked;return e?.active&&e.isAlive&&e.canRemainLocked?e:null;}
   // Explicit attention follows the rendered world, not melee/casting range.
   static readonly acquireRange=VIEW_DISTANCE;
   static readonly breakRange=VIEW_DISTANCE;
@@ -67,7 +66,10 @@ export class TargetingSystem {
   }
   /** Tracking attention never overrides attack range, cover or vulnerability. */
   skillTarget(range:number){
-    const selected=this.lockedTarget??this.selected;
+    const locked=this.lockedTarget;
+    // A temporarily obstructed/out-of-range lock must never redirect an art.
+    if(locked)return this.eligible(locked,range)?locked:null;
+    const selected=this.selected;
     return selected&&this.eligible(selected,range)?selected:this.nearest(range);
   }
   meleeTarget(range:number,direction:{x:number;y:number}){
@@ -105,8 +107,11 @@ export class TargetingSystem {
     return null;
   }
   select(enemy:Enemy){
+    // Combat clicks also select actors. Release the deliberate lock first to
+    // choose another enemy; a crowd crossing the cursor cannot steal it.
+    if(this.lockedTarget&&this.lockedTarget!==enemy)return;
     if(!this.lockEligible(enemy,TargetingSystem.acquireRange))return;
-    this.locked=this.manual=this.selected=enemy;this.lastClearAt=this.scene.time.now;this.sightCheckAt=0;
+    this.locked=this.manual=this.selected=enemy;
     this.nextSelectionAt=0;this.publishLock();this.publishBoss(true);
   }
   toggleLock(){
@@ -126,17 +131,9 @@ export class TargetingSystem {
   update(){
     const locked=this.locked,now=this.scene.time.now;
     if(locked){
-      const p=this.scene.player;
-      let valid=this.lockedTarget!==null&&p.hp>0&&this.scene.combatAllowed
-        &&(locked.x-p.x)**2+(locked.y-p.y)**2<=TargetingSystem.breakRange**2;
-      if(valid&&now>=this.sightCheckAt){
-        this.sightCheckAt=now+100;
-        // Ground combat LOS is deliberately absent here. A wall may block a
-        // sword while the camera still tracks the chosen enemy.
-        if(this.lockOnScreen(locked))this.lastClearAt=now;
-        else if(now-this.lastClearAt>300)valid=false;
-      }
-      if(valid){this.selected=locked;this.publishBoss(true);return;}
+      // Visibility, range and airborne vulnerability gate individual hits,
+      // never identity. Death, explicit release and scene transitions clear it.
+      if(this.lockedTarget&&this.scene.player.hp>0){this.selected=locked;this.publishBoss(true);return;}
       this.locked=null;this.manual=null;this.publishLock();
       this.nextSelectionAt=0;
     }

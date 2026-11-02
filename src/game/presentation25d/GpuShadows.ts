@@ -57,7 +57,7 @@ export class GpuShadows {
       const sun=sunDirection(minute,this.sun),daylight=Math.max(0,sun.y),length=Math.max(.4,sun.y),reach=1.6;
       const px=Math.max(-reach,Math.min(reach,-sun.x/length))*.65,pz=Math.max(-reach,Math.min(reach,-sun.z/length))*.65;
       const viewRightX=Math.cos(yaw),viewRightZ=-Math.sin(yaw),dynamic=getGraphicEffects().dynamicShadows;
-      for(const caster of source.gpuCasters()){
+      for(const caster of source.gpuCasters(bounds)){
         const owner=caster.actor as ShadowCaster['actor']&{readonly presentationShadowVisual?:Phaser.GameObjects.Sprite;readonly presentationElevation?:number};
         const actor=owner.presentationShadowVisual??owner;
         const hint=actor.getData(PRESENTATION_HINT) as PresentationHint|undefined;

@@ -26,23 +26,24 @@ varying float opacity;
 varying float artCell;
 void main(){
   particleUV=uv;
-  bool wet=kind<1.5,ash=kind>3.5,ember=particleIndex>=96.0;
+  bool wet=kind<1.5,storm=kind<.5,ash=kind>3.5,ember=ash&&particleIndex>=96.0;
   float depth=0.4+mod(particleIndex,3.0)*0.3;
-  float speed=wet?360.0:ash?18.0:kind<2.5?24.0:12.0;
+  float speed=wet?(storm?860.0:560.0):ash?18.0:kind<2.5?24.0:12.0;
   float age=fract(seed.y+time*speed*seed.z/620.0);
   vec2 origin=floor(focus/64.0)*64.0;
   vec2 p=mod(seed.xy*1800.0+vec2(time*(12.0+wind*20.0)*seed.z,time*2.0)-origin,1800.0)-900.0+origin;
   if(!wet)p.x+=sin(time*.7+seed.w)*12.0;
   // World Y is up: precipitation descends, while hot volcanic embers rise.
   float ground=groundHeight(p),height=(ember?age:1.0-age)*620.0;
+  if(wet)p.x+=height*(.08+wind*.16);
   vec3 world=vec3(p.x,ground+height,p.y);
-  float sx=wet?1.3:ash?(ember?24.0:5.0+depth*6.0):kind<2.5?3.5:6.0;
-  float sy=wet?20.0:sx*(ash?1.0:.65);
+  float sx=wet?(storm?2.0:1.4):ash?(ember?24.0:5.0+depth*6.0):kind<2.5?3.5:6.0;
+  float sy=wet?(storm?40.0:26.0):sx*(ash?1.0:.65);
   vec2 local=position.xy*vec2(sx,sy);
   if(ash&&!ember){float a=seed.w+time*.3*seed.z;local=mat2(cos(a),-sin(a),sin(a),cos(a))*local;}
   if(wet)local.x+=position.y*3.0;
   world+=cameraRight*local.x+cameraUp*local.y;
-  opacity=strength*(wet?.42:ash?mix(.48,.9,night):.65);
+  opacity=strength*(wet?(storm?.72:.50):ash?mix(.48,.9,night):.65);
   opacity*=smoothstep(0.0,45.0,height)*(1.0-smoothstep(570.0,620.0,height));
   opacity*=1.0-smoothstep(680.0,900.0,max(abs(p.x-focus.x),abs(p.y-focus.y)));
   if((wet||kind<2.5)&&height<160.0){
@@ -90,7 +91,7 @@ export class GpuWeather {
   private readonly reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
   constructor(screen:Scene,elevation:ElevationField){
     this.material=new ShaderMaterial({uniforms:{...elevation.uniforms,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,transparent:true,depthTest:false,depthWrite:false,blending:NormalBlending});
-    this.mesh=new InstancedMesh(this.geometry,this.material,104);this.mesh.frustumCulled=false;this.mesh.visible=false;screen.add(this.mesh);
+    this.mesh=new InstancedMesh(this.geometry,this.material,512);this.mesh.frustumCulled=false;this.mesh.visible=false;screen.add(this.mesh);
   }
   update(source:WeatherSystem|undefined,camera:PerspectiveCamera,focus:{x:number;y:number},night:number,interior:boolean,bounds:{left:number;right:number;top:number;bottom:number}){
     if(source!==this.source){
@@ -102,8 +103,8 @@ export class GpuWeather {
     const wet=state.kind==='rain'||state.kind==='storm',snow=state.kind==='snow',dust=state.kind==='wind'||state.kind==='dust';
     this.mesh.visible=effects.weatherParticles&&(wet||snow||dust||ash)&&(state.strength>.001||ash);
     if(!this.mesh.visible)return;
-    const u=this.uniforms,low=getEffectsQuality()==='low',kind=ash?4:snow?2:wet?1:3;
-    this.mesh.count=ash?104:wet?(state.kind==='storm'?(low?42:96):(low?30:60)):snow?(low?28:72):20;
+    const u=this.uniforms,low=getEffectsQuality()==='low',kind=ash?4:snow?2:state.kind==='storm'?0:wet?1:3;
+    this.mesh.count=ash?104:wet?(state.kind==='storm'?(low?256:512):(low?96:192)):snow?(low?28:72):20;
     this.mesh.renderOrder=ash?1_000_000.5:999_990;
     u.kind.value=kind;u.time.value=this.reduced.matches&&ash?0:state.elapsed/1000;u.night.value=night;
     u.strength.value=ash?.65+.35*state.strength:state.strength;u.wind.value=state.wind;u.focus.value.set(focus.x,focus.y);
@@ -127,8 +128,11 @@ export class GpuWeather {
     this.ash=new CanvasTexture(canvas);this.ash.colorSpace=SRGBColorSpace;this.ash.minFilter=this.ash.magFilter=LinearFilter;this.ash.generateMipmaps=false;
     this.fog=new CanvasTexture(source.fogArtwork);this.fog.minFilter=this.fog.magFilter=LinearFilter;this.fog.generateMipmaps=false;
     this.uniforms.ashAtlas.value=this.ash;
-    const seeds=new Float32Array(104*4),indices=new Float32Array(104);
-    for(let i=0;i<104;i++){const p=source.particleSeeds[i%96];seeds.set([p.x,p.y,p.speed,p.phase],i*4);indices[i]=i;}
+    const seeds=new Float32Array(512*4),indices=new Float32Array(512);
+    for(let i=0;i<512;i++){
+      const p=source.particleSeeds[i%96],layer=Math.floor(i/96);
+      seeds.set([(p.x+layer*.618034)%1,(p.y+layer*.381966)%1,p.speed,p.phase],i*4);indices[i]=i;
+    }
     // Dispose old GPU bindings before replacing attributes on scene re-entry.
     // The immutable plane's CPU arrays remain available for the next upload.
     this.geometry.dispose();

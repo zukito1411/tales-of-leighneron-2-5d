@@ -1,12 +1,14 @@
 import {TOWN_BY_ID} from './towns';
+import {harborBayHalfWidth} from './worldLandscape';
 import type {ContentDefinition,Vec2} from '../game/types';
 
 /** Measured against ship.png (1024x1536). Bow north, eastern boarding plank. */
-// Enlarge around the old deck centre: existing saved deck positions remain
-// inside the expanded arena, and the eastern plank reaches farther ashore.
+// Move the enlarged hull into the bay. The shore landing stays fixed while
+// the shared gangplank grows across the visible water gap.
+export const FLAGSHIP_OFFSHORE_SHIFT=-640;
 const FLAGSHIP_SCALE=1.85,FLAGSHIP_GROWTH=FLAGSHIP_SCALE-1.3;
 export const FLAGSHIP={id:'pirate:flagship',scale:FLAGSHIP_SCALE,width:1024,height:1536,
-  topLeft:{x:TOWN_BY_ID.tidewatch.world.x+1000-410*FLAGSHIP_GROWTH,
+  topLeft:{x:TOWN_BY_ID.tidewatch.world.x+1000-410*FLAGSHIP_GROWTH+FLAGSHIP_OFFSHORE_SHIFT,
     y:TOWN_BY_ID.tidewatch.world.y+1700-720*FLAGSHIP_GROWTH}};
 export const shipPoint=(x:number,y:number):Vec2=>({x:FLAGSHIP.topLeft.x+x*FLAGSHIP.scale,y:FLAGSHIP.topLeft.y+y*FLAGSHIP.scale});
 /** Shared art/model hull survey; gameplay keeps the existing inner deck. */
@@ -19,7 +21,9 @@ export function isFlagshipCombatant(id:string,encounterKey?:string|null,home?:Ve
 }
 export const FLAGSHIP_DECK:readonly Vec2[]=[{x:385,y:260},{x:485,y:320},{x:565,y:480},{x:605,y:700},
   {x:620,y:835},{x:600,y:970},{x:215,y:970},{x:205,y:850},{x:235,y:660},{x:300,y:420}];
-export const FLAGSHIP_GANGPLANK={left:590,right:1000,top:748,bottom:834};
+const LANDING_Y=FLAGSHIP.topLeft.y+834*FLAGSHIP_SCALE;
+const LANDING_X=TOWN_BY_ID.tidewatch.world.x+harborBayHalfWidth(LANDING_Y-TOWN_BY_ID.tidewatch.world.y)+56;
+export const FLAGSHIP_GANGPLANK={left:590,right:(LANDING_X-FLAGSHIP.topLeft.x)/FLAGSHIP_SCALE,top:748,bottom:834};
 export const FLAGSHIP_OBSTACLES=[{left:366,right:457,top:577,bottom:657}];
 function inPolygon(x:number,y:number,polygon:readonly Vec2[]){
   let inside=false;
@@ -40,7 +44,7 @@ export function onFlagshipDeck(x:number,y:number){
 export function onFlagshipBoarding(x:number,y:number){
   // Terrain baking calls this globally: reject distant samples before creating
   // points or visiting polygon edges. Detailed work stays local to one ship.
-  if(x<left+205*scale||x>left+1000*scale||y<top+260*scale||y>top+970*scale)return false;
+  if(x<left+205*scale||x>left+FLAGSHIP_GANGPLANK.right*scale||y<top+260*scale||y>top+970*scale)return false;
   return onFlagshipDeck(x,y)||inRect((x-left)/scale,(y-top)/scale,FLAGSHIP_GANGPLANK);
 }
 export function flagshipObstacle(x:number,y:number,margin=10){
@@ -48,7 +52,7 @@ export function flagshipObstacle(x:number,y:number,margin=10){
   for(const obstacle of FLAGSHIP_OBSTACLES)if(inRect(lx,ly,obstacle,margin/scale))return true;
   return false;
 }
-export function flagshipFootprint(x:number,y:number){return x>=left+120*scale&&x<=left+1018*scale&&y>=top+200*scale&&y<=top+1500*scale;}
+export function flagshipFootprint(x:number,y:number){return x>=left+120*scale&&x<=left+(FLAGSHIP_GANGPLANK.right+18)*scale&&y>=top+200*scale&&y<=top+1500*scale;}
 export function flagshipWalkable(x:number,y:number,radius=10){
   if(flagshipObstacle(x,y,radius))return false;
   for(const [dx,dy] of FOOT_OFFSETS){

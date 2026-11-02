@@ -14,6 +14,7 @@ import {AshfallArt} from './AshfallArt';
 import {REGION_MUSIC} from './regionMusic';
 import type {RegionId} from '../types';
 import {NatureAmbience,natureMix} from './NatureAmbience';
+import {ThunderAudio} from './ThunderAudio';
 import {groundWorldView,projectedViewOrigin,unprojectGroundPoint} from '../presentation25d/plane';
 import type {WeatherPresentation} from '../presentation25d/environment';
 type Kind='clear'|'cloudy'|'rain'|'storm'|'snow'|'fog'|'wind'|'dust'|'ash';
@@ -61,15 +62,23 @@ export class WeatherSystem {
     this.drawMs = 150; this.roofMs = 1000;
   };
   private destroyed=false;
-  private readonly thunderNodes=new Set<AudioBufferSourceNode>();
-  thunder(){
+  private readonly thunderAudio=new ThunderAudio();
+  private thunderRemaining=1600;private ambientFlashAge=1000;
+  thunder(distant=false){
     if(this.destroyed||!this.audio||!this.audioBus||!this.source?.buffer||!useGameStore.getState().weatherAudio||document.hidden)return;
-    const audio=this.audio,source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain(),now=audio.currentTime;
-    source.buffer=this.source.buffer;filter.type='lowpass';filter.frequency.setValueAtTime(260,now);filter.frequency.exponentialRampToValueAtTime(65,now+2.2);
-    gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(1.6,now+.025);gain.gain.exponentialRampToValueAtTime(.001,now+2.4);
-    source.connect(filter).connect(gain).connect(this.audioBus);this.thunderNodes.add(source);
-    source.onended=()=>{this.thunderNodes.delete(source);source.disconnect();filter.disconnect();gain.disconnect();};
-    source.loop=true;source.start();source.stop(now+2.5);
+    this.thunderAudio.play(this.audio,this.audioBus,this.source.buffer,distant);
+  }
+  private updateThunder(delta:number,muted:boolean){
+    this.ambientFlashAge+=Math.max(0,Math.min(100,delta));
+    if(this.kind!=='storm'||this.strength<.4){this.thunderRemaining=1600;this.ambientFlashAge=1000;}
+    else if(!muted&&!document.hidden){
+      this.thunderRemaining-=Math.max(0,Math.min(100,delta));
+      if(this.thunderRemaining<=0){
+        this.thunderRemaining=4500+Math.random()*5500;this.ambientFlashAge=0;this.thunder(true);
+      }
+    }
+    const age=this.ambientFlashAge;
+    this.presentation.ambientLightningFlash=muted?0:Math.max(0,1-age/150,age>=190&&age<270?(270-age)/130:0)*.45;
   }
   get windStrength(){return this.kind==='wind'||this.kind==='storm'||this.kind==='dust'||this.kind==='ash'?this.strength:.18+this.strength*.25;}
   get cloudCover(){return this.strength*({clear:0,cloudy:.8,rain:.65,storm:1,snow:.6,fog:.65,wind:.15,dust:.35,ash:.5}[this.kind]);}
@@ -178,7 +187,8 @@ export class WeatherSystem {
   updateInteriorAudio(delta:number,paused:boolean){
     if(this.destroyed)return;
     const state=useGameStore.getState();
-    if(this.musicOverride)this.updateAmbience(this.currentRegion,'',0,true);
+    this.updateAmbience(this.currentRegion,'',0,true);
+    this.presentation.ambientLightningFlash=0;
     this.updateMusic(Math.max(0,Math.min(100,delta)),state.minuteOfDay,paused||!state.weatherAudio);
   }
   update(delta:number,x:number,y:number,paused=false){
@@ -211,6 +221,7 @@ export class WeatherSystem {
     if(state.weatherLabel!==weatherLabel)state.hydrate({weatherLabel});
     this.updateAmbience(region,biome,night,paused||!state.weatherAudio||Boolean(this.musicOverride));
     const muted=paused||!state.weatherAudio;
+    this.updateThunder(delta,paused);
     this.nature.update(delta,state.minuteOfDay,region,biome,muted||Boolean(this.musicOverride));
     this.updateMusic(Math.max(0,Math.min(100,delta)),state.minuteOfDay,muted);
     const presentation=this.presentation;
@@ -274,14 +285,14 @@ export class WeatherSystem {
     const now=this.audio.currentTime,coast=region==='dead-sea'||biome==='coast';
     this.audioBus.gain.setTargetAtTime(muted?0:1,now,.18);
     const weather=['rain','storm','wind','dust','ash'].includes(this.kind)
-      ? this.strength*(this.kind==='storm'?.16:this.kind==='rain'?.11:.035):0;
+      ? this.strength*(this.kind==='storm'?.34:this.kind==='rain'?.15:.035):0;
     const bed=coast ? .013+Math.sin(this.elapsed*.0007)*.005 : biome==='forest' ? .005 :
       region==='nardorous'||region==='frostlands' ? .007 : region==='darkav' ? .005 : .004;
     this.gain.gain.setTargetAtTime(weather+bed,now,.8);
-    this.audioFilter.frequency.setTargetAtTime(this.kind==='storm'?1500:this.kind==='rain'?1050:coast?420:260,now,1);
+    this.audioFilter.frequency.setTargetAtTime(this.kind==='storm'?4200:this.kind==='rain'?1800:coast?420:260,now,1);
   }
   destroy(){if(this.destroyed)return;this.destroyed=true;
-    for(const source of this.thunderNodes)source.stop();this.thunderNodes.clear();
+    this.thunderAudio.destroy();
     window.removeEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);
     window.removeEventListener('mernondna-weather-audio',this.enableAudio);window.removeEventListener('pointerdown',this.unlockAudio);window.removeEventListener('keydown',this.unlockAudio);
     document.removeEventListener('visibilitychange',this.visibility);this.source?.stop();

@@ -28,8 +28,12 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
         if(phase==='mobs'||phase==='boss'){
           const target=s.getCombatEnemies().find(e=>e.active&&e.isAlive&&s.isEnemyTerritory(e.x,e.y)
             &&s.safeSkillPosition({x:e.x-72,y:e.y})&&s.hasClearPath(e.x-72,e.y,e.x,e.y));
-          if(!target)throw new Error('No loaded, reachable wilderness combat target');
-          s.restoreOutsidePosition({x:target.x-72,y:target.y});
+          // The mob workload can kill or stream out the natural enemy used
+          // to locate its clearing. Reuse that real, validated clearing for
+          // the boss rather than depending on another survivor being loaded.
+          const origin=target?{x:target.x-72,y:target.y}:s.registry.get('perf-combat-origin') as {x:number;y:number}|undefined;
+          if(!origin||!s.safeSkillPosition(origin)||!s.isEnemyTerritory(origin.x,origin.y))throw new Error('No reachable wilderness combat clearing');
+          s.registry.set('perf-combat-origin',origin);s.restoreOutsidePosition(origin);
           for(let i=0;i<(phase==='boss'?1:10);i++){
             const angle=i*Math.PI*2/10,point={x:p.x+Math.cos(angle)*100,y:p.y+Math.sin(angle)*100};
             if(!s.safeSkillPosition(point)||!s.hasClearPath(p.x,p.y,point.x,point.y))continue;
@@ -70,6 +74,7 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
       const top=profile.nodes.map(n=>({name:n.callFrame.functionName,url:n.callFrame.url,line:n.callFrame.lineNumber+1,ms:costs.get(n.id)??0}))
         .sort((a,b)=>b.ms-a.ms).slice(0,35);
       reports.push({phase,...metrics,top});
+      await writeFile(`.asset-review/perf-${process.env.LEIGHNERON_PERF_LABEL??'review'}.json`,JSON.stringify(reports,null,2));
       console.log(JSON.stringify({phase,frames:metrics.frames,simulation:metrics.simulation,spawned:metrics.spawned,top:top.slice(0,8)}));
       await page.screenshot({path:`test-results/perf-${phase}.png`});
     }

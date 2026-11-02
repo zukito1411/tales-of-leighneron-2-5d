@@ -102,6 +102,7 @@ export class ContentChunkManager<Actor> {
   get settled(){return !this.admissionDeferred;}
   private cleanupPending=false;
   private nextSpawnSequence: number;
+  private readonly flagshipLayoutVersion:ContentWorldState['flagshipLayoutVersion'];
   private readonly summonOwners = new Map<string,string>();
 
   constructor(definitions: ContentDefinition[], persisted: ContentWorldState, private readonly host: ContentHost<Actor>) {
@@ -115,6 +116,7 @@ export class ContentChunkManager<Actor> {
         top:Math.min(...corners.map(p=>p.y)),bottom:Math.max(...corners.map(p=>p.y))}}];
     }));
     this.nextSpawnSequence = persisted.nextSpawnSequence;
+    this.flagshipLayoutVersion=persisted.flagshipLayoutVersion;
     const known=new Map([...definitions,...Object.values(persisted.spawns)].map(d=>[d.id,d]));
     for (const [id, state] of Object.entries(persisted.states)) {
       const d=known.get(id);if(!d) continue;
@@ -472,7 +474,7 @@ export class ContentChunkManager<Actor> {
 
   snapshot(): ContentWorldState {
     for (const id of this.active.keys()) this.capture(id);
-    return { states: Object.fromEntries(this.states), spawns: Object.fromEntries(this.spawns), nextSpawnSequence: this.nextSpawnSequence };
+    return { states: Object.fromEntries(this.states), spawns: Object.fromEntries(this.spawns), nextSpawnSequence: this.nextSpawnSequence,flagshipLayoutVersion:this.flagshipLayoutVersion };
   }
   /** Preserve ordinary creatures' ledger while a finite story battle owns
    * the local actor budget. Normal streaming restores them afterward. */

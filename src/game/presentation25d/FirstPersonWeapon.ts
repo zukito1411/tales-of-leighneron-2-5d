@@ -1,5 +1,5 @@
-import {BufferGeometry,CanvasTexture,DirectionalLight,Float32BufferAttribute,Group,HemisphereLight,LinearFilter,Mesh,MeshStandardMaterial,PerspectiveCamera,Scene,SRGBColorSpace,DoubleSide,type WebGLRenderer} from 'three';
-import {firstPersonPose,type FirstPersonPose} from './FirstPersonPose';
+import {BufferGeometry,CanvasTexture,DirectionalLight,Float32BufferAttribute,Group,HemisphereLight,LinearFilter,Mesh,MeshStandardMaterial,PerspectiveCamera,Scene,SRGBColorSpace,DoubleSide,Euler,Quaternion,Vector3,type WebGLRenderer} from 'three';
+import {firstPersonPose,firstPersonMeleePose,type FirstPersonPose} from './FirstPersonPose';
 import type {Player} from '../entities/Player';
 import {SWORD_TEXTURE,type SwordFrameData,type SwordSource} from '../systems/EquippedSwordVisual';
 import {useGameStore} from '../../store/gameStore';
@@ -17,6 +17,9 @@ export class FirstPersonWeapon {
   private readonly camera=new PerspectiveCamera(68,1,.01,8);
   private readonly rig=new Group();
   private readonly pose:FirstPersonPose={x:0,y:0,z:0,rx:0,ry:0,rz:0};
+  private readonly nextPose:FirstPersonPose={x:0,y:0,z:0,rx:0,ry:0,rz:0};
+  private readonly bladePoint=new Vector3();private readonly bladeVelocity=new Vector3();
+  private readonly poseEuler=new Euler();private readonly poseOrientation=new Quaternion();private readonly nextOrientation=new Quaternion();
   private mesh:Mesh<BufferGeometry,MeshStandardMaterial>|null=null;
   private loadedKey='';private loadingKey='';private failedKey='';
   private abort:AbortController|null=null;private epoch=0;private disposed=false;private active=false;
@@ -54,21 +57,44 @@ export class FirstPersonWeapon {
     const tilt=paused?0:Math.max(-.08,Math.min(.08,pitch-this.previousPitch));
     this.previousYaw=yaw;this.previousPitch=pitch;
     const attack=player.presentationAttack,time=(player.scene as WorldScene).combatTime??player.scene.time.now;
-    let swing=0;
-    if(attack){
-      const progress=Math.max(0,Math.min(1,(time-attack.startedAt)/(attack.endsAt-attack.startedAt)));
-      const contact=attack.step.impactFraction;
-      swing=progress<=contact?Math.sin(progress/Math.max(.01,contact)*Math.PI/2):Math.cos((progress-contact)/(1-contact)*Math.PI/2);
-    }
-    const reverse=player.presentationAttackStep===1?-1:1,heavy=player.presentationAttackStep===2;
-    firstPersonPose(this.pose,cast?.skill.id,cast?.elapsed);
+    this.samplePose(this.pose,player,time,0);this.samplePose(this.nextPose,player,time,2);
     const pose=this.pose;
-    this.rig.position.set(pose.x-swing*.49*reverse-turn*.6,pose.y+bob+swing*(heavy ? -.1 : .07)-tilt*.4,pose.z-swing*.2);
-    this.rig.rotation.set(pose.rx-swing*(heavy?1.05:.35),pose.ry-turn*4+swing*.2*reverse,pose.rz+swing*(heavy ? .55 : 1.25)*reverse);
+    this.rig.position.set(pose.x-turn*.6,pose.y+bob-tilt*.4,pose.z);
+    this.rig.rotation.set(pose.rx,pose.ry-turn*4,pose.rz);
     this.rig.scale.setScalar(.72);
-    // Normalize the painted grip-to-tip vector, then angle the blade forward.
-    mesh.rotation.set(0,1.05,this.nativeAngle);
+    let bladeYaw=1.05;
+    if(attack||cast?.skill.kind==='strike'&&cast.skill.id!=='iron-tempest'){
+      // The long axis follows the authored grip arc. Roll the real blade
+      // around that axis so its cutting edge leads the motion, rather than
+      // sliding the broad painted face through the enemy like a paddle.
+      const next=this.nextPose;
+      this.poseOrientation.setFromEuler(this.poseEuler.set(pose.rx,pose.ry-turn*4,pose.rz));
+      this.nextOrientation.setFromEuler(this.poseEuler.set(next.rx,next.ry-turn*4,next.rz));
+      this.bladePoint.set(0,.52,0).applyQuaternion(this.poseOrientation);this.bladePoint.x+=pose.x;this.bladePoint.y+=pose.y;this.bladePoint.z+=pose.z;
+      this.bladeVelocity.set(0,.52,0).applyQuaternion(this.nextOrientation);this.bladeVelocity.x+=next.x;this.bladeVelocity.y+=next.y;this.bladeVelocity.z+=next.z;
+      this.bladeVelocity.sub(this.bladePoint).applyQuaternion(this.poseOrientation.invert());
+      const velocity=this.bladeVelocity;
+      if(velocity.x*velocity.x+velocity.z*velocity.z>1e-12){
+        // Both edges can cut. Equivalent half-turns keep the wrist from
+        // flipping 180 degrees when the stroke changes into its recovery.
+        const difference=Math.atan2(-velocity.z,velocity.x)-bladeYaw;
+        const roll=Math.atan2(Math.sin(difference*2),Math.cos(difference*2))*.5;
+        const progress=attack?(time-attack.startedAt)/(attack.endsAt-attack.startedAt):0;
+        const weight=attack?Math.max(0,Math.min(1,progress/Math.max(.01,attack.step.impactFraction*.45),(1-progress)/.25))
+          :cast?Math.max(0,Math.min(1,cast.elapsed/80,(cast.skill.durationMs-cast.elapsed)/140)):0;
+        bladeYaw+=roll*weight;
+      }
+    }
+    mesh.rotation.set(0,bladeYaw,this.nativeAngle);
     const brightness=1-night*.48;mesh.material.color.setRGB(brightness,brightness,Math.min(1,brightness+.035));
+  }
+  private samplePose(out:FirstPersonPose,player:Player,time:number,offset:number){
+    const cast=player.skills.presentationCast,attack=player.presentationAttack;
+    if(cast)firstPersonPose(out,cast.skill.id,cast.elapsed+offset);
+    else if(attack){
+      const duration=Math.max(1,attack.endsAt-attack.startedAt);
+      firstPersonMeleePose(out,player.presentationAttackStep,(time+offset-attack.startedAt)/duration,attack.step.impactFraction,(attack.activeUntil-attack.impactAt)/duration);
+    }else firstPersonPose(out);
   }
   render(){if(!this.rig.visible||!this.active)return;this.renderer.clearDepth();this.renderer.render(this.scene,this.camera);}
   private cancelLoad(){if(this.abort){this.epoch++;this.abort.abort();this.abort=null;this.loadingKey='';}}

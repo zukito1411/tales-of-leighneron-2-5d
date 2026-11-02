@@ -123,7 +123,7 @@ export class GpuSky {
     this.horizon.lerp(this.overcastHorizon,cover*.35);
     this.uniforms.zenith.value.copy(this.nightTop).lerp(this.dayTop,day).lerp(this.horizon,cover*.45);
     this.horizon.lerp(this.stormHorizon,storm*.85);this.uniforms.zenith.value.lerp(this.stormZenith,storm*.9);
-    this.uniforms.lightningFlash.value=this.reduced.matches?0:(weather?.lightningFlash??0)*.65;
+    this.uniforms.lightningFlash.value=this.reduced.matches?0:Math.max(weather?.lightningFlash??0,weather?.ambientLightningFlash??0)*.65;
     this.uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
     this.rotation.setFromMatrix4(camera.matrixWorld);
     this.uniforms.daylight.value=day*(1-storm*.7);this.uniforms.night.value=night;this.uniforms.cloudCover.value=cover;

@@ -97,6 +97,7 @@ uniform float mistAmount;
 uniform vec3 mistColor;
 uniform float weatherTime;
 uniform float overcast;
+uniform float storm;
 uniform mat4 inverseVP;
 uniform vec2 atmosphereFocus;
 uniform vec2 atmosphereRange;
@@ -163,6 +164,7 @@ void main(){
     vec2 ground=p.xz/p.w;
     surfaceFade=1.0-smoothstep(atmosphereRange.x,atmosphereRange.y,distance(ground,atmosphereFocus));
     color=mix(color,color*vec3(.78,.85,.91),overcast*surfaceFade);
+    color=mix(color,color*vec3(.48,.59,.73),storm*surfaceFade);
     if(mistAmount>.001){
       float density=texture2D(mistArtwork,fract(ground*.0012+vec2(weatherTime*.003,-weatherTime*.001))).a;
       density+=texture2D(mistArtwork,fract(ground*.0007-vec2(weatherTime*.0015,weatherTime*.0007))).a*.65;
@@ -242,7 +244,7 @@ export class WorldPostFX {
     uniforms:{...this.common,nightMask:{value:null as Texture|null},nightOpacity:{value:0},sourceColor:{value:null as Texture|null},blurredColor:{value:null as Texture|null},
       sourceTexel:{value:new Vector2()},dofEnabled:{value:1},bloomStrength:{value:0},hazeStrength:{value:.14},
       sunUV:{value:new Vector2(.5,.5)},sunShafts:{value:0},shaftSamples:{value:8},
-      mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
+      mistArtwork:{value:null as Texture|null},mistAmount:{value:0},mistColor:{value:new Color()},weatherTime:{value:0},overcast:{value:0},storm:{value:0},inverseVP:{value:new Matrix4()},atmosphereFocus:{value:new Vector2()},atmosphereRange:{value:new Vector2(FOG_START,VIEW_DISTANCE)},
       gradingEnabled:{value:1},edgeSmoothing:{value:1},hazeColor:{value:new Color()}},
     vertexShader,fragmentShader:compositeShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
   });
@@ -349,6 +351,7 @@ export class WorldPostFX {
     this.composite.uniforms.mistAmount.value=frame.mist?(weather?.mist??0):0;
     this.composite.uniforms.weatherTime.value=(weather?.elapsed??0)/1000;
     this.composite.uniforms.overcast.value=(weather?.cloudCover??0)*.5;
+    this.composite.uniforms.storm.value=weather?.kind==='storm'?weather.strength:0;
     if(weather)this.composite.uniforms.mistColor.value.setRGB(weather.fogTint[0]/255,weather.fogTint[1]/255,weather.fogTint[2]/255,SRGBColorSpace).multiplyScalar(1-frame.night*.7);
     this.composite.uniforms.atmosphereFocus.value.set(focus.x,focus.y);
     this.composite.uniforms.inverseVP.value.multiplyMatrices(frame.camera.projectionMatrix,frame.camera.matrixWorldInverse).invert();

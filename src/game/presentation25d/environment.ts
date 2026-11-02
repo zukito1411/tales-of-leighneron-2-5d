@@ -6,6 +6,7 @@ export interface WeatherPresentation {
   kind:WeatherKind;strength:number;elapsed:number;cloudCover:number;wind:number;
   mist:number;region:RegionId;fogTint:readonly [number,number,number];
   lightningFlash?:number;
+  ambientLightningFlash?:number;
 }
 /** Shared daylight direction: the visible sun and its ground shadows agree. */
 export function sunDirection(minute:number,out:Vector3){

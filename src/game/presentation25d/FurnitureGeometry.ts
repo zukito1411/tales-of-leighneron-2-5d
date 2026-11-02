@@ -430,11 +430,12 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     }
     for(let i=0;i<hull.length;i++){const a=hull[i],b=hull[(i+1)%hull.length];m.quad(p(414+(a[0]-414)*.62,a[1],-.18),p(414+(b[0]-414)*.62,b[1],-.18),p(a[0],a[1],0),p(b[0],b[1],0),atlasMaterial('architecture',12,.60,.60));if(!(a[0]>630&&b[0]>630&&Math.min(a[1],b[1])<850&&Math.max(a[1],b[1])>740)){m.beam(p(a[0],a[1],.035),p(b[0],b[1],.035),.008,trim);m.beam(p(a[0],a[1],0),p(a[0],a[1],.05),.008,wood);}}
     const plank=FLAGSHIP_GANGPLANK;
-    box((plank.left-512)/1024,(plank.right-512)/1024,-.018,0,(plank.top-768)/1024,(plank.bottom-768)/1024);
+    // Separate the landing's board surface from the beach/terrain triangles.
+    box((plank.left-512)/1024,(plank.right-512)/1024,-.018,.001,(plank.top-768)/1024,(plank.bottom-768)/1024,deckWood);
 
     for(const y of [plank.top+7,plank.bottom-7]){
-      for(const x of [700,850,985])m.beam(p(x,y,0),p(x,y,.048),.005,brass,8);
-      m.beam(p(692,y,.043),p(993,y,.043),.003,dark,6);
+      for(let x=700;x<plank.right-8;x+=130)m.beam(p(x,y,0),p(x,y,.048),.005,brass,8);
+      m.beam(p(692,y,.043),p(plank.right-7,y,.043),.003,dark,6);
     }
   }else if(art==='ship-stern'){
     const hullPaint=atlasMaterial('architecture',12,.60,.60);

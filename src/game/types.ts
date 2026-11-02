@@ -272,6 +272,7 @@ export interface ContentState extends Vec2 {
   summonWave?: { encounterId: string; members: string[]; nextAt: number };
 }
 export interface ContentWorldState {
+  flagshipLayoutVersion?:1;
   states: Record<string, ContentState>;
   spawns: Record<string, CreatureContentDefinition>;
   nextSpawnSequence: number;

@@ -16,6 +16,7 @@ import {CINEMATICS} from '../data/cinematics';
 import {questConsequences} from '../game/systems/storyScenes';
 import {WorldGenerator} from '../game/systems/WorldGenerator';
 import {onFlagshipDeck,flagshipWalkable} from '../data/pirateFlagship';
+import {relocateFlagship} from '../game/systems/flagshipRelocation';
 import {CAMPAIGN_REVISION_FLAG,INDOOR_STORY_FLAG,INDOOR_STORY_STAGES,COMBAT_CLEARANCE_REVISION_FLAG} from '../data/campaign';
 import {ADVENTURE_REVISION_FLAG} from '../data/adventure';
 import {ROAD_STORIES_REVISION,ROAD_POLISH_REVISION,ROAD_STORY_FLAG_BUDGET} from '../data/roadStories';
@@ -84,7 +85,8 @@ function contentInvalid(id:string,reason:string):null {
 
 function validateContent(value: unknown): ContentWorldState | null {
   if (!record(value) || !record(value.states) || !record(value.spawns)
-    || !numberIn(value.nextSpawnSequence) || !Number.isInteger(value.nextSpawnSequence))
+    || !numberIn(value.nextSpawnSequence) || !Number.isInteger(value.nextSpawnSequence)
+    || value.flagshipLayoutVersion!==undefined&&value.flagshipLayoutVersion!==1)
     return contentInvalid('ledger','invalid structure or spawn sequence');
   const spawns: Record<string, CreatureContentDefinition> = {};
   const geography=new WorldGenerator();
@@ -164,7 +166,7 @@ function validateContent(value: unknown): ContentWorldState | null {
     // Salt King moved from the inland/shore camps onto his flagship.
     // Repair legacy/off-deck positions only; retain valid deck movement, wounds,
     // defeat state and the exact existing respawn deadline.
-    const relocatedSaltKing=definition.kind==='creature'&&definition.bossId==='salt-king'
+    const relocatedSaltKing=value.flagshipLayoutVersion===1&&definition.kind==='creature'&&definition.bossId==='salt-king'
       &&(!onFlagshipDeck(s.x,s.y)||!flagshipWalkable(s.x,s.y,24));
     const position=relocatedSaltKing?definition.world:{x:s.x,y:s.y};
     let summonWave:ContentState['summonWave'];
@@ -209,7 +211,8 @@ function validateContent(value: unknown): ContentWorldState | null {
     if(owners.has(member))return contentInvalid(member,'summon assigned to multiple bosses');
     owners.add(member);
   }
-  return { states, spawns, nextSpawnSequence: value.nextSpawnSequence };
+  return { states, spawns, nextSpawnSequence: value.nextSpawnSequence,
+    ...(value.flagshipLayoutVersion===1?{flagshipLayoutVersion:1}:{}) };
 }
 
 /** Upgrade older saves while preserving progress and the existing content ledger. */
@@ -517,8 +520,9 @@ export function parseSave(raw: string): SaveData | null {
     if(s.level!==levelForExperience(s.xp,cap)||s.xp>xpTotalForLevel(cap)
       ||Object.values(s.attributes).reduce((sum,n)=>sum+Number(n),0)+s.statPoints!==attributeBudget(s.level)
       ||allocatedLearningPoints!==skillBudget(s.level)&&!needsCompletionPoint)return invalidSave('level, XP, or allocated-point budget mismatch');
-    const worldContent = validateContent(s.worldContent);
-    if (!worldContent) return invalidSave(lastSaveValidationProblem??'invalid world-content ledger');
+    const validatedContent = validateContent(s.worldContent);
+    if (!validatedContent) return invalidSave(lastSaveValidationProblem??'invalid world-content ledger');
+    const relocation=relocateFlagship(validatedContent,{x:state.worldX,y:state.worldY}),worldContent=relocation.world;
     storyFlags[CAMPAIGN_REVISION_FLAG]=true;
     storyFlags[INDOOR_STORY_FLAG]=true;
     storyFlags[ADVENTURE_REVISION_FLAG]=true;
@@ -533,7 +537,7 @@ export function parseSave(raw: string): SaveData | null {
     const levelsGained = Math.max(0, levelForExperience(xp) - levelForExperience(state.xp));
     const learningPointsGained=Math.max(0,skillBudget(levelForExperience(xp))-skillBudget(levelForExperience(state.xp)));
     return { version: 7, savedAt: typeof data.savedAt === 'string' ? data.savedAt : '', state: {
-      ...state,journal:restoreJournal(journal,state),contracts,...armor,dungeons,housing,
+      ...state,worldX:relocation.player.x,worldY:relocation.player.y,journal:restoreJournal(journal,state),contracts,...armor,dungeons,housing,
       nextTowerResetAt:typeof s.nextTowerResetAt==='number'&&Number.isSafeInteger(s.nextTowerResetAt)&&s.nextTowerResetAt>=0&&s.nextTowerResetAt<8640000000000000
         ?s.nextTowerResetAt:nextTowerWeeklyReset(),
        weaponUpgrades:weaponUpgrades as Record<string,number>,bossMaterials:bossMaterials as Record<string,number>,bossHearts:bossHearts as Record<string,number>,awakenedWeapons,

@@ -4,7 +4,7 @@ import {overlayViewport,groundEffectViewport} from './renderSizing';
 import {cloudShadowStamps} from './CloudShadowArt';
 import {getEffectsQuality,EFFECTS_QUALITY_EVENT} from './effectsQuality';
 import {getGraphicEffects} from './graphicsEffects';
-import {onGround} from '../presentation25d/plane';
+import {onGround,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 
 type Actor=Phaser.GameObjects.Sprite|Phaser.GameObjects.Image;
 export interface ShadowOptions {
@@ -25,6 +25,12 @@ export class GroundShadowSystem {
  private readonly casters=new Map<Actor,Caster>();
  private readonly scenery=new Set<Caster>();
  private readonly moving=new Set<Caster>();
+ private readonly shadowCells=new Map<string,Set<Caster>>();
+ private readonly shadowKeys=new Map<Caster,string[]>();
+ private readonly localCasters=new Set<Caster>();
+ private readonly localCasterList:Caster[]=[];
+ private shadowQueryKey='';private shadowQueryDirty=true;
+ private static readonly shadowCellSize=1536;
  private readonly silhouettes=new Map<string,HTMLCanvasElement>();
  private readonly staticVisible:Array<{caster:Caster;frame:Phaser.Textures.Frame}>=[];
  private readonly movingVisible:Array<{caster:Caster;frame:Phaser.Textures.Frame}>=[];
@@ -73,17 +79,51 @@ export class GroundShadowSystem {
   stamp.addColorStop(.65,'rgba(14,19,18,.2)');stamp.addColorStop(1,'rgba(14,19,18,0)');
   ctx.fillStyle=stamp;ctx.fillRect(-96,-96,192,192);
  }
- gpuCasters(){return this.casters.values();}
+ gpuCasters(bounds?:{left:number;right:number;top:number;bottom:number}){
+  if(!bounds)return this.casters.values();
+  // Retained scenery is fixed by WorldSpriteSystem. Index its full possible
+  // shadow reach at registration; actors continue to follow at full rate.
+  const local=this.localCasters,size=GroundShadowSystem.shadowCellSize;
+  const left=Math.floor(bounds.left/size),right=Math.floor(bounds.right/size),top=Math.floor(bounds.top/size),bottom=Math.floor(bounds.bottom/size);
+  const key=left+':'+right+':'+top+':'+bottom;
+  if(!this.shadowQueryDirty&&key===this.shadowQueryKey)return this.localCasterList.values();
+  this.shadowQueryDirty=false;this.shadowQueryKey=key;local.clear();
+  for(let y=top;y<=bottom;y++)
+   for(let x=left;x<=right;x++)
+    for(const caster of this.shadowCells.get(x+':'+y)??[])local.add(caster);
+  for(const caster of this.moving)local.add(caster);
+  this.localCasterList.length=0;for(const caster of local)this.localCasterList.push(caster);
+  return this.localCasterList.values();
+ }
+ private indexScenery(caster:Caster){
+  const a=caster.actor,hint=a.getData(PRESENTATION_HINT) as PresentationHint|undefined,house=hint?.house;
+  const w=Math.abs(a.displayWidth),h=Math.abs(a.displayHeight)*(house?.riseScale??1);
+  let reach=(w+h*((caster.projection??1)+1))+512+Math.abs(caster.groundOffsetY??0);
+  if(house?.segment)reach=Math.max(reach,Math.hypot(house.segment.dx,house.segment.dy)+house.segment.thickness+house.segment.height*((caster.projection??1)+1)+512);
+  for(const contact of caster.contacts??[])reach=Math.max(reach,Math.abs(contact.x)+contact.width,Math.abs(contact.y)+contact.height);
+  const keys:string[]=[],size=GroundShadowSystem.shadowCellSize;
+  for(let y=Math.floor((a.y-reach)/size);y<=Math.floor((a.y+reach)/size);y++)
+   for(let x=Math.floor((a.x-reach)/size);x<=Math.floor((a.x+reach)/size);x++){
+    const key=x+':'+y;let cell=this.shadowCells.get(key);
+    if(!cell){cell=new Set();this.shadowCells.set(key,cell);}cell.add(caster);keys.push(key);
+   }
+  this.shadowKeys.set(caster,keys);
+ }
  get contactArtwork(){return this.contact;}
  register(actor:Actor,retainArtwork=false,options:ShadowOptions={}){
   if(this.casters.has(actor))return;
   const caster:Caster={actor,...options,...(retainArtwork?{texture:actor.texture.key,frame:actor.frame.name}:{})};
   this.casters.set(actor,caster);(retainArtwork?this.scenery:this.moving).add(caster);
+  this.shadowQueryDirty=true;
+  if(retainArtwork)this.indexScenery(caster);
   // Moving actors are drawn on their own layer. Their arrival/departure must
   // not invalidate the much larger static scenery shadow canvas.
   if(retainArtwork)this.staticDirty=true;else this.actorStamp=null;
   actor.once('destroy',()=>{
    this.casters.delete(actor);this.scenery.delete(caster);this.moving.delete(caster);
+   for(const key of this.shadowKeys.get(caster)??[]){const cell=this.shadowCells.get(key);cell?.delete(caster);if(!cell?.size)this.shadowCells.delete(key);}
+   this.shadowKeys.delete(caster);this.localCasters.delete(caster);
+   this.shadowQueryDirty=true;
    if(retainArtwork)this.staticDirty=true;else this.actorStamp=null;
   });
  }
@@ -329,6 +369,8 @@ export class GroundShadowSystem {
  destroy(){
   window.removeEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);
   this.casters.clear();this.scenery.clear();this.moving.clear();this.silhouettes.clear();
+  this.shadowCells.clear();this.shadowKeys.clear();this.localCasters.clear();
+  this.localCasterList.length=0;
   this.staticVisible.length=0;this.movingVisible.length=0;
   for(const layer of [this.cloudLayer,this.staticLayer,this.actorLayer]){layer.image.destroy();this.scene.textures.remove(layer.texture.key);}
   if(this.scene.textures.exists('interior-contact-shadow'))this.scene.textures.remove('interior-contact-shadow');

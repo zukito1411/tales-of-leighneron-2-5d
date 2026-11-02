@@ -16,6 +16,13 @@ const CASTS:Partial<Record<ActiveSkillId,readonly Key[]>>={
 };
 const FLURRY:readonly Key[]=[IDLE,[110,.5,-.12,-.8,-.3,.1,-.7],[200,-.25,-.26,-1.05,-.8,-.15,1.1],END(400)];
 const BARRAGE:readonly Key[]=[IDLE,[55,.47,-.1,-.78,-.25,.15,-.8],[90,-.18,-.2,-1.18,-1.05,0,.9],END(180)];
+// Wind up, cross the hit point, follow through, then recover. Returning along
+// the same sine curve made the blade reverse precisely when damage landed.
+const MELEE:readonly (readonly Key[])[]=[
+  [IDLE,[100,.49,-.10,-.8,-.1,.16,-.85],[190,.12,-.24,-1.08,-.7,-.12,.55],[280,-.2,-.42,-.99,-.9,-.2,1.35],END(600)],
+  [IDLE,[100,-.26,-.16,-.82,-.25,-.16,.95],[190,.12,-.23,-1.08,-.7,.1,-.45],[280,.52,-.34,-1,-.85,.2,-1.15],END(600)],
+  [IDLE,[100,.26,.12,-.76,.35,0,-.12],[190,.12,-.22,-1.08,-.95,0,.1],[280,.04,-.48,-1.12,-1.55,0,.2],END(600)],
+];
 function sample(out:FirstPersonPose,keys:readonly Key[],time:number,reverse=false){
   let a=keys[0],b=a;
   for(let i=1;i<keys.length;i++){b=keys[i];if(time<=b[0])break;a=b;}
@@ -32,4 +39,12 @@ export function firstPersonPose(out:FirstPersonPose,id?:ActiveSkillId,elapsed=0)
     if(clock<0)sample(out,REST,0);
     else sample(out,id==='barrage'?BARRAGE:FLURRY,clock%period,Math.floor(clock/period)%2===1);
   }else sample(out,id?CASTS[id]??REST:REST,elapsed);
+}
+
+/** Maps the same authoritative impact/active window as the real melee hit. */
+export function firstPersonMeleePose(out:FirstPersonPose,step:number,progress:number,impact:number,activeFraction:number){
+  const p=Math.max(0,Math.min(1,progress)),wind=impact*.45,finish=Math.min(.82,impact+Math.max(.12,activeFraction));
+  const clock=p<wind?p/Math.max(.001,wind)*100:p<impact?100+(p-wind)/Math.max(.001,impact-wind)*90
+    :p<finish?190+(p-impact)/Math.max(.001,finish-impact)*90:280+(p-finish)/Math.max(.001,1-finish)*320;
+  sample(out,MELEE[Math.max(0,Math.min(2,step))],clock);
 }

@@ -60,9 +60,10 @@ export function onHeadwaterStream(x:number,y:number){
   return false;
 }
 const HARBOR_TOWNS=['tidewatch','skallheim'] as const;
+export const harborBayHalfWidth=(dy:number)=>1400+(dy-900)*.32;
 function inHarborBay(x:number,y:number,id:typeof HARBOR_TOWNS[number]){
   const town=TOWN_BY_ID[id].world,dy=y-town.y;
-  return dy>900&&dy<40000&&Math.abs(x-town.x)<1400+(dy-900)*.32;
+  return dy>900&&dy<40000&&Math.abs(x-town.x)<harborBayHalfWidth(dy);
 }
 export function harborBay(x:number,y:number){return HARBOR_TOWNS.some(id=>inHarborBay(x,y,id));}
 /** Each bay is a convex trapezoid. All corners in the SAME bay prove the
@@ -72,5 +73,12 @@ export function harborWaterRect(left:number,top:number,right:number,bottom:numbe
   return HARBOR_TOWNS.some(id=>inHarborBay(left,top,id)&&inHarborBay(right,top,id)
     &&inHarborBay(left,bottom,id)&&inHarborBay(right,bottom,id));
 }
-export function harborShoreDistance(x:number,y:number){return Math.min(...['tidewatch','skallheim'].map(id=>{const town=TOWN_BY_ID[id].world,dy=y-town.y,dx=Math.abs(x-town.x);
-  if(dy<300||dy>40000)return Infinity;return dy>=900?Math.abs(dx-(1400+(dy-900)*.32)):dx<1400?900-dy:Infinity;}));}
+export function harborShoreDistance(x:number,y:number){
+  let distance=Infinity;
+  for(const id of HARBOR_TOWNS){
+    const town=TOWN_BY_ID[id].world,dy=y-town.y,dx=Math.abs(x-town.x);
+    if(dy<300||dy>40000)continue;
+    distance=Math.min(distance,dy>=900?Math.abs(dx-harborBayHalfWidth(dy)):dx<1400?900-dy:Infinity);
+  }
+  return distance;
+}
