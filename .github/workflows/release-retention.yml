@@ -31,7 +31,7 @@ jobs:
           set -euo pipefail
           # List ALL published releases, including older platform-specific ones.
           # Sort by actual publish time: API order is not always chronological.
-          rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false) | [(.published_at // .created_at), .tag_name] | @tsv')"
+          rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false and .tag_name != "leighneron-assets-v1") | [(.published_at // .created_at), .tag_name] | @tsv')"
           if [[ -z "$rows" ]]; then
             echo 'No published releases to prune.'
             exit 0

@@ -44,7 +44,17 @@ jobs:
           npm run test:types
           npm exec --no -- tsc -p tsconfig.node.json --noEmit
       - name: Build web content and sync separate Android app
-        run: npm run cap:android:refresh
+        run: |
+          npm run build
+          node scripts/prepare-android-downloads.mjs
+          npx cap sync android
+      - name: Upload immutable game download packs
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Game-Download-Packs
+          path: asset-packs/*.zip
+          compression-level: 0
+          if-no-files-found: error
       - name: Configure Android release APK signing
         env:
           ANDROID_25D_KEYSTORE_BASE64: ${{ secrets.ANDROID_25D_KEYSTORE_BASE64 || secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -205,6 +215,28 @@ jobs:
           pattern: Tales-of-Leighneron-2.5D-*-Release
           path: release-assets
           merge-multiple: true
+      - name: Download game asset packs
+        uses: actions/download-artifact@v4
+        with:
+          name: Android-Game-Download-Packs
+          path: asset-packs
+      - name: Publish immutable asset storage before the small APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=leighneron-assets-v1
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --target "$GITHUB_SHA" --title 'Persistent game asset storage' --notes 'Immutable data packs for the Android downloader. Keep this release.' --prerelease --latest=false
+          fi
+          release_id="$(gh api "repos/$GH_REPO/releases/tags/$tag" --jq '.id')"
+          gh api --paginate "repos/$GH_REPO/releases/$release_id/assets?per_page=100" --jq '.[] | select(.state == "uploaded") | .name' > existing-packs.txt
+          for pack in asset-packs/*.zip; do
+            filename="$(basename "$pack")"
+            if ! grep -Fxq "$filename" existing-packs.txt; then gh release upload "$tag" "$pack" --clobber; fi
+          done
       - name: Verify Android and Windows release payloads
         working-directory: release-assets
         shell: bash
@@ -227,7 +259,7 @@ jobs:
           cat > release-notes.md <<'NOTES'
           # Tales of Leighneron 2.5D — Android and Windows
 
-          Both downloads are built from the same source commit and published
+          Android downloads game files on first launch, then works offline. Completed asset packs are reused across app updates. Windows includes its assets. Both downloads are built from the same source commit and published
           together. The Android APK is the non-debuggable, signature-verified
           application com.mernondna.rpg25d; it retains the existing keystore
           fingerprint for installation updates. The Windows x64 EXE is a portable,
@@ -265,7 +297,7 @@ jobs:
           set -euo pipefail
           # List ALL published releases, including older platform-specific ones.
           # Sort by actual publish time: API order is not always chronological.
-          rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false) | [(.published_at // .created_at), .tag_name] | @tsv')"
+          rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false and .tag_name != "leighneron-assets-v1") | [(.published_at // .created_at), .tag_name] | @tsv')"
           if [[ -z "$rows" ]]; then
             echo 'No published releases to prune.'
             exit 0

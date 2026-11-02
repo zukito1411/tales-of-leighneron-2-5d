@@ -9,6 +9,8 @@ import './lore-journal.css';
 import {prepareOfflineStartup} from './utils/appStartup';
 
 async function start(){
+  try{const {prepareNativeAssets}=await import('./utils/nativeAssetDownload');await prepareNativeAssets();}
+  catch(error){window.dispatchEvent(new CustomEvent('mernondna-startup-error',{detail:error}));return;}
   try{if(!(await prepareOfflineStartup()))return;}catch(error){console.warn('Offline preparation:',error);}
   try{
     const {default:App}=await import('./App');

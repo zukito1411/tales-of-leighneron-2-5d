@@ -4,12 +4,27 @@ import android.os.Bundle;
 import android.view.View;
 
 import com.getcapacitor.BridgeActivity;
+import com.getcapacitor.BridgeWebViewClient;
+import android.webkit.WebView;
+import android.webkit.WebResourceRequest;
+import android.webkit.WebResourceResponse;
 
 public class MainActivity extends BridgeActivity {
+    GameAssetStore gameAssets;
     @Override
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SaveFilesPlugin.class);
+        registerPlugin(GameAssetsPlugin.class);
+        gameAssets=new GameAssetStore(this);
         super.onCreate(savedInstanceState);
+        if(gameAssets.enabled)bridge.setWebViewClient(new BridgeWebViewClient(bridge){
+            @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
+                if(bridge.getHost().equals(request.getUrl().getHost())){
+                    WebResourceResponse local=gameAssets.serve(request);if(local!=null)return local;
+                }
+                return super.shouldInterceptRequest(view,request);
+            }
+        });
         hideSystemBars();
     }
 
