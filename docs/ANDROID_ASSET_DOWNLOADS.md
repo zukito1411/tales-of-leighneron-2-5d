@@ -24,7 +24,7 @@ WebView client serves those requests from private, content-addressed files,
 including byte-range responses for audio. No remote game-page navigation,
 service worker database, SQL database, account, or runtime asset decoding was
 added. When files are complete, startup works offline without checking a host.
-Storage is persistent app files (not the OS-evictable cache directory).
+Storage is persistent app no-backup files (not the OS-evictable cache directory), so downloaded artwork does not consume the cloud backup quota intended for saves.
 Uninstalling/clearing app data removes downloaded files; normal updates retain
 them. Obsolete downloader files are retired only after the new set completes.
 

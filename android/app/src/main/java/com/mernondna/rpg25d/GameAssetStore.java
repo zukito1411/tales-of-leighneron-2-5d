@@ -20,7 +20,7 @@ public final class GameAssetStore {
     private final Map<String,Long> expected=new HashMap<>();
     public final boolean enabled;
     GameAssetStore(Context context){
-        directory=new File(context.getFilesDir(),"game-assets-v1");
+        directory=new File(context.getNoBackupFilesDir(),"game-assets-v1");
         JSONObject loaded=null;
         try(InputStream in=context.getAssets().open("public/native-assets.json")){
             ByteArrayOutputStream bytes=new ByteArrayOutputStream();byte[] buffer=new byte[16384];int n;while((n=in.read(buffer))!=-1)bytes.write(buffer,0,n);
