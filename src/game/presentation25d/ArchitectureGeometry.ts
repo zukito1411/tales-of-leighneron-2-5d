@@ -103,6 +103,8 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
 
   };
   const banner=(cx:number,y:number,z:number,w:number,h:number,tile=elf?9:/inn/.test(id)?10:8)=>{
+    // Establishments already receive one complete trade sign below.
+    if(shape.tradeSign)return;
     const path:P2[]=[[-.5,1],[.5,1],[.5,.16],[0,0],[-.5,.16]],x=X(cx);
     const p=(u:number,v:number):V3=>[x+u*w*W,y+v*h,z+.002*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,y+v*h] as const),z,z-.004*W,atlasMaterial('furnishings',elf?7:/inn/.test(id)?13:6,W*.20,W*.30));
@@ -302,6 +304,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     beam([X(.12),eave-.02*H,.016*W],[X(.88),eave-.02*H,.016*W],.008,trim);
     if(smithy)chimney(.78,-D*.68,eave+H*.39,eave-.05*H);
     if(elf)for(const x of [.12,.88])leaf(X(x),eave-.11*H,.025*W,H*.11);
+    if(!shape.tradeSign){
     const signTop=signY+signHeight,signZ=.075*W,bracketY=eave-.018*H;
     beam([X(.16),bracketY,.012*W],[X(.36),bracketY,.012*W],.006,iron);
     for(const x of [.20,.32]){
@@ -317,6 +320,7 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
         ...Array.from({length:17},(_,i):P2=>{const a=(1-i/16)*Math.PI;return [X(.26)+Math.cos(a)*W*.033,signY+signHeight*(.83-Math.sin(a)*.45)];})];
     for(const side of [-1,1]){
       const z=signZ+side*.0125*W;m.extrude(signPath,z+.0004*W,z-.0004*W,emblem);
+    }
     }
   }else{
     const cottage=/cottage/.test(id),twoStorey=/inn|manor|estate/.test(id),guild=/guildhall/.test(id);

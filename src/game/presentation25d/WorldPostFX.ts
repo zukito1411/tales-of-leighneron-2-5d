@@ -211,6 +211,7 @@ interface WorldFrame {
   night:number;interior:boolean;focusHeight:number;sky?:GpuSky;depthNeeded:boolean;
   weather?:WeatherPresentation;mist?:Texture;
   afterWorldRender?:(depth:Texture)=>void;
+  firstPerson?:boolean;
   lockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};lockedGroundHeight?:number;
 }
 interface Targets {world:WebGLRenderTarget;horizontal?:WebGLRenderTarget;vertical?:WebGLRenderTarget}
@@ -288,7 +289,7 @@ export class WorldPostFX {
     // Mobile Low must prioritize player input and camera smoothness over two
     // optional fullscreen blur passes. Depth, lighting, haze and silhouettes
     // stay enabled. High and Normal retain distant depth of field.
-    const blurEnabled=effects.depthOfField&&!low;
+    const blurEnabled=effects.depthOfField&&!low&&!frame.firstPerson;
     // Normal packs bloom into the existing bounded focus buffers. Low keeps
     // the painted lamp/window halos without introducing fullscreen blur work.
     const bloomEnabled=effects.lightBloom&&!low;

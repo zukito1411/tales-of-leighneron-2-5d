@@ -69,8 +69,8 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
   if(style==='cafe'||style==='bakery'){
    for(const [i,x] of [cx,cx-side*480].entries()){
     if(!add('shop:'+slot+':'+i,'cafe-table',{x,y:cy},'native_civic_bare',9,74))continue;
-    add('shop:'+slot+':'+i+':w','cafe-chair',{x:x-110,y:cy+4},'native_civic_bare',7,36,Math.PI/2);
-    add('shop:'+slot+':'+i+':e','cafe-chair',{x:x+110,y:cy+4},'native_civic_bare',7,36,-Math.PI/2);
+    add('shop:'+slot+':'+i+':w','cafe-chair',{x:x-110,y:cy+4},'native_civic_bare',7,36,-Math.PI/2);
+    add('shop:'+slot+':'+i+':e','cafe-chair',{x:x+110,y:cy+4},'native_civic_bare',7,36,Math.PI/2);
    }
   }else if(style==='clothier')add('shop:'+slot,'cloth-counter',{x:cx,y:cy},'native_civic_bare',9,95);
   else if(style==='armorer')add('shop:'+slot,'arms-rack',{x:cx,y:cy},'native_civic_bare',9,82);
@@ -81,8 +81,8 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
  // the central quest board and processional crossing.
  for(const [i,p] of [{x:-960,y:550},{x:-710,y:550}].entries()){
   if(add('plaza:'+i,'cafe-table',p,'native_civic_bare',9,74)){
-   add('plaza:'+i+':w','cafe-chair',{x:p.x-105,y:p.y+4},'native_civic_bare',7,36,Math.PI/2);
-   add('plaza:'+i+':e','cafe-chair',{x:p.x+105,y:p.y+4},'native_civic_bare',7,36,-Math.PI/2);
+   add('plaza:'+i+':w','cafe-chair',{x:p.x-105,y:p.y+4},'native_civic_bare',7,36,-Math.PI/2);
+   add('plaza:'+i+':e','cafe-chair',{x:p.x+105,y:p.y+4},'native_civic_bare',7,36,Math.PI/2);
   }
  }
  add('market:cloth-display','cloth-counter',{x:-3200,y:800},'native_civic_bare',9,90);

@@ -17,7 +17,7 @@ import {NatureAmbience,natureMix} from './NatureAmbience';
 import {groundWorldView,projectedViewOrigin,unprojectGroundPoint} from '../presentation25d/plane';
 import type {WeatherPresentation} from '../presentation25d/environment';
 type Kind='clear'|'cloudy'|'rain'|'storm'|'snow'|'fog'|'wind'|'dust'|'ash';
-const labels:Record<Kind,string>={clear:'Clear skies',cloudy:'Overcast',rain:'Light rain',storm:'Heavy rain',snow:'Snowfall',fog:'Valley mist',wind:'Windy',dust:'Dust and ash',ash:'Falling volcanic ash'};
+const labels:Record<Kind,string>={clear:'Clear skies',cloudy:'Overcast',rain:'Light rain',storm:'Thunderstorm',snow:'Snowfall',fog:'Valley mist',wind:'Windy',dust:'Dust and ash',ash:'Falling volcanic ash'};
 export function weatherFor(region:string,biome:string,day:number,minute:number):Kind{
   const rng=seededRandom(`weather:${region}:${day}:${Math.floor(minute/480)}`),value=rng();
   if(region==='darkav')return 'ash';
@@ -61,6 +61,16 @@ export class WeatherSystem {
     this.drawMs = 150; this.roofMs = 1000;
   };
   private destroyed=false;
+  private readonly thunderNodes=new Set<AudioBufferSourceNode>();
+  thunder(){
+    if(this.destroyed||!this.audio||!this.audioBus||!this.source?.buffer||!useGameStore.getState().weatherAudio||document.hidden)return;
+    const audio=this.audio,source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain(),now=audio.currentTime;
+    source.buffer=this.source.buffer;filter.type='lowpass';filter.frequency.setValueAtTime(260,now);filter.frequency.exponentialRampToValueAtTime(65,now+2.2);
+    gain.gain.setValueAtTime(0,now);gain.gain.linearRampToValueAtTime(1.6,now+.025);gain.gain.exponentialRampToValueAtTime(.001,now+2.4);
+    source.connect(filter).connect(gain).connect(this.audioBus);this.thunderNodes.add(source);
+    source.onended=()=>{this.thunderNodes.delete(source);source.disconnect();filter.disconnect();gain.disconnect();};
+    source.loop=true;source.start();source.stop(now+2.5);
+  }
   get windStrength(){return this.kind==='wind'||this.kind==='storm'||this.kind==='dust'||this.kind==='ash'?this.strength:.18+this.strength*.25;}
   get cloudCover(){return this.strength*({clear:0,cloudy:.8,rain:.65,storm:1,snow:.6,fog:.65,wind:.15,dust:.35,ash:.5}[this.kind]);}
   constructor(private readonly scene:Phaser.Scene,private readonly world:WorldGenerator){
@@ -264,13 +274,14 @@ export class WeatherSystem {
     const now=this.audio.currentTime,coast=region==='dead-sea'||biome==='coast';
     this.audioBus.gain.setTargetAtTime(muted?0:1,now,.18);
     const weather=['rain','storm','wind','dust','ash'].includes(this.kind)
-      ? this.strength*(this.kind==='storm'?.075:this.kind==='rain'?.052:.035):0;
+      ? this.strength*(this.kind==='storm'?.16:this.kind==='rain'?.11:.035):0;
     const bed=coast ? .013+Math.sin(this.elapsed*.0007)*.005 : biome==='forest' ? .005 :
       region==='nardorous'||region==='frostlands' ? .007 : region==='darkav' ? .005 : .004;
     this.gain.gain.setTargetAtTime(weather+bed,now,.8);
     this.audioFilter.frequency.setTargetAtTime(this.kind==='storm'?1500:this.kind==='rain'?1050:coast?420:260,now,1);
   }
   destroy(){if(this.destroyed)return;this.destroyed=true;
+    for(const source of this.thunderNodes)source.stop();this.thunderNodes.clear();
     window.removeEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);
     window.removeEventListener('mernondna-weather-audio',this.enableAudio);window.removeEventListener('pointerdown',this.unlockAudio);window.removeEventListener('keydown',this.unlockAudio);
     document.removeEventListener('visibilitychange',this.visibility);this.source?.stop();

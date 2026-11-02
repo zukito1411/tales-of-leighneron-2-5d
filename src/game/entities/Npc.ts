@@ -25,6 +25,7 @@ import {npcSchedulePosition} from '../../data/npcPositions';
 import {npcMayPatrol,npcStandingOffRoad} from '../systems/npcPlacement';
 import {citizenModel,citizenHeight,presentCitizen} from '../systems/RegionalCitizenArt';
 import {npcCombatArt,npcCombatKey,NPC_COMBAT_DIRECTIONS} from '../../data/npcCombatArt';
+import {syncActorBodyFrame} from '../systems/syncActorBodyFrame';
 
 const NPC_WALK_SPEED = 44;
 type WalkDirection = ActorDirection;
@@ -83,7 +84,7 @@ export class Npc extends DepthSortedSprite {
   private formationRejoining=false;
   private formationRejoinAt=0;
 
-  constructor(scene: WorldScene, definition: NpcDefinition, x: number, y: number, home: Vec2) {
+  constructor(scene: WorldScene, definition: NpcDefinition, x: number, y: number, home: Vec2,readonly counterApproach?:Vec2) {
     const sourceFamily=definition.spriteTexture??'npcs';
     const declaredIdleArt=NPC_IDLE_ART.find(entry=>entry.walk===sourceFamily||entry.key===sourceFamily);
     const family=sourceFamily==='npc_royal_guard'?'npc_guard':declaredIdleArt?.walk??sourceFamily;
@@ -125,7 +126,7 @@ export class Npc extends DepthSortedSprite {
       .setOffset(sheet.frameWidth * density / 2 - 18 / scaleX, this.originY * sheet.frameHeight * density - 24 / scaleY)
       .setCollideWorldBounds(true).setImmovable(true);
     body.pushable = false;
-    body.updateFromGameObject();
+    syncActorBodyFrame(body);
     this.setDepth(y);
     this.setInteractive({ useHandCursor: true });
     this.setName(definition.name);
@@ -673,6 +674,6 @@ export class Npc extends DepthSortedSprite {
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setSize(18 / scale,22 / scale).setOffset(sheet.frameWidth * sheet.density / 2 - 9 / scale,
       originY * sheet.frameHeight * sheet.density - 22 / scale);
-    body.updateFromGameObject();
+    syncActorBodyFrame(body);
   }
 }

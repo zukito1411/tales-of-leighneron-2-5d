@@ -1,7 +1,8 @@
 import {actorViewAim,actorViewTravel,actorViewFlip} from '../systems/actorViewDirection';
-import {worldPointInView,presentationView} from '../presentation25d/plane';
+import {worldPointInView,presentationView,isFirstPersonView} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
+import {meleeReach} from '../systems/combatSpacing';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
 import type { BossDefinition, EnemyDefinition, EncounterBehavior, BossPhaseSnapshot } from '../types';
 import { BOSS_BY_ID, enemyAppearanceMultiplier,isWolfFamily } from '../../data/enemies';
@@ -463,7 +464,8 @@ export class Enemy extends DepthSortedSprite {
       }
       if(Math.abs(this.facing.x)>.2)this.setFlipX(this.facing.x<0);
       this.updateBossSkill(scene, time);
-      if (distance <= Math.max(this.definition.attackRange, this.definition.attackRadius ?? 0) && time >= this.nextAttackAt
+      const attackReach=Math.max(this.definition.attackRange,this.definition.attackRadius??0);
+      if (distance <= (this.isRangedAttacker?attackReach:meleeReach(scene,attackReach)) && time >= this.nextAttackAt
         && scene.hasClearPath(this.x, this.y, player.x, player.y)) {
         this.beginAttack(scene, player, time);
       }
@@ -516,7 +518,8 @@ export class Enemy extends DepthSortedSprite {
     // Melee attackers reserve different approaches; throwers use a separate
     // outer ring so they retain standoff/retreat rather than joining the pile.
     const ranged=this.isRangedAttacker;
-    const ring=ranged?280:Math.max(30,this.definition.attackRange-8);
+    const meleeRing=Math.max(30,this.definition.attackRange-8);
+    const ring=ranged?280:isFirstPersonView(scene)?Math.max(meleeRing,Math.min(96,meleeReach(scene,this.definition.attackRange)-4)):meleeRing;
     if(time>=this.slotCheckAt){
       this.slotCheckAt=time+600;
       let best=-1,bestScore=Infinity;
@@ -629,7 +632,9 @@ export class Enemy extends DepthSortedSprite {
     // Close in to strike only during each wolf's offset attack window;
     // withdrawing briefly creates space for packmates to circle and attack.
     const lunge=(time+slot*470)%2750<1460;
-    const preferredRadius=lunge?(this.wolfAlpha?40:46):(this.wolfAlpha?64:74);
+    const firstPerson=isFirstPersonView(scene),attackRadius=this.wolfAlpha?40:46;
+    const preferredRadius=lunge?(firstPerson?Math.max(attackRadius,meleeReach(scene,this.definition.attackRange)-4):attackRadius)
+      :(this.wolfAlpha?64:74)+(firstPerson?24:0);
     let goalX=player.x+Math.cos(desiredBearing)*preferredRadius;
     let goalY=player.y+Math.sin(desiredBearing)*preferredRadius;
     const waypoint=scene.enemyNavigationPoint(this,{x:goalX,y:goalY});
@@ -679,8 +684,9 @@ export class Enemy extends DepthSortedSprite {
     const windup = this.definition.attackWindupMs ?? 220;
     const recovery = this.definition.attackRecoveryMs ?? 320;
     const rate=this.attackSpeedMultiplier;
-    const radius = this.definition.attackRadius ?? this.definition.attackRange;
     const ranged=this.isRangedAttacker;
+    const nativeRadius=this.definition.attackRadius??this.definition.attackRange;
+    const radius=ambient||ranged?nativeRadius:meleeReach(scene,nativeRadius);
     const attackAim={x:player.x,y:player.y};
     // Commit the target heading after steering, which may have faced a travel
     // lane or a retreat. Unit aim vectors must not use the walking dead zone.

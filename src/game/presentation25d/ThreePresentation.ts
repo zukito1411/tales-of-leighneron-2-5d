@@ -35,6 +35,11 @@ import {GpuSky} from './GpuSky';
 import {GpuShadows} from './GpuShadows';
 import {GpuCloudShadows} from './GpuCloudShadows';
 import {GpuWeather} from './GpuWeather';
+import {GpuStormLightning} from './GpuStormLightning';
+import {FirstPersonWeapon} from './FirstPersonWeapon';
+import type {Player} from '../entities/Player';
+import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
+import type {StormBolt} from '../systems/StormHazardSystem';
 import {GpuNightMask} from './GpuNightMask';
 import {GpuWater} from './GpuWater';
 import {VIEW_DISTANCE,FOG_START} from './environment';
@@ -68,6 +73,7 @@ interface CameraEffectChannels {red:number;green:number;blue:number;alpha:number
 interface PresentedTileSprite extends Phaser.GameObjects.TileSprite {displayFrame:Phaser.Textures.Frame}
 interface PresentationScene extends Phaser.Scene {
   readonly presentationFocus?:Readonly<{x:number;y:number;presentationElevation?:number}>;
+  readonly presentationPlayer?:Player;
   readonly inInterior?:boolean;
   readonly presentationHeightAt?:(x:number,y:number)=>number;
   readonly presentationTerrain?:TerrainHeightField;
@@ -78,6 +84,7 @@ interface PresentationScene extends Phaser.Scene {
   readonly presentationPause?:()=>void;
   readonly presentationShadows?:GroundShadowSystem;
   readonly presentationWeather?:WeatherSystem;
+  readonly presentationStorm?:{bolt:StormBolt|null};
   readonly presentationLighting?:DayNightSystem;
   readonly presentationWater?:WaterSurfaceSystem;
   readonly presentationVolcano?:VolcanoPulse;
@@ -105,6 +112,8 @@ export class ThreePresentation {
   private readonly background=new Scene();
   private readonly screen=new Scene();
   private readonly orbit:OrbitCamera;
+  private readonly firstPersonWeapon:FirstPersonWeapon;
+  private firstPersonPlayer:Player|undefined;
   private readonly elevation=new ElevationField();
   private readonly budget:RenderBudget;
   private renderScale=0;
@@ -127,6 +136,7 @@ export class ThreePresentation {
   private readonly gpuShadows:GpuShadows;
   private readonly gpuClouds:GpuCloudShadows;
   private readonly gpuWeather:GpuWeather;
+  private readonly gpuLightning:GpuStormLightning;
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
   private readonly volcano:GpuVolcano;
@@ -206,6 +216,7 @@ export class ThreePresentation {
     this.sky=new GpuSky();this.gpuShadows=new GpuShadows(this.world,this.textures,this.elevation,this.atmosphere);
     this.gpuClouds=new GpuCloudShadows(this.world,this.elevation,this.atmosphere);
     this.gpuWeather=new GpuWeather(this.screen,this.elevation);this.gpuNight=new GpuNightMask(this.screen);
+    this.gpuLightning=new GpuStormLightning(this.world);
     this.gpuWater=new GpuWater(this.world,this.elevation,this.atmosphere,this.textures);
     this.volcano=new GpuVolcano(this.world,this.atmosphere);
     this.flash.renderOrder=Number.MAX_SAFE_INTEGER-1;this.fade.renderOrder=Number.MAX_SAFE_INTEGER;
@@ -219,6 +230,7 @@ export class ThreePresentation {
     window.addEventListener(FRAME_DIAGNOSTICS_EVENT,this.onDiagnosticChange);
     this.orbit=new OrbitCamera(canvas,parent,this.onPointer,()=>{for(const scene of this.game.scene.getScenes(true))(scene as PresentationScene).presentationPause?.();},
       ()=>this.game.scene.getScenes(true).some(scene=>(scene as PresentationScene).presentationControlsEnabled===true));
+    this.firstPersonWeapon=new FirstPersonWeapon(this.renderer);
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
     this.preparePrograms(Promise.all([this.shaderWarmup.ready,this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}));
     bindResourcePreparation(game,{
@@ -281,7 +293,9 @@ export class ThreePresentation {
     this.sceneGroundHeight=presentation.groundHeightAt;
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt,presentation.presentationTerrain);
     const lockedTarget=presentation.presentationLockedTarget;
-    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget);
+    this.firstPersonPlayer=presentation.presentationPlayer;
+    const eye=this.firstPersonPlayer?HERO_BODY_HEIGHT*.8+this.firstPersonPlayer.presentationElevation+this.firstPersonPlayer.skills.presentationElevation:undefined;
+    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget,eye);
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
@@ -290,9 +304,10 @@ export class ThreePresentation {
     if(!this.view)this.view={camera:this.orbit.camera,native:camera,yaw:this.orbit.yaw,pitch:this.orbit.pitch,
       bounds:this.orbit.bounds,focusGround:this.orbit.focusGround,height:this.heightAt,visibility:this.visibility,actorDrawn:this.actorDrawn};
     else{this.view.native=camera;this.view.yaw=this.orbit.yaw;this.view.pitch=this.orbit.pitch;}
+    this.view.firstPerson=this.orbit.firstPerson;
     bindPresentationView(scene,this.view);
     const focus=this.orbit.focusGround;
-    const subject=presentation.presentationOcclusionSubject;
+    const subject=this.orbit.firstPerson?undefined:presentation.presentationOcclusionSubject;
     this.presentationUniforms.viewport.value.set(this.renderer.domElement.width,this.renderer.domElement.height);
     this.foreground.begin(this.orbit.camera,subject,subject?this.heightAt(subject.x,subject.y):0,
       this.atmosphere.billboardPitch.value.x,this.atmosphere.billboardPitch.value.y,this.yawCos,this.yawSin);
@@ -308,6 +323,7 @@ export class ThreePresentation {
       return;
     }
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
+    this.firstPersonWeapon.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled!==true,width,height,this.game.loop.delta,this.orbit.yaw,this.orbit.pitch,night);
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
     const light=this.atmosphere,cover=this.interior?0:weather?.cloudCover??0;
     if(this.interior){
@@ -325,6 +341,7 @@ export class ThreePresentation {
     this.gpuClouds.update(this.sky.artwork,this.sky.ready,focus,minute,weather?.presentation,this.interior||!presentation.presentationFocus);
     this.gpuWater.update(scene,presentation.presentationWater,focus,this.frame,this.interior);
     this.gpuWeather.update(weather,this.orbit.camera,focus,night,this.interior,this.orbit.bounds);
+    this.gpuLightning.update(this.interior?null:presentation.presentationStorm?.bolt,this.heightAt);
     for(const batch of this.batches.values())batch.begin();
     camera.emit(Phaser.Cameras.Scene2D.Events.PRE_RENDER,camera);
     const spatial=staticSpatialIndex(scene);spatial.query(this.orbit.bounds);
@@ -353,13 +370,14 @@ export class ThreePresentation {
     this.postFX.render(this.renderer,{world:this.world,camera:this.orbit.camera,background:this.background,backgroundCamera:this.screenCamera,
       width:this.renderer.domElement.width,height:this.renderer.domElement.height,density:density*this.renderScale,focus:presentation.presentationFocus,
       lockedTarget,lockedGroundHeight:lockedTarget?this.heightAt(lockedTarget.x,lockedTarget.y):0,focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
-      night,interior:this.interior,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
+      night,interior:this.interior,firstPerson:this.orbit.firstPerson,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
       depthNeeded:this.gpuWeather.needsDepth||nightActive||night>0&&getGraphicEffects().lightBloom,
       afterWorldRender:this.prepareNight,weather:weather?.presentation,mist:this.gpuWeather.fog});
     this.overlayAtmosphere.worldDepth.value=this.postFX.depth;
     this.overlayAtmosphere.depthClipRange.value.set(this.orbit.camera.near,this.orbit.camera.far);
     this.overlayAtmosphere.depthTexel.value.set(1/this.renderer.domElement.width,1/this.renderer.domElement.height);
     this.gpuWeather.setDepth(this.postFX.depth,this.renderer.domElement.width,this.renderer.domElement.height);
+    this.firstPersonWeapon.render();
 
     const profRender=this.frameDiagnostics?performance.now():0;
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
@@ -449,6 +467,8 @@ export class ThreePresentation {
     let alpha=parentAlpha*('alpha' in object&&typeof object.alpha==='number'?object.alpha:1);
     if(alpha<=.001)return;
     const explicit=object.getData(PRESENTATION_HINT) as PresentationHint|undefined;
+    if(this.orbit.firstPerson&&this.firstPersonPlayer&&(this.firstPersonPlayer.ownsPresentation(object)
+      ||explicit?.anchor===this.firstPersonPlayer&&!explicit.combat||object.getData('hideInFirstPerson')))return;
     if(object instanceof Phaser.GameObjects.Container){
       const hint=explicit??inherited??{plane:'upright'};
       const matrix=object.getWorldTransformMatrix(this.transform,this.parentTransform);
@@ -572,6 +592,14 @@ export class ThreePresentation {
     }
     const ownerElevation=hint?.anchor?.presentationElevation??('presentationElevation' in object&&typeof object.presentationElevation==='number'?object.presentationElevation:0);
     const anchorHeight=plane==='upright'?this.heightAt(anchorX,anchorY):0;
+    if(this.orbit.firstPerson&&object instanceof Phaser.GameObjects.Text&&/^(npc-name:|npc-title:|enemy-name:)/.test(object.name)){
+      // Perspective at eye level can magnify a nearby world label across the
+      // whole screen. Cap the complete label, retaining its head registration.
+      this.projected.set(anchorX,anchorHeight+anchorY-this.transform.ty,anchorY).applyMatrix4(this.orbit.camera.matrixWorldInverse);
+      const depth=-this.projected.z;if(depth<=this.orbit.camera.near)return;
+      const scale=Math.min(1,18*2*depth*Math.tan(this.orbit.camera.fov*Math.PI/360)/this.height/Math.max(.01,rect.height*Math.hypot(this.transform.c,this.transform.d)));
+      this.transform.a*=scale;this.transform.b*=scale;this.transform.c*=scale;this.transform.d*=scale;
+    }
     const houseScaleX=house?Math.hypot(this.transform.a,this.transform.b):1;
     const houseScaleY=house?Math.hypot(this.transform.c,this.transform.d):1;
     const houseCos=house?this.transform.a/houseScaleX:1,houseSin=house?this.transform.b/houseScaleX:0;
@@ -1018,8 +1046,9 @@ export class ThreePresentation {
     this.preparationEpoch++;this.recoveryDeadline.clear();
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
-    releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
+    releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuLightning.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
+    this.firstPersonWeapon.destroy();this.firstPersonPlayer=undefined;
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();
     this.drawnSprites=new WeakMap();this.foregroundAlpha=new WeakMap();this.foreground.clear();

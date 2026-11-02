@@ -8,7 +8,8 @@ import {heroFrameData} from './heroFrameData';
 import {AWAKENING_PROFILES,awakenedProfile,awakeningArtPath} from '../../data/awakening';
 import {setDepthIfChanged} from './renderDepth';
 
-interface SwordFrameData {gripX:number;gripY:number;nativeAngle:number;bladeLength:number}
+export interface SwordSource {path:string;region:readonly [number,number,number,number];gripX:number;gripY:number;nativeAngle:number;bladeLength:number}
+export interface SwordFrameData {gripX:number;gripY:number;nativeAngle:number;bladeLength:number;firstPerson?:SwordSource}
 
 export const SWORD_SOURCE='equipped-sword-source',SWORD_TEXTURE='equipped-swords';
 export const awakenedSwordSource=(slug:string)=>'awakened-sword-source:'+slug;
@@ -58,6 +59,7 @@ export function *equippedSwordArtBatches(scene:Phaser.Scene):Generator<void,void
     texture.add(weapon.id,0,ox,oy,128,160)!.customData={
       gripX:(left+(handleX-x)*fit)/128,gripY:(top+(handleY-y)*fit)/160,
       nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)*fit,
+      firstPerson:{path:'assets/items/equipment-v1.png',region:[x,y,w,h],gripX:handleX-x,gripY:handleY-y,nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)} satisfies SwordSource,
     };
     yield;
   }
@@ -72,6 +74,7 @@ export function *equippedSwordArtBatches(scene:Phaser.Scene):Generator<void,void
     texture.add('awakened:'+profile.weaponId,0,ox,oy,128,160)!.customData={
       gripX:(left+(gx*image.width-x)*fit)/128,gripY:(top+(gy*image.height-y)*fit)/160,
       nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)*fit,
+      firstPerson:{path:awakeningArtPath(profile,'weapon-v1.png'),region:[x,y,w,h],gripX:gx*image.width-x,gripY:gy*image.height-y,nativeAngle:Math.atan2(dx,-dy),bladeLength:Math.hypot(dx,dy)} satisfies SwordSource,
     };scene.textures.remove(key);
     yield;
   }

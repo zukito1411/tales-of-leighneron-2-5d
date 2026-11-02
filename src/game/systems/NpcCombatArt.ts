@@ -17,7 +17,7 @@ export function prepareNpcCombatSheet(scene:Phaser.Scene,spec:NpcCombatSpec):Spr
 }
 /** Runtime residency advances one source/pose step per frame. Eager boot users
  * drain the same generator, retaining exactly the same fitting and frame data. */
-export function* prepareNpcCombatSheetSteps(scene:Phaser.Scene,spec:NpcCombatSpec):Generator<void,SpriteAnimation[]>{
+export function* prepareNpcCombatSheetSteps(scene:Phaser.Scene,spec:NpcCombatSpec,prepared?:ReadonlyMap<number,ActorSpriteSubject[]>):Generator<void,SpriteAnimation[]>{
   const sheet=ART_BY_KEY[spec.texture],d=sheet.density,fw=sheet.frameWidth*d,fh=sheet.frameHeight*d,gutter=4;
   const ground=sheet.frameHeight-(sheet.groundPadding??20),columns=sheet.atlasColumns!;
   // Regional walk+attack frames pack into 6x6, keeping both texture dimensions
@@ -33,9 +33,13 @@ export function* prepareNpcCombatSheetSteps(scene:Phaser.Scene,spec:NpcCombatSpe
   yield;
   for(const [index,file] of spec.sources.entries()){
     const image=scene.textures.get(npcCombatSourceKey(spec,index)).getSourceImage() as HTMLImageElement;
-    const native=document.createElement('canvas');native.width=image.width;native.height=image.height;
-    const read=native.getContext('2d')!;read.drawImage(image,0,0);
-    const subjects=actorSpriteSubjects(read.getImageData(0,0,image.width,image.height).data,image.width,image.height,file.columns,file.rows);
+    let subjects=prepared?.get(index);
+    if(!subjects){
+      const native=document.createElement('canvas');native.width=image.width;native.height=image.height;
+      const read=native.getContext('2d')!;read.drawImage(image,0,0);
+      subjects=actorSpriteSubjects(read.getImageData(0,0,image.width,image.height).data,image.width,image.height,file.columns,file.rows);
+      native.width=native.height=1;
+    }
     const roots=subjects.map((s,i)=>{
       if(file.roots)return file.roots[i];
       if(spec.id==='elven-guard')return [(i%4+.5)*image.width/4,[405,800,1200][Math.floor(i/4)]*image.height/1280] as const;
@@ -46,7 +50,6 @@ export function* prepareNpcCombatSheetSteps(scene:Phaser.Scene,spec:NpcCombatSpe
     });
     const reference=subjects[0].region;
     const bodyHeight=file.bodyHeight??(spec.id==='elven-guard'?275*image.height/1280:roots[0][1]-reference[1]);
-    native.width=native.height=1;
     inputs.push({file,subjects,roots,fit:modelHeight/Math.max(1,bodyHeight)});
     yield;
   }
@@ -101,13 +104,13 @@ export function prepareNpcCombatArt(scene:Phaser.Scene):SpriteAnimation[]{
   });
 }
 /** The original generated arrow is cropped/downsampled once, not each flight. */
-export function prepareNpcArrow(scene:Phaser.Scene,sourceKey:string){
+export function prepareNpcArrow(scene:Phaser.Scene,sourceKey:string,prepared?:ActorSpriteSubject){
   if(scene.textures.exists(NPC_ARROW_TEXTURE))return;
   if(!scene.textures.exists(sourceKey))throw new Error('Missing NPC arrow artwork');
   const image=scene.textures.get(sourceKey).getSourceImage() as HTMLImageElement;
   const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
-  const read=canvas.getContext('2d')!;read.drawImage(image,0,0);
-  const subject=actorSpriteSubjects(read.getImageData(0,0,image.width,image.height).data,image.width,image.height,1,1)[0];
+  let subject=prepared;
+  if(!subject){const read=canvas.getContext('2d')!;read.drawImage(image,0,0);subject=actorSpriteSubjects(read.getImageData(0,0,image.width,image.height).data,image.width,image.height,1,1)[0];}
   const texture=scene.textures.createCanvas(NPC_ARROW_TEXTURE,96,24)!,ctx=texture.getContext();
   const [, ,w,h]=subject.region,fit=Math.min(88/w,18/h);
   ctx.drawImage(spriteSubjectCanvas(subject),4,12-h*fit/2,w*fit,h*fit);texture.refresh();

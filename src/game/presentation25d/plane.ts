@@ -9,6 +9,7 @@ import type {CombatEffectShape,CombatEffectKind} from './CombatEffectGeometry';
 
 export interface PresentationView {
   camera:PerspectiveCamera;native:Phaser.Cameras.Scene2D.Camera;yaw:number;pitch:number;
+  firstPerson?:boolean;
   bounds:{left:number;top:number;right:number;bottom:number};focusGround:{x:number;y:number};
   height:(x:number,y:number)=>number;
   visibility?:StreamVisibility;
@@ -21,6 +22,11 @@ const point3=new Vector3(),ray=new Raycaster(),ndc=new Vector2();
 export function bindPresentationView(scene:Phaser.Scene,view:PresentationView){gameViews.set(scene.game,view);cameraViews.set(scene.cameras.main,view);}
 export function clearPresentationView(game:Phaser.Game){const view=gameViews.get(game);if(view)cameraViews.delete(view.native);gameViews.delete(game);}
 export function presentationView(scene:Phaser.Scene){return gameViews.get(scene.game);}
+export function isFirstPersonView(scene:Phaser.Scene){return gameViews.get(scene.game)?.firstPerson===true;}
+export function firstPersonAim(scene:Phaser.Scene,out:{x:number;y:number}){
+  const view=gameViews.get(scene.game);if(!view?.firstPerson)return false;
+  out.x=-Math.sin(view.yaw);out.y=-Math.cos(view.yaw);return true;
+}
 export function worldHeight(scene:Phaser.Scene,x:number,y:number){
   const owner=scene as Phaser.Scene&{groundHeightAt?:(x:number,y:number)=>number};
   return owner.groundHeightAt?.(x,y)??gameViews.get(scene.game)?.height(x,y)??0;

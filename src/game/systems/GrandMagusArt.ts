@@ -1,7 +1,7 @@
 import Phaser from 'phaser';
 import {ART_BY_KEY} from '../../data/art';
 import {GRAND_MAGUS_SPELL_TEXTURE,type M14ArtSpec} from '../../data/m14Art';
-import {actorSpriteGridSubjects} from './spriteComponents';
+import {actorSpriteGridSubjects,type ActorSpriteSubject} from './spriteComponents';
 import {spriteSubjectCanvas} from './spriteArt';
 import {isolateAtlasFrames} from './AtlasFrameIsolation';
 import type {Enemy} from '../entities/Enemy';
@@ -9,7 +9,7 @@ import registration from '../../data/grandMagusAtlas.json';
 
 /** Full authored poses, registered once on demand. One shared body scale for
  * all directions and actions; bat dispersal has its own expanding silhouette. */
-export function prepareGrandMagusArt(scene:Phaser.Scene,spec:M14ArtSpec){
+export function prepareGrandMagusArt(scene:Phaser.Scene,spec:M14ArtSpec,preparedSpells?:ActorSpriteSubject[]){
   const image=scene.textures.get(`m14-source:${spec.id}:atlas`).getSourceImage() as HTMLImageElement;
   if(image.width!==registration.width||image.height!==registration.height)throw new Error('Magus atlas registration does not match its artwork');
   const texture=scene.textures.addImage(spec.texture,image)!;
@@ -26,8 +26,9 @@ export function prepareGrandMagusArt(scene:Phaser.Scene,spec:M14ArtSpec){
   const scratch=document.createElement('canvas'),read=scratch.getContext('2d',{willReadFrequently:true})!;
   for(const kind of ['spells']){
     const source=scene.textures.get(`m14-source:${spec.id}:${kind}`).getSourceImage() as HTMLImageElement;
-    scratch.width=source.width;scratch.height=source.height;read.drawImage(source,0,0);
-    const poses=actorSpriteGridSubjects(read.getImageData(0,0,source.width,source.height).data,source.width,source.height,2,2,{keepDetachedDetails:true});
+    let poses=preparedSpells;
+    if(!poses){scratch.width=source.width;scratch.height=source.height;read.drawImage(source,0,0);
+      poses=actorSpriteGridSubjects(read.getImageData(0,0,source.width,source.height).data,source.width,source.height,2,2,{keepDetachedDetails:true});}
     const spells=scene.textures.createCanvas(GRAND_MAGUS_SPELL_TEXTURE,256,256)!;
     poses.forEach((pose,i)=>{
       const [,,w,h]=pose.region,scale=104/Math.max(w,h),x=i%2*128,y=Math.floor(i/2)*128;

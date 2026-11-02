@@ -20,19 +20,28 @@ export function m14Sources(spec:M14ArtSpec){
 
 /** Source isolation and registration only; never joins body parts. */
 export function prepareM14Art(scene:Phaser.Scene,spec:M14ArtSpec){
-  if(spec.species===19){prepareGrandMagusArt(scene,spec);return;}
+  const steps=prepareM14ArtSteps(scene,spec);while(!steps.next().done){/* Staged boot callers retain synchronous compatibility. */}
+}
+export function* prepareM14ArtSteps(scene:Phaser.Scene,spec:M14ArtSpec,prepared?:ReadonlyMap<string,ActorSpriteSubject[]>):Generator<void,void>{
+  if(spec.species===19){prepareGrandMagusArt(scene,spec,prepared?.get('spells'));return;}
   const subjects:Record<string,ActorSpriteSubject[]>={};
   const sources=new Map<ActorSpriteSubject,{sourcePath:string;sourceImageSize:readonly [number,number]}>();
   const canvas=document.createElement('canvas'),read=canvas.getContext('2d',{willReadFrequently:true})!;
   for(const file of m14Sources(spec)){
     const source=scene.textures.get(file.key).getSourceImage() as HTMLImageElement;
-    canvas.width=source.width;canvas.height=source.height;read.drawImage(source,0,0);
-    const image=read.getImageData(0,0,source.width,source.height);
-    subjects[file.kind]=actorSpriteSubjects(image.data,source.width,source.height,file.columns,file.rows);
+    const isolated=prepared?.get(file.kind);
+    if(isolated)subjects[file.kind]=isolated;
+    else{
+      canvas.width=source.width;canvas.height=source.height;read.drawImage(source,0,0);
+      const image=read.getImageData(0,0,source.width,source.height);
+      subjects[file.kind]=actorSpriteSubjects(image.data,source.width,source.height,file.columns,file.rows);
+    }
     for(const subject of subjects[file.kind])sources.set(subject,{sourcePath:file.path,sourceImageSize:[source.width,source.height]});
   }
   const sheet=ART_BY_KEY[spec.texture],columns=sheet.atlasColumns!,fw=sheet.frameWidth*sheet.density,fh=sheet.frameHeight*sheet.density;
   const texture=scene.textures.createCanvas(spec.texture,columns*fw,Math.ceil(sheet.columns/columns)*fh)!;
+  let complete=false;
+  try{
   const ctx=texture.getContext(),draw=createSpriteCropper();ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
   const drawPose=(subject:ActorSpriteSubject,fit:number,frame:number,mirror:boolean,falling=false,locomotion=false)=>{
     const [,,w,h]=subject.region;let sum=0,weight=0;
@@ -73,6 +82,7 @@ export function prepareM14Art(scene:Phaser.Scene,spec:M14ArtSpec){
         if((row===1||row===2)&&pose===4){subject=subjects.gait[2];fit=spec.height/subject.region[3];}
       }
       drawPose(subject,fit,row*5+pose,flipped,false,spec.boss);
+      yield;
     }
     const actionFit=spec.height/subjects.actions[actions+2].region[3];
     for(let pose=0;pose<6;pose++){
@@ -80,6 +90,7 @@ export function prepareM14Art(scene:Phaser.Scene,spec:M14ArtSpec){
       // Reflect the COMPLETE pose, not separate arm/weapon/body fragments.
       const flipped=spec.species===15&&row===3&&pose===0?!mirror:mirror;
       drawPose(subjects.actions[actions+pose],actionFit,20+row*6+pose,flipped,pose>=4);
+      yield;
     }
   }
   texture.refresh();texture.setFilter(Phaser.Textures.FilterMode.NEAREST);isolateAtlasFrames(texture);
@@ -88,5 +99,10 @@ export function prepareM14Art(scene:Phaser.Scene,spec:M14ArtSpec){
     const tiny=scene.textures.createCanvas('enemy_goblin_stone',64,64)!;
     draw(tiny.getContext(),spriteSubjectCanvas(stone),[0,0,w,h],32-w*fit/2,32-h*fit/2,w*fit,h*fit);
     tiny.add(0,0,0,0,64,64);tiny.refresh();
+  }
+  complete=true;
+  }finally{
+    canvas.width=canvas.height=1;
+    if(!complete&&scene.textures.exists(spec.texture))scene.textures.remove(spec.texture);
   }
 }

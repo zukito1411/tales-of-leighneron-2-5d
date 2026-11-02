@@ -86,7 +86,7 @@ test('targeted ground arts, snare lifetime and buffered sweeping melee in the ac
       skills.tryCast('ember-cleave');for(let t=0;t<600;t+=50)skills.update(50);
       const recaptured=a.isRooted;skills.cancelCast();const cancelled=!a.isRooted;
       // Explicit out-of-range locks fail before spending stamina/cooldown.
-      s.targeting.clear();s.targeting.select(a);move(a,base.x+500,base.y);
+      s.targeting.clear();s.targeting.select(a);move(a,base.x+2600,base.y);
       skills['cooldowns']['skyfall-slam']=0;const stamina=p.stamina;
       const rejected=!skills.tryCast('skyfall-slam')&&p.stamina===stamina&&skills.snapshot().cooldowns['skyfall-slam']===0;
       s.targeting.clear();p.resetInput();s.restoreOutsidePosition(base);p.stamina=10000;

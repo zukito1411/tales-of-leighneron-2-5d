@@ -158,7 +158,8 @@ export class WorldSpriteSystem {
           for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
         }
       }else if(solid||profile?.forceSolid){
-        if(profile?.solids.length){for(const polygon of profile.solids){
+        if(furniture?.art==='stall'){/* Structural counter/posts are added below; the painted canopy is not a floor body. */}
+        else if(profile?.solids.length){for(const polygon of profile.solids){
           const worldPolygon=polygon.map(([x,y]):GroundPoint=>{const p=point(x,y);return [p.x,p.y];});
           for(const rect of polygonGroundBands(worldPolygon))add(rect.left,rect.top,rect.right,rect.bottom);
         }}else if(solid&&!profile?.floor){
@@ -195,7 +196,7 @@ export class WorldSpriteSystem {
         });
         for(const rect of polygonGroundBands(trunk))add(rect.left,rect.top,rect.right,rect.bottom);
       }
-      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','keepsake','banner','life-tree'].includes(furniture.art)){
+      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','stall','keepsake','banner','life-tree'].includes(furniture.art)){
         // Deeper props need matching clearance, as buildings already do.
         // Add the body behind its existing front contact; keep old surveyed
         // stoops/details and open fence/arch passages intact. These bodies use
@@ -206,7 +207,7 @@ export class WorldSpriteSystem {
         if(Math.abs(c)<.0001||Math.abs(s)<.0001)add(Math.min(...footprint.map(p=>p[0])),Math.min(...footprint.map(p=>p[1])),Math.max(...footprint.map(p=>p[0])),Math.max(...footprint.map(p=>p[1])));
         else for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
       }
-      if(furniture&&(solid||profile?.forceSolid)&&(furniture.art==='arch'||furniture.art==='fence')){
+      if(furniture&&(solid||profile?.forceSolid)&&(furniture.art==='arch'||furniture.art==='fence'||furniture.art==='stall')){
         const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0}),c=Math.cos(p.heading),s=Math.sin(p.heading);
         for(const [left,right,back,front] of furniturePassageFootprints(furniture)){
           const footprint:GroundPoint[]=[[left,back],[right,back],[right,front],[left,front]]

@@ -1,4 +1,5 @@
 import type Phaser from 'phaser';
+import {syncActorBodyFrame} from './syncActorBodyFrame';
 import {alphaFrameBounds,spriteSubjectCanvas,createSpriteCropper} from './spriteArt';
 import {actorSpriteGridSubjects} from './spriteComponents';
 import type {SpriteRegion} from '../../data/art';
@@ -82,7 +83,7 @@ export function presentCitizen(actor:Phaser.Physics.Arcade.Sprite,model:number){
   const scale=Number((actor.frame.customData as {citizenScale:number}).citizenScale);
   actor.setScale(scale).setOrigin(.5,GROUND/FRAME).setFlipX(false);
   body.setSize(18/scale,22/scale).setOffset(FRAME/2-9/scale,GROUND-22/scale);
-  body.updateFromGameObject();
+  syncActorBodyFrame(body);
   let phase=0;for(const c of actor.name)phase=(phase*31+c.charCodeAt(0))>>>0;
   actor.play(`citizen-idle-v2:${model}`);actor.anims.setProgress((phase%997)/997);
 }

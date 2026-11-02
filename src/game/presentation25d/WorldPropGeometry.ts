@@ -7,6 +7,7 @@ import type {FurnitureShape} from './FurnitureGeometry';
 import materials from './worldPropMaterials.json';
 import {worldPropKind,worldPropGroundPlan} from '../../data/worldPropGroundPlan';
 import {SHIP_DECK_HEIGHT} from './WalkSurface';
+import {FLAGSHIP} from '../../data/pirateFlagship';
 
 /** Shared prefabs keep real atlas registration, authored floor orientation
  * and the original collision survey. Called once when a streamed prop enters. */
@@ -57,7 +58,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   return {streetStyle:style,art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
     fire:!(texture==='native_quest_landmarks'&&index===1),canopy:!(texture==='native_quest_landmarks'&&index===0),
     paintOffset:vertical?0:.5-(l+r)/2,ornamentX:art==='lampPost'?(index===1?.5:.78)-(l+r)/2:undefined,
-    bounds:{left:-.60+Math.min(0,.5-(l+r)/2),right:.60+Math.max(0,.5-(l+r)/2),bottom:0,top:rise*1.25,back:-Math.max(depth*1.1,depth/2+.5),front:Math.max(.16,.5-depth/2,art==='wagon'?rise*.22-depth*.2+.03:0)},
+    bounds:{left:-.60+Math.min(0,.5-(l+r)/2),right:.60+Math.max(0,.5-(l+r)/2),bottom:0,top:rise*(style?.endsWith('-stall')?1.4:1.25),back:-Math.max(depth*1.1,depth/2+.5),front:Math.max(.16,.5-depth/2,art==='wagon'?rise*.22-depth*.2+.03:0)},
     heading:vertical?Math.PI/2:0,quarterTurnUV:vertical,
     key:['world',art,style??'',texture,index,left,top,width,height,rise,depth,modelScale].join(':')};
 }
@@ -68,7 +69,9 @@ export function shipShape(art:'ship'|'ship-stern'|'ship-mast'|'ship-pennant'):Fu
   if(art==='ship'){
     shape.depth=1.5;shape.bounds={left:-.39,right:.49,bottom:-.18,top:.08,back:-.60,front:.74};
   }else if(art==='ship-stern'){
-    shape.rise=.46;shape.depth=.75;shape.footX=.5;shape.footY=(1438-978)/566;
+    // Deck expansion must not turn the stern cabin into a camera-height wall.
+    // Keep its complete model at a readable human-scale height.
+    shape.rise=HERO_BODY_HEIGHT*2.4/(566*FLAGSHIP.scale);shape.depth=.75;shape.footX=.5;shape.footY=(1438-978)/566;
     shape.patch=[.45,.63,.49,.69];
   }else if(art==='ship-mast'){
     shape.rise=650/480;shape.depth=.16;shape.footX=(412-170)/480;shape.footY=650/480;

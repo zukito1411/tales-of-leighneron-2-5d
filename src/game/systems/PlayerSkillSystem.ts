@@ -12,9 +12,10 @@ import {COMBAT_EFFECT_TEXTURE,DISTINCT_EFFECT_TEXTURE,effectPresentation} from '
 import {weaponEffect} from '../../data/economy';
 import {applySkillWeaponPalette} from './WeaponSkillPalette';
 import {heroFrameData} from './heroFrameData';
-import {onPlane,onGround,onDirectionalSprite,onCombatEffect,viewDirection,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
+import {onPlane,onGround,onDirectionalSprite,onCombatEffect,viewDirection,isFirstPersonView,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {actorViewAim} from './actorViewDirection';
 import type {ActorDirection} from '../../data/directionalEnemyArt';
+import {TargetingSystem} from './TargetingSystem';
 
 interface Cast {
   skill:ActiveSkillDefinition; elapsed:number; nextHit:number;
@@ -24,7 +25,7 @@ interface Cast {
   barrageTargets?:Enemy[];barrageSlash?:Phaser.GameObjects.Sprite;
   viewFacing?:ActorDirection;
   effectColor?:number;weaponId:string;
-  target?:Enemy;nextAimAt:number;
+  target?:Enemy;nextAimAt:number;targetRange?:number;landingAim?:Vec2;
 }
 interface EmberField {point:Vec2;elapsed:number;nextPulse:number;skill:ActiveSkillDefinition;visual:Phaser.GameObjects.Sprite;effectColor?:number;weaponId:string;roots:Map<Enemy,Phaser.GameObjects.Sprite>}
 interface SlashWave {sprite:Phaser.GameObjects.Sprite;direction:Phaser.Math.Vector2;remaining:number;skill:ActiveSkillDefinition;multiplier:number;effectColor?:number;weaponId:string}
@@ -60,6 +61,9 @@ export class PlayerSkillSystem {
   get isInvulnerable(){return this.cast?.skill.id==='barrage';}
   get weaponActor(){return this.cast?.visual??null;}
   get hidesWeapon(){return Boolean(this.cast?.skill.hideWeapon);}
+  /** The viewmodel samples the real cast clock; cancellation has no visual timer to outlive it. */
+  get presentationCast():Readonly<Pick<Cast,'skill'|'elapsed'|'direction'>>|null{return this.cast;}
+  get presentationElevation(){return this.cast?.skill.id==='skyfall-slam'?Math.sin(Phaser.Math.Clamp((this.cast.elapsed-140)/430,0,1)*Math.PI)*64:0;}
   get incomingDamageMultiplier() { return this.rallyRemaining > 0 ? .5 : 1; }
 
   tryCast(id:ActiveSkillId):boolean {
@@ -75,9 +79,10 @@ export class PlayerSkillSystem {
     }
     const barrageTargets=id==='barrage'?this.collectBarrageTargets(skill.targetingRange!):undefined;
     if(barrageTargets&&!barrageTargets.length){this.scene.notify('No reachable enemies in Barrage range.');return false;}
-    const target=skill.targetingRange?this.scene.targeting.skillTarget(skill.targetingRange):null;
+    const targetRange=id==='skyfall-slam'||id==='iron-tempest'?TargetingSystem.breakRange:skill.targetingRange;
+    const target=targetRange?this.scene.targeting.skillTarget(targetRange):null;
     const selected=this.scene.targeting.lockedTarget??this.scene.targeting.selected;
-    if(skill.targetingRange&&id!=='barrage'&&selected?.active&&selected.isAlive&&!target){
+    if(targetRange&&id!=='barrage'&&selected?.active&&selected.isAlive&&!target){
       this.scene.notify(`${skill.name}: target is out of range or behind cover.`);return false;
     }
     if(target&&(id==='ember-cleave'||id==='skyfall-slam')&&!this.scene.safeSkillPosition(target)){
@@ -111,14 +116,14 @@ export class PlayerSkillSystem {
     onPlane(visual,'upright',this.player);
     if(!skill.poseTimes)visual?.play(`player-skill:${skill.animationId??id}`);
     const start={x:this.player.x,y:this.player.y};
-    const landing=id==='skyfall-slam'?this.scene.skillLanding(target??{x:start.x+direction.x*90,y:start.y+direction.y*90},skill.targetingRange??90):undefined;
+    const landing=id==='skyfall-slam'?this.scene.skillLanding(target??{x:start.x+direction.x*90,y:start.y+direction.y*90},targetRange??90):undefined;
     const shadow=id==='skyfall-slam'?this.scene.add.ellipse(start.x,start.y+2,34,12,0x101512,.3).setDepth(this.scene.playerRenderDepth(start.y)-1).setName('player-slam-shadow'):undefined;
     const proposed=target?{x:target.x,y:target.y}:landing??{x:start.x+direction.x*140,y:start.y+direction.y*140};
     const mark=this.scene.safeSkillPosition(proposed)&&this.scene.hasClearPath(start.x,start.y,proposed.x,proposed.y)?proposed:{...(landing??start)};
     const rushDistance=id==='iron-tempest'&&target
-      ?Math.max(0,Math.hypot(target.x-start.x,target.y-start.y)-(target.definition.boss?52:38))
+      ?Math.max(0,Math.hypot(target.x-start.x,target.y-start.y)-(isFirstPersonView(this.scene)?(target.definition.boss?96:82):(target.definition.boss?52:38)))
       :160;
-    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets,target:target??undefined,nextAimAt:0 };
+    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets,target:target??undefined,nextAimAt:0,targetRange,landingAim:landing?{...mark}:undefined };
     if(barrageTargets)this.cast.barrageSlash=this.scene.add.sprite(start.x,start.y,'effect_slash',0)
       .setVisible(false).setDisplaySize(100,100).setBlendMode(Phaser.BlendModes.ADD);
     this.updateFlurryTargets();
@@ -265,12 +270,14 @@ export class PlayerSkillSystem {
   }
 
   private refreshGroundAim(cast:Cast){
-    const target=cast.target,range=cast.skill.targetingRange??0;
+    const target=cast.target,range=cast.targetRange??0;
     if(!target?.active||!target.isAlive||!target.canBeTargeted
       ||Math.hypot(target.x-cast.start.x,target.y-cast.start.y)>range
       ||!this.scene.safeSkillPosition(target)||!this.scene.hasClearPath(this.player.x,this.player.y,target.x,target.y))return;
     cast.mark={x:target.x,y:target.y};
-    if(cast.landing)cast.landing=this.scene.skillLanding(cast.mark,range,cast.start);
+    if(cast.landing&&(!cast.landingAim||Math.hypot(cast.mark.x-cast.landingAim.x,cast.mark.y-cast.landingAim.y)>16)){
+      cast.landing=this.scene.skillLanding(cast.mark,range,cast.start);cast.landingAim={...cast.mark};
+    }
   }
 
   private updateEmberRoots(field:EmberField){
@@ -316,7 +323,7 @@ export class PlayerSkillSystem {
       if(!enemy.active||enemy.hp<=0||!enemy.canBeTargeted
         ||Phaser.Math.Distance.Squared(cast.start.x,cast.start.y,enemy.x,enemy.y)>560*560
         ||!this.scene.hasClearPath(this.player.x,this.player.y,enemy.x,enemy.y))continue;
-      const spacing=enemy.definition.boss?66:46;
+      const spacing=isFirstPersonView(this.scene)?(enemy.definition.boss?96:80):(enemy.definition.boss?66:46);
       for(let side=0;side<4;side++){
         const angle=((cast.nextHit+side)%4)*Math.PI/2;
         const point={x:enemy.x+Math.cos(angle)*spacing,y:enemy.y+Math.sin(angle)*spacing};

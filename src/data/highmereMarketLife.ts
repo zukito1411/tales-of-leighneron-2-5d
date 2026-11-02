@@ -11,7 +11,8 @@ import {propPlacementBounds,overlaps,rectTouchesStreet,type Rect} from './settle
 import {ExteriorPlacement} from '../game/systems/ExteriorPlacement';
 import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {worldSpriteProfile} from './worldSpriteGeometry';
-import type {ContentDefinition,NpcDefinition,Vec2,WorldPropTexture} from '../game/types';
+import {marketWorkstation} from './marketWorkstations';
+import type {ContentDefinition,NpcDefinition,PropContentDefinition,Vec2,WorldPropTexture} from '../game/types';
 
 export const HIGHMERE_MARKET_LIFE={sellers:0,neighbors:0,details:0,unattended:[] as string[]};
 const names=['Martha Cresswell','Benedict Woolmer','Lucy Hartwick','Philip Reedcroft','Agatha Fenwell','Rafe Turner','Edith Bookwell','Willa Barley'];
@@ -34,11 +35,11 @@ export function addHighmereMarketLife(content:ContentDefinition[],walkable:(x:nu
  const local=(p:Vec2)=>({x:p.x-origin.x,y:p.y-origin.y});
  const body=(p:Vec2):Rect=>({left:p.x-30,right:p.x+30,top:p.y-30,bottom:p.y+10});
  const streetClear=(p:Vec2)=>!layout.streets.some(s=>rectTouchesStreet(body(local(p)),s,12));
- const clear=(p:Vec2)=>walkable(p.x,p.y)&&streetClear(p)&&!placement.blocksNpc(p,undefined,true)
+ const clear=(p:Vec2,workplaceId?:string)=>walkable(p.x,p.y)&&streetClear(p)&&!placement.blocksNpc(p,undefined,true,workplaceId)
   &&!residents.any(npcStandingReservation(p),o=>overlaps(npcStandingReservation(p),o.bounds,10));
- const addPerson=(id:string,name:string,title:string,preferred:Vec2,texture:NpcDefinition['spriteTexture'],line:string,moving=false,workplaceId?:string)=>{
-  const candidates=[preferred,...[40,72,112,152,192].flatMap(r=>[0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2].map(a=>({x:preferred.x+Math.sin(a)*r,y:preferred.y+Math.cos(a)*r})))];
-  const p=candidates.find(clear);if(!p)return false;
+ const addPerson=(id:string,name:string,title:string,preferred:Vec2,texture:NpcDefinition['spriteTexture'],line:string,moving=false,workplaceId?:string,stations?:Vec2[])=>{
+  const candidates=stations??[preferred,...[40,72,112,152,192].flatMap(r=>[0,Math.PI/4,-Math.PI/4,Math.PI/2,-Math.PI/2].map(a=>({x:preferred.x+Math.sin(a)*r,y:preferred.y+Math.cos(a)*r})))];
+  const p=candidates.find(p=>clear(p,workplaceId));if(!p)return false;
   const point=local(p),npc: NpcDefinition={id:'capital:highmere:street:'+id,name,title,townId:'highmere',
    ancestry:'human',visualRegion:'trandum',settlementResident:true,spriteTexture:texture,spriteFrame:0,
    worldOffset:point,homeLocation:point,workplaceId,stationary:!moving,townRoutine:moving,patrolRadius:moving?30:0,
@@ -49,15 +50,15 @@ export function addHighmereMarketLife(content:ContentDefinition[],walkable:(x:nu
   registerHighmereStreetNpc(npc);content.push({id:'npc:'+npc.id,kind:'npc',npcId:npc.id,world:p});
   residents.add({bounds:npcStandingReservation(p)});return true;
  };
- const stalls=content.filter(d=>d.kind==='prop'&&d.id.startsWith('detail:highmere:')&&capitalPropStyle(d.id)?.endsWith('-stall'));
+ const stalls=content.filter((d):d is PropContentDefinition=>d.kind==='prop'&&d.id.startsWith('detail:highmere:')&&Boolean(capitalPropStyle(d.id)?.endsWith('-stall')));
  HIGHMERE_MARKET_LIFE.sellers=0;HIGHMERE_MARKET_LIFE.neighbors=0;HIGHMERE_MARKET_LIFE.details=0;HIGHMERE_MARKET_LIFE.unattended=[];
  for(const [i,stall] of stalls.entries()){
   const style=capitalPropStyle(stall.id),trade=style&&style in trades?trades[style as keyof typeof trades]:undefined;
   if(!trade)continue;
-  // Attend the open end of the counter. This is real unobstructed standing
-  // space, not an exemption from the stall's solid frame/counter or roof.
-  const p={x:stall.world.x+(i%2?-1:1)*112,y:stall.world.y+52};
-  if(addPerson('seller:'+stall.id,names[i%names.length],trade.title,p,trade.texture,trade.line,false,stall.id))HIGHMERE_MARKET_LIFE.sellers++;
+  const workplace=marketWorkstation(stall);if(!workplace)continue;
+  // The rear working bay belongs to this counter; never scatter a seller into
+  // the buyers' aisle merely because a canopy overlaps their silhouette.
+  if(addPerson('seller:'+stall.id,names[i%names.length],trade.title,workplace.stations[0],trade.texture,trade.line,false,stall.id,workplace.stations))HIGHMERE_MARKET_LIFE.sellers++;
   else HIGHMERE_MARKET_LIFE.unattended.push(stall.id);
  }
  for(const [i,[x,y,name,title,texture,line]] of ([

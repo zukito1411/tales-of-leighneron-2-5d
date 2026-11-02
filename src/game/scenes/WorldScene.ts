@@ -3,7 +3,10 @@ import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {TerrainHeightField} from '../systems/TerrainHeightField';
 import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
-import {groundWorldView,onCombatEffect,onWorldLabel} from '../presentation25d/plane';
+import {StormHazardSystem} from '../systems/StormHazardSystem';
+import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
+import {meleeReach} from '../systems/combatSpacing';
+import {marketWorkstation} from '../../data/marketWorkstations';
 import Phaser from 'phaser';
 import type {VolcanoPulse} from '../../data/cinderpeak';
 import {housingFor} from '../../data/housing';
@@ -144,6 +147,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private chunkManager!: ChunkManager;
   private dayNight!: DayNightSystem;
   private weather!:WeatherSystem;
+  private storm!:StormHazardSystem;
+  get presentationStorm(){return this.storm?.presentation;}
   private treeSway!:TreeSwaySystem;
   private waterSurface!:WaterSurfaceSystem;
   private groundShadows!:GroundShadowSystem;
@@ -191,6 +196,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   get presentationOcclusionSubject(){
     return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active&&!this.passage?.active
       ?this.player:undefined;
+  }
+  get presentationPlayer(){
+    return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active&&!this.passage?.active&&!this.arrivalView&&!this.restSession?this.player:undefined;
   }
   private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
   get presentationLockedTarget(){
@@ -548,7 +556,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const dx=target.x-player.x,dy=target.y-player.y,length=Math.hypot(dx,dy);
     if(length<.01)return 0;
     const vx=body.velocity.x,vy=body.velocity.y;
-    let travelled=0,remaining=Math.min(length,Math.max(0,maxDistance),384);
+    let travelled=0,remaining=Math.min(length,Math.max(0,maxDistance),TargetingSystem.breakRange);
     while(remaining>.01){
       const step=Math.min(8,remaining),point={x:player.x+dx/length*step,y:player.y+dy/length*step};
       if(!this.safeSkillPosition(point)||!this.canTraverseGround(player,point))break;
@@ -557,7 +565,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     body.setVelocity(vx,vy);return travelled;
   }
   skillLanding(target:Vec2,range:number,from:Vec2={x:this.player.x,y:this.player.y}):Vec2 {
-    const candidates=[32,48,64].flatMap(radius=>Array.from({length:16},(_,i)=>({x:target.x+Math.cos(i*Math.PI/8)*radius,y:target.y+Math.sin(i*Math.PI/8)*radius})));
+    const candidates=(isFirstPersonView(this)?[80,96,112]:[32,48,64]).flatMap(radius=>Array.from({length:16},(_,i)=>({x:target.x+Math.cos(i*Math.PI/8)*radius,y:target.y+Math.sin(i*Math.PI/8)*radius})));
     candidates.sort((a,b)=>Math.hypot(a.x-from.x,a.y-from.y)-Math.hypot(b.x-from.x,b.y-from.y));
     return candidates.find(p=>Math.hypot(p.x-from.x,p.y-from.y)<=range&&this.safeSkillPosition(p)&&this.canNpcVisit(from,p))??from;
   }
@@ -685,8 +693,19 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     }
     return point;
   }
+  /** Talk across a counter from its public front, or directly from a clear
+   * side/rear. The same reach and wall checks serve click, keyboard and HUD. */
+  private npcTalkDistance(npc:Npc,x:number,y:number,range=72){
+    let best=Infinity;
+    const direct=Math.hypot(npc.x-x,npc.y-y);
+    if(direct<range&&this.hasClearPath(x,y,npc.x,npc.y))best=direct;
+    const front=npc.counterApproach;
+    if(front){const distance=Math.hypot(front.x-x,front.y-y);
+      if(distance<Math.min(range,best)&&this.hasClearPath(x,y,front.x,front.y))best=distance;}
+    return best;
+  }
   npcCanStandAt(x:number,y:number,exclude?:Npc,regional=false):boolean {
-    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y},undefined,true)
+    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y},undefined,true,exclude?.definition.workplaceId)
       &&!this.isBlockedByBuilding(x,y)
       &&!this.isNpcObscured(x,y,regional||Boolean(exclude?.usesRegionalPresentation))
       &&this.npcs.every(n=>!n.active||n===exclude||(npcMayPatrol(n.definition)?Math.hypot(n.x-x,n.y-y)>=64:npcPersonalSpace(n,{x,y})))
@@ -703,6 +722,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       definitionForItem.frame,definitionForItem.scale??.6,0,0,definitionForItem.anchor==='center',undefined,definitionForItem.rotation??0):undefined;
     const itemStreetBounds={left:0,right:0,top:0,bottom:0};
     const regional=Boolean(definition?.settlementResident||definition&&citizenModel(definition)!==undefined||actor?.usesRegionalPresentation);
+    const resident=definition??actor?.definition,workplace=resident?.workplaceId?CONTENT_BY_ID[resident.workplaceId]:undefined;
+    const station=workplace&&(workplace.kind==='prop'||workplace.kind==='settlement-prop')?marketWorkstation(workplace):undefined;
     const fits=(p:Vec2)=>{
       if(this.worldGenerator.getRegionAt(p.x,p.y)!==region||!this.worldGenerator.isWalkable(p.x,p.y))return false;
       if(kind==='quest'){
@@ -712,7 +733,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
         if(this.npcs.some(n=>n.active&&(!npcPersonalSpace(n,p)||Boolean(itemBounds&&overlaps(itemStreetBounds,npcStandingReservation(n),12)))))return false;
         for(const [other,point] of this.questObjectSlots)if(other!==id&&Math.hypot(point.x-p.x,point.y-p.y)<64)return false;
       }
-      if(kind==='npc'&&(this.exteriorPlacement.blocksNpc(p,undefined,true)||this.isBlockedByBuilding(p.x,p.y)
+      if(kind==='npc'&&(this.exteriorPlacement.blocksNpc(p,undefined,true,resident?.workplaceId)||this.isBlockedByBuilding(p.x,p.y)
         ||this.isNpcObscured(p.x,p.y,regional)))return false;
       for(const [other,entry] of this.interactables)if(other!==id&&entry.actor.active&&entry.actor.visible
         &&Math.hypot(entry.actor.x-p.x,entry.actor.y-p.y)<60)return false;
@@ -724,6 +745,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     };
     const access=this.exteriorAccess;
     function* candidates():Generator<Vec2,void>{
+      if(station){yield* station.stations;return;}
       yield {...preferred};
       const resident=definition??actor?.definition;
       const radii=(resident?.workplaceId||resident?.campId)?[48,72,96,128]:[48,72,96,128,176,224,288,352,448,576,768,960,1200,1536];
@@ -782,6 +804,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.dayNight = new DayNightSystem(this);
     this.weather=new WeatherSystem(this,this.worldGenerator);
+    this.storm=new StormHazardSystem(this);
     this.treeSway=new TreeSwaySystem(this);
     this.waterSurface=new WaterSurfaceSystem(this,this.worldGenerator);
     this.groundShadows=new GroundShadowSystem(this);
@@ -1097,6 +1120,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   update(time:number,delta:number){
     const diagnostics=this.registry.get('presentationDiagnostics'),start=diagnostics?performance.now():0;
     try{this.updateWorld(time,delta);}finally{
+      if(this.storm&&this.player){
+        const state=useGameStore.getState();
+        this.storm.update(delta,this.weather.presentation,!this.focused||this.inInterior||this.player.hp<=0
+          ||Boolean(state.panel||state.dialogue||state.cinematic||state.pendingCinematic||this.passage?.active||this.cinematicDirector?.active||this.screenTransition.active||this.arrivalView||this.restSession)
+          ||this.registry.get('presentationInitialViewReady')===false);
+      }
       this.enemySounds?.update(time);
       if(diagnostics)this.registry.set('simulationCpuMs',performance.now()-start);
     }
@@ -1282,10 +1311,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
 
   performPlayerAttack(player: Player, direction: Phaser.Math.Vector2, weapon: WeaponDefinition,step:BasicAttackStep=BASIC_ATTACK_CHAIN[0],hitIds?:Set<string>) {
     player.recovery.interrupt();
+    const reach=meleeReach(this,weapon.reach,weapon.kind)*step.reachMultiplier;
     const practice=this.contentManager.getActor('training:highmere-target');
     if(practice&&!hitIds?.has('training:highmere-target')) {
       const offset=new Phaser.Math.Vector2(practice.x-player.x,practice.y-player.y);
-      if(offset.length()<=weapon.reach*step.reachMultiplier+8&&direction.clone().normalize().dot(offset.normalize())>=step.coneDot
+      if(offset.length()<=reach+8&&direction.clone().normalize().dot(offset.normalize())>=step.coneDot
         && this.hasClearPath(player.x,player.y,practice.x,practice.y,practice)) {
         hitIds?.add('training:highmere-target');this.recordTraining('drill-sword');this.playEffect('hit',practice.x,practice.y);
       }
@@ -1297,7 +1327,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       if (!enemy.active||enemy.hp<=0||!enemy.canBeTargeted||hitIds?.has(enemy.instanceId)) continue;
       const toEnemy = new Phaser.Math.Vector2(enemy.x - player.x, enemy.y - player.y);
       const distance = toEnemy.length();
-      if (distance > weapon.reach*step.reachMultiplier + (enemy.definition.boss ? 18 : 8)) continue;
+      if (distance > reach + (enemy.definition.boss ? 18 : 8)) continue;
       toEnemy.normalize();
       if (facing.dot(toEnemy) < step.coneDot) continue;
       if (!this.hasClearPath(player.x,player.y,enemy.x,enemy.y)) continue;
@@ -1471,8 +1501,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     let nearestDistance = 72;
     for (const npc of this.npcs) {
       if(npc.adventureCompanion)continue;
-      const distance = Phaser.Math.Distance.Between(x, y, npc.x, npc.y);
-      if (distance < nearestDistance && this.hasClearPath(x, y, npc.x, npc.y)) {
+      const distance = this.npcTalkDistance(npc,x,y,nearestDistance);
+      if (distance < nearestDistance) {
         nearest = npc;
         nearestDistance = distance;
       }
@@ -2175,8 +2205,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       // Road-life actors deliberately have no interaction handler. Don't run
       // the expensive talk line-of-sight probe or offer a nonfunctional prompt.
       if(npc.definition.id.startsWith('road-life:'))continue;
-      const d = Phaser.Math.Distance.Between(this.player.x,this.player.y,npc.x,npc.y);
-      if (d < distance && this.hasClearPath(this.player.x,this.player.y,npc.x,npc.y)) { distance = d; interaction = `Talk to ${npc.definition.name}`; }
+      const d = this.npcTalkDistance(npc,this.player.x,this.player.y,distance);
+      if (d < distance) { distance = d; interaction = `Talk to ${npc.definition.name}`; }
     }
     if (!interaction) for (const { definition,actor } of this.interactables.values()) {
       const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;
@@ -2239,16 +2269,18 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       const npcPosition=admitted??(position?this.safeNpcSpawn(position,npcDefinition,regional):null);
       if(!npcPosition)throw new Error('No valid exterior position for NPC '+definition.id);
       const authoredHome=npcWorldPosition(npcDefinition,'home');
-      const safeHome=(npcDefinition.campId
+      const safeHome=(npcDefinition.workplaceId?npcPosition:npcDefinition.campId
         ?this.findExteriorSlot(authoredHome,'npc',definition.id+':home',undefined,true,npcDefinition)
         :this.safeExteriorNpcDestination(authoredHome))??npcPosition;
-      const npc = new Npc(this, npcDefinition, npcPosition.x, npcPosition.y, safeHome);
+      const workplace=npcDefinition.workplaceId?CONTENT_BY_ID[npcDefinition.workplaceId]:undefined;
+      const counter=workplace&&(workplace.kind==='prop'||workplace.kind==='settlement-prop')?marketWorkstation(workplace)?.approach:undefined;
+      const npc = new Npc(this, npcDefinition, npcPosition.x, npcPosition.y, safeHome,counter);
       if(this.cinematicDirector?.active&&!npc.definition.formation)npc.storyRest();
       this.groundShadows.register(npc);
       this.npcBodies.add(npc);
       npc.on('pointerdown', () => {
         if(this.storyCombatActive)return;
-        if (Phaser.Math.Distance.Between(this.player.x, this.player.y, npc.x, npc.y) < (npc.adventureCompanion?180:72) && this.hasClearPath(this.player.x, this.player.y, npc.x, npc.y)) {
+        if (this.npcTalkDistance(npc,this.player.x,this.player.y,npc.adventureCompanion?180:72)<Infinity) {
           useGameStore.getState().startDialogue(npc.definition.id);
         }
       });
@@ -2615,6 +2647,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('traffic',()=>this.traffic?.destroy());
     release('ground shadows',()=>this.groundShadows?.destroy());
     release('weather',()=>this.weather?.destroy());
+    release('storm hazards',()=>this.storm?.destroy());
     release('content chunks',()=>this.contentManager?.destroy());
     release('regional enemy art',()=>this.m14Art?.destroy());
     release('quest guide',()=>{this.questGuide?.destroy();this.questMarker?.destroy();});

@@ -3,7 +3,7 @@ import {addCapitalMarketStock,addCapitalCanopy} from './CapitalDetailsGeometry';
 import {createFountainGeometry} from './FountainGeometry';
 import {createDockGeometry} from './DockGeometry';
 import {STAIR_STEPS,STAIR_HALF_WIDTH} from './WalkSurface';
-import {FLAGSHIP_HULL} from '../../data/pirateFlagship';
+import {FLAGSHIP_HULL,FLAGSHIP_GANGPLANK} from '../../data/pirateFlagship';
 import {createLifeTreeGeometry} from './LifeTreeGeometry';
 import {createRockGeometry} from './RockGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
@@ -343,7 +343,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       m.beam([r,H*.58,z],[r+.12,H*.58,z],.018,wood,8);
       m.beam([r+.12,H*.58,z],[r+.12,H*.48,z],.015,metal,8);
   }else if(art==='stall'||art==='tent'){
-    for(const x of [-.44,.44])for(const z of [-D+.04,-.04])box(x-.022,x+.022,0,shape.streetStyle&&z<-D/2?H*.94:H*.78,z-.022,z+.022);
+    for(const x of [-.44,.44])for(const z of [-D+.04,-.04])box(x-.022,x+.022,0,shape.streetStyle?H*(z<-D/2?1.30:1.15):H*.78,z-.022,z+.022);
     if(shape.streetStyle)addCapitalCanopy(m,H,D);else roof(H*.72,H);
     if(art==='stall'){box(-.44,.44,0,H*.33,-D*.65,-.04);if(!shape.streetStyle)for(let i=0;i<4;i++)tube(-.29+i*.19,-D*.42,H*.33,H*.39,.07,.06,i%2?fabric:ivory);}
     else{m.quad([-.46,0,0],[-.46,0,-D],[-.46,H*.72,0],[-.46,H*.72,-D],fabric);m.quad([.46,0,-D],[.46,0,0],[.46,H*.72,-D],[.46,H*.72,0],fabric);box(-.46,.46,0,H*.72,-D,-D+.015,fabric);m.triangle([-.46,0,.01],[-.20,0,.01],[0,H,.01],fabric);m.triangle([.20,0,.01],[.46,0,.01],[0,H,.01],fabric);}
@@ -429,9 +429,10 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       m.beam([c[0]-sign*.015,.03,c[2]],[c[0]+sign*.05,.04,c[2]],.009,metal,8);
     }
     for(let i=0;i<hull.length;i++){const a=hull[i],b=hull[(i+1)%hull.length];m.quad(p(414+(a[0]-414)*.62,a[1],-.18),p(414+(b[0]-414)*.62,b[1],-.18),p(a[0],a[1],0),p(b[0],b[1],0),atlasMaterial('architecture',12,.60,.60));if(!(a[0]>630&&b[0]>630&&Math.min(a[1],b[1])<850&&Math.max(a[1],b[1])>740)){m.beam(p(a[0],a[1],.035),p(b[0],b[1],.035),.008,trim);m.beam(p(a[0],a[1],0),p(a[0],a[1],.05),.008,wood);}}
-    box((590-512)/1024,(1000-512)/1024,-.018,0,(780-768)/1024,(834-768)/1024);
+    const plank=FLAGSHIP_GANGPLANK;
+    box((plank.left-512)/1024,(plank.right-512)/1024,-.018,0,(plank.top-768)/1024,(plank.bottom-768)/1024);
 
-    for(const y of [787,827]){
+    for(const y of [plank.top+7,plank.bottom-7]){
       for(const x of [700,850,985])m.beam(p(x,y,0),p(x,y,.048),.005,brass,8);
       m.beam(p(692,y,.043),p(993,y,.043),.003,dark,6);
     }

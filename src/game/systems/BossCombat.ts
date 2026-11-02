@@ -10,7 +10,7 @@ import {BOSS_SKILL_BY_ENEMY} from '../../data/bossSkillEffects';
 import {TOWER_ROUND_FLOOR} from '../../data/towerRoom';
 import {BossPhaseState} from './BossPhaseState';
 import type {BossPhaseSnapshot} from '../types';
-import {worldHeight} from '../presentation25d/plane';
+import {worldHeight,isFirstPersonView} from '../presentation25d/plane';
 
 interface CommittedZone {
   area:AttackArea;at:number;duration:number;fired:boolean;hit:boolean;expired:boolean;warning:AttackTelegraph;
@@ -385,7 +385,7 @@ export class BossCombat {
   private approach(move:BossMove,delta:number){
     const e=this.enemy,body=e.body as Phaser.Physics.Arcade.Body,player=this.scene.player;
     const dx=player.x-e.x,dy=player.y-e.y,distance=Math.max(1,Math.hypot(dx,dy));
-    const desired=Math.min(this.profile.preferredRange,move.range*.76);
+    const desired=isFirstPersonView(this.scene)?Math.min(this.profile.preferredRange+18,move.range*.9):Math.min(this.profile.preferredRange,move.range*.76);
     const radial=Phaser.Math.Clamp((distance-desired)/65,-.65,1);
     const strafe=distance<desired+100?this.profile.strafe*(this.sequence%2===0?1:-1):0;
     let vx=dx/distance*radial-dy/distance*strafe,vy=dy/distance*radial+dx/distance*strafe;

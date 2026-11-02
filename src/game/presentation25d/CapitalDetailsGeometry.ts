@@ -76,7 +76,7 @@ export function addCapitalMarketStock(m:ModelMesh,shape:FurnitureShape,emission:
  for(const x of [-.40,-.13,.13,.40])box(x-.009,x+.009,y+.02,y+.065,-D*.62,-D*.12,dark);
  for(let i=0;i<8;i++){
   const a=-.52+i*1.04/8,b=a+1.04/8,mat=i%2?paper:style==='cloth-stall'||style==='book-stall'?blue:green;
-  m.extrude([[a,H*.78],[b,H*.78],[b,H*.72],[(a+b)/2,H*.695],[a,H*.72]],.021,.011,mat);
+  m.extrude([[a,H*1.15],[b,H*1.15],[b,H*1.09],[(a+b)/2,H*1.065],[a,H*1.09]],-D*.35+.021,-D*.35+.011,mat);
  }
  if(style==='cloth-stall'){
   for(let i=0;i<3;i++)roll(-.27+i*.27,-D*.36,y+.08,[green,blue,red][i]);
@@ -111,10 +111,13 @@ export function addCapitalCanopy(m:ModelMesh,H:number,D:number){
  const green=atlasMaterial('furnishings',5,.20,.28),cream=atlasMaterial('furnishings',4,.20,.28),wood=atlasMaterial('furnishings',0,.30,.20);
  for(let stripe=0;stripe<8;stripe++)for(let row=0;row<4;row++){
   const a=-.52+stripe*1.04/8,b=a+1.04/8,t=row/4,u=(row+1)/4;
-  const z=(t:number)=>-D-.025+t*(D+.05),y=(t:number)=>H*(.95-t*.17-Math.sin(t*Math.PI)*.023);
+  // Set the awning back over the working bay and raise its open front. From
+  // the normal town camera the merchant's face stays below the canvas edge.
+  const z=(t:number)=>-D-.025+t*(D*.65+.025),y=(t:number)=>H*(1.30-t*.15-Math.sin(t*Math.PI)*.023);
   m.quad([b,y(t),z(t)],[a,y(t),z(t)],[b,y(u),z(u)],[a,y(u),z(u)],stripe%2?cream:green);
  }
- for(const z of [-D-.025,.025])m.beam([-.53,z<0?H*.95:H*.78,z],[.53,z<0?H*.95:H*.78,z],.013,wood,4);
+ for(const [z,y] of [[-D-.025,H*1.30],[-D*.35,H*1.15]])m.beam([-.53,y,z],[.53,y,z],.013,wood,4);
+ for(const x of [-.44,.44])m.beam([x,H*1.15,-.04],[x,H*1.15,-D*.35],.018,wood,4);
 }
 
 /** Readable complete paintings, not repeating/cropped cloth swatches. */

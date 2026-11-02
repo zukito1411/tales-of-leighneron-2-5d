@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import {NPC_COMBAT_DIRECTIONS,npcCombatKey,NPC_ARROW_TEXTURE,NPC_ARROW_PATH,type NpcCombatSpec} from '../../data/npcCombatArt';
 import {npcCombatSourceKey,prepareNpcCombatSheetSteps,prepareNpcArrow} from './NpcCombatArt';
 import type {SpriteAnimation} from '../../data/animationPacks';
+import {prepareSpriteSubjects} from './SpriteSubjectPreparation';
+import type {ActorSpriteSubject} from './spriteComponents';
 const artOwners=new WeakMap<Phaser.Scene,Set<NpcCombatResidency>>();
 
 /** Shared loader, bounded cache. Never evict a sheet still used by a fighter
@@ -12,6 +14,7 @@ export class NpcCombatResidency {
   private readonly failures=new Map<string,number>();
   private loading:NpcCombatSpec|null=null;
   private preparing:{spec:NpcCombatSpec;steps:Generator<void,SpriteAnimation[]>}|null=null;
+  private segmenting:{spec:NpcCombatSpec;abort:AbortController}|null=null;
   private preparedFrame=-1;
   private disposed=false;
 
@@ -26,7 +29,7 @@ export class NpcCombatResidency {
       if(!spec.eager)this.resident.set(spec.id,spec);return true;
     }
     if(this.scene.time.now<(this.failures.get(spec.id)??0))return false;
-    if(this.loading?.id===spec.id||this.preparing?.spec.id===spec.id)return false;
+    if(this.loading?.id===spec.id||this.preparing?.spec.id===spec.id||this.segmenting?.spec.id===spec.id)return false;
     this.pending.set(spec.id,spec);return false;
   }
   update(){
@@ -51,10 +54,10 @@ export class NpcCombatResidency {
     // canvas repacking and GPU uploads each time the next party approached.
     // The six-atlas cap below still evicts an unused sheet when a new one needs
     // room, and destroy() releases everything on scene shutdown.
-    if(this.loading||this.scene.load.isLoading())return;
+    if(this.loading||this.segmenting||this.scene.load.isLoading())return;
     // Alice, story allies and road parties share the same texture namespace.
     // Serialize preparation too, not only downloads, to prevent partial reads.
-    for(const owner of artOwners.get(this.scene)??[])if(owner!==this&&(owner.loading||owner.preparing))return;
+    for(const owner of artOwners.get(this.scene)??[])if(owner!==this&&(owner.loading||owner.preparing||owner.segmenting))return;
     const spec=this.pending.values().next().value as NpcCombatSpec|undefined;if(!spec)return;
     if(this.scene.anims.exists(npcCombatKey(spec,'attack','down'))
       &&(spec.mode!=='bow'||this.scene.textures.exists(NPC_ARROW_TEXTURE))){
@@ -78,16 +81,35 @@ export class NpcCombatResidency {
     this.pending.delete(spec.id);
     try{
       if(spec.sources.some((_,i)=>!this.scene.textures.exists(npcCombatSourceKey(spec,i))))throw new Error('Missing source image');
-      this.preparing={spec,steps:this.prepare(spec)};
+      const job={spec,abort:new AbortController()};this.segmenting=job;
+      void this.isolate(spec,job.abort.signal).then(subjects=>{
+        if(this.disposed||this.segmenting!==job||job.abort.signal.aborted)return;
+        this.segmenting=null;this.preparing={spec,steps:this.prepare(spec,subjects)};
+      }).catch(error=>{
+        if(this.disposed||this.segmenting!==job)return;
+        this.segmenting=null;this.failed(spec,error);this.removeSources(spec);
+      });
     }catch(error){
       this.failed(spec,error);this.removeSources(spec);
     }
   }
-  private *prepare(spec:NpcCombatSpec):Generator<void,SpriteAnimation[]>{
-    const clips=this.scene.anims.exists(npcCombatKey(spec,'attack','down'))?[]:yield* prepareNpcCombatSheetSteps(this.scene,spec);
+  private async isolate(spec:NpcCombatSpec,signal:AbortSignal){
+    const subjects=new Map<number,ActorSpriteSubject[]>();
+    for(const [i,file] of spec.sources.entries()){
+      const image=this.scene.textures.get(npcCombatSourceKey(spec,i)).getSourceImage() as HTMLImageElement;
+      subjects.set(i,await prepareSpriteSubjects(this.scene,image,file.columns,file.rows,file.path,signal));
+    }
+    if(spec.mode==='bow'&&!this.scene.textures.exists(NPC_ARROW_TEXTURE)&&this.scene.textures.exists('npc-arrow-source')){
+      const image=this.scene.textures.get('npc-arrow-source').getSourceImage() as HTMLImageElement;
+      subjects.set(-1,await prepareSpriteSubjects(this.scene,image,1,1,'NPC arrow',signal));
+    }
+    return subjects;
+  }
+  private *prepare(spec:NpcCombatSpec,subjects:ReadonlyMap<number,ActorSpriteSubject[]>):Generator<void,SpriteAnimation[]>{
+    const clips=this.scene.anims.exists(npcCombatKey(spec,'attack','down'))?[]:yield* prepareNpcCombatSheetSteps(this.scene,spec,subjects);
     // Keep the arrow readback separate from the atlas upload.
     yield;
-    if(spec.mode==='bow'&&!this.scene.textures.exists(NPC_ARROW_TEXTURE))prepareNpcArrow(this.scene,'npc-arrow-source');
+    if(spec.mode==='bow'&&!this.scene.textures.exists(NPC_ARROW_TEXTURE))prepareNpcArrow(this.scene,'npc-arrow-source',subjects.get(-1)?.[0]);
     return clips;
   }
   private failed(spec:NpcCombatSpec,error:unknown){
@@ -111,6 +133,8 @@ export class NpcCombatResidency {
   }
   cancelPending(){
     this.pending.clear();
+    const segmenting=this.segmenting;
+    if(segmenting&&!this.referenced(segmenting.spec)){this.segmenting=null;segmenting.abort.abort();this.removeSources(segmenting.spec);}
     const job=this.preparing;
     if(job&&!this.referenced(job.spec)){
       this.preparing=null;job.steps.return([]);this.release(job.spec);this.removeSources(job.spec);
@@ -118,6 +142,7 @@ export class NpcCombatResidency {
   }
   destroy(){
     if(this.disposed)return;this.disposed=true;artOwners.get(this.scene)?.delete(this);
+    if(this.segmenting){const job=this.segmenting;this.segmenting=null;job.abort.abort();this.removeSources(job.spec);}
     this.scene.load.off(Phaser.Loader.Events.COMPLETE,this.complete,this);
     if(this.preparing){
       const job=this.preparing;this.preparing=null;job.steps.return([]);this.release(job.spec);this.removeSources(job.spec);

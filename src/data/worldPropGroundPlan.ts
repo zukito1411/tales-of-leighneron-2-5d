@@ -36,6 +36,8 @@ export function worldPropGroundPlan(texture:ArtTextureKey,index:number,w:number,
 }
 
 export function propPassageFootprints(art:FurnitureArt,depth:number):ReadonlyArray<readonly [number,number,number,number]> {
+  if(art==='stall')return [[-.44,.44,-depth*.65,-.04],
+    ...[-.44,.44].flatMap(x=>[-depth+.04,-.04].map(z=>[x-.022,x+.022,z-.022,z+.022] as const))];
   if(art==='arch'||art==='doorway'||art==='tower-door-open')return [[-.48,-.30,-depth,0],[.30,.48,-depth,0]];
   if(art==='fence')return [[-.48,.48,-depth*.7,-depth*.3]];
   if(art==='stairs')return [[-.48,-.43,-depth,0],[.43,.48,-depth,0]];
@@ -54,7 +56,7 @@ export function worldPropBodies(texture:ArtTextureKey,index:number,source:Rect,a
   const dx=source.left+plan.localX*w-originX,dy=source.top+plan.localY*h-originY;
   const x=originX+dx*actorCos-dy*actorSin,y=originY+dx*actorSin+dy*actorCos;
   const width=w*modelScale,heading=rotation+(plan.vertical?Math.PI/2:0),c=Math.cos(heading),s=Math.sin(heading);
-  const parts=art==='arch'||art==='fence'?propPassageFootprints(art,depth):[[-.46,.46,-depth,-.01] as const];
+  const parts=art==='arch'||art==='fence'||art==='stall'?propPassageFootprints(art,depth):[[-.46,.46,-depth,-.01] as const];
   const result:Rect[]=[];
   for(const [left,right,back,front] of parts){
     if(!bands){

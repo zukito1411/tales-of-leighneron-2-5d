@@ -11,6 +11,7 @@ uniform float time;
 uniform float daylight;
 uniform float night;
 uniform float cloudCover;
+uniform float lightningFlash;
 uniform vec3 sun;
 uniform vec3 zenith;
 uniform vec3 horizon;
@@ -57,7 +58,7 @@ void main(){
   color+=vec3(.25,.085,.015)*solarGlow;
   // Stars share the existing sky pass, behind the moon and cloud artwork.
   // They need no asset load, per-star object, CPU animation or extra draw.
-  if(night>.25&&ray.y>0.0){
+  if(night>.25&&ray.y>0.0&&cloudCover<.999){
     float visibility=smoothstep(.25,.95,night)*smoothstep(.01,.18,ray.y);
     color+=stars(ray)*visibility*pow(1.0-cloudCover,2.0);
   }
@@ -79,6 +80,7 @@ void main(){
       color=mix(color,detail*cloudLight,clamp(cloudAlpha,0.0,.95));
     }
   }
+  color+=vec3(.25,.48,.9)*lightningFlash;
   gl_FragColor=vec4(color,1.0);
   #include <colorspace_fragment>
 }`;
@@ -96,7 +98,8 @@ export class GpuSky {
   private readonly dayTop=new Color(0x4579aa);private readonly dayHorizon=new Color(0xaac9d1);
   private readonly nightTop=new Color(0x071023);private readonly nightHorizon=new Color(0x202c42);private readonly duskHorizon=new Color(0xd39b77);
   private readonly overcastHorizon=new Color(0x58616a);
-  private readonly uniforms={inverseProjection:{value:new Matrix4()},cameraRotation:{value:this.rotation},artwork:{value:this.texture},ready:{value:0},time:{value:0},daylight:{value:0},night:{value:0},cloudCover:{value:0},sun:{value:this.sun},zenith:{value:new Color()},horizon:{value:this.horizon}};
+  private readonly stormHorizon=new Color(0x182433);private readonly stormZenith=new Color(0x0b1423);
+  private readonly uniforms={inverseProjection:{value:new Matrix4()},cameraRotation:{value:this.rotation},artwork:{value:this.texture},ready:{value:0},time:{value:0},daylight:{value:0},night:{value:0},cloudCover:{value:0},lightningFlash:{value:0},sun:{value:this.sun},zenith:{value:new Color()},horizon:{value:this.horizon}};
   private readonly material:ShaderMaterial;
   private image:HTMLImageElement|null=null;private disposed=false;private started=false;
   private readonly reduced=window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -114,13 +117,16 @@ export class GpuSky {
   }
   update(camera:PerspectiveCamera,minute:number,night:number,weather:WeatherPresentation|undefined){
     this.load();sunDirection(minute,this.sun);
-    const day=1-night,cover=weather?.cloudCover??0,dusk=Math.max(0,1-Math.abs(this.sun.y)*5);
+    const storm=weather?.kind==='storm'?weather.strength:0;
+    const day=1-night,cover=weather?.kind==='storm'?1:weather?.cloudCover??0,dusk=Math.max(0,1-Math.abs(this.sun.y)*5);
     this.horizon.copy(this.nightHorizon).lerp(this.dayHorizon,day).lerp(this.duskHorizon,dusk*(1-cover)*.6);
     this.horizon.lerp(this.overcastHorizon,cover*.35);
     this.uniforms.zenith.value.copy(this.nightTop).lerp(this.dayTop,day).lerp(this.horizon,cover*.45);
+    this.horizon.lerp(this.stormHorizon,storm*.85);this.uniforms.zenith.value.lerp(this.stormZenith,storm*.9);
+    this.uniforms.lightningFlash.value=this.reduced.matches?0:(weather?.lightningFlash??0)*.65;
     this.uniforms.inverseProjection.value.copy(camera.projectionMatrixInverse);
     this.rotation.setFromMatrix4(camera.matrixWorld);
-    this.uniforms.daylight.value=day;this.uniforms.night.value=night;this.uniforms.cloudCover.value=cover;
+    this.uniforms.daylight.value=day*(1-storm*.7);this.uniforms.night.value=night;this.uniforms.cloudCover.value=cover;
     this.uniforms.time.value=this.reduced.matches?0:(weather?.elapsed??0)/1000;
   }
   render(renderer:WebGLRenderer){renderer.render(this.scene,this.camera);}

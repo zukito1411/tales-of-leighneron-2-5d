@@ -41,6 +41,8 @@ export function isSailingWater(world:WorldGenerator,x:number,y:number){
  * grounding at a shore; rivers and bridges never become sea traffic lanes. */
 export function seaRoute(world:WorldGenerator,cx:number,cy:number):TrafficRoute|null{
   const id=`boat:${cx}:${cy}`,rng=seededRandom(id);
+  // Sparse deterministic routes, rather than a boat for nearly every sea cell.
+  if(rng()>.22)return null;
   for(let attempt=0;attempt<16;attempt++){
     const a={x:(cx+.15+rng()*.7)*CHUNK_SIZE,y:(cy+.15+rng()*.7)*CHUNK_SIZE};
     const angle=rng()*Math.PI*2,length=420+rng()*420,dx=Math.cos(angle),dy=Math.sin(angle);

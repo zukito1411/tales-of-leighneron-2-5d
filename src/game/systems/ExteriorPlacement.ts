@@ -56,7 +56,7 @@ export class ExteriorPlacement {
       }else{
         // Keep the source contact contours as well as the modeled volume,
         // matching the bodies created when this same actor is streamed in.
-        for(const polygon of profile?.solids??[])solids.push(...rotated(polygon.map(([x,y])=>
+        for(const polygon of worldPropKind(texture,d.frame)==='stall'?[]:profile?.solids??[])solids.push(...rotated(polygon.map(([x,y])=>
           [source.left+x*(source.right-source.left),source.top+y*(source.bottom-source.top)] as GroundPoint)));
         if(architecture&&!architecture.board){
           const width=artFrameSize(texture,d.frame).width*scale,tiers=architecture.tiers;
@@ -86,14 +86,16 @@ export class ExteriorPlacement {
   }
   /** Full character silhouette clearance, including structures not yet
    * streamed. No per-frame iteration over the world's authored content. */
-  blocksNpc(p:Vec2,excludeId?:string,standing=false){
+  blocksNpc(p:Vec2,excludeId?:string,standing=false,workplaceId?:string){
     if(fortificationBlocksPoint(p.x,p.y,standing?44:30)||highmereBridgeRailsBlock(p,p,30))return true;
     const feet={left:p.x-24,right:p.x+24,top:p.y-28,bottom:p.y+8};
     const person={left:p.x-30,right:p.x+30,top:p.y-96,bottom:p.y+8};
     return this.index.any(person,o=>o.id!==excludeId&&(
       o.solids.some(s=>overlaps(feet,s))||
       Boolean(standing&&o.rest&&overlaps(person,o.rest))||
-      Boolean(o.front&&o.footY>p.y&&overlaps(person,o.front!))));
+      // An assigned merchant may stand under their own awning. Its posts and
+      // counter above still collide, as do every neighboring shop and roof.
+      Boolean(o.id!==workplaceId&&o.front&&o.footY>p.y&&overlaps(person,o.front!))));
   }
   /** Public access uses player-sized swept feet and physical supports only.
    * Standing exclusions must never seal an otherwise open gateway. */

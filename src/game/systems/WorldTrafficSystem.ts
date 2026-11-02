@@ -53,6 +53,9 @@ export class WorldTrafficSystem {
       for(const [key] of this.sea)if(!nearby.has(key))this.sea.delete(key);
       for(const key of nearby)if(!this.sea.has(key)){const [x,y]=key.split(':').map(Number);this.sea.set(key,seaRoute(this.world,x,y));}
       this.routes=[...this.sea.values()].filter((r):r is TrafficRoute=>Boolean(r));
+      // Retain already visible boats when a neighboring sea cell streams in.
+      // The cap must not replace all three vessels on every boundary crossing.
+      this.routes.sort((a,b)=>Number(this.active.has(b.id))-Number(this.active.has(a.id))||a.id.localeCompare(b.id));
     }
     const wanted=new Set<string>(),passageFrom=useGameStore.getState().passage?.from;
     for(const port of PORTS){
@@ -62,9 +65,11 @@ export class WorldTrafficSystem {
       if(!boat){boat=this.createVessel(id,port.boat.x,port.boat.y,port.river?.8:BOAT_SCALE);this.active.set(id,boat);}
       this.presentBoat(boat,port.boat.x,port.boat.y,0,-1,3,false);
     }
+    let sailing=0;
     for(const route of this.routes){
       const point=routePosition(route,this.elapsed);
       if(point.x<view.x-320||point.x>view.right+320||point.y<view.y-240||point.y>view.bottom+420)continue;
+      if(sailing>=3)continue;sailing++;
       wanted.add(route.id);
       let vehicle=this.active.get(route.id);
       if(!vehicle){vehicle=this.create(route,point.x,point.y);this.active.set(route.id,vehicle);}

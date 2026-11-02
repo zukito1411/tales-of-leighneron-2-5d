@@ -1,7 +1,7 @@
 import {PerspectiveCamera,Raycaster,Vector2,Vector3} from 'three';
 import type Phaser from 'phaser';
 import {mobileInput} from '../input';
-import {getCameraSettings,CAMERA_SETTINGS_EVENT} from './cameraSettings';
+import {getCameraSettings,toggleCameraMode,CAMERA_SETTINGS_EVENT} from './cameraSettings';
 import {VIEW_DISTANCE} from './environment';
 
 const RAD=Math.PI/180;
@@ -16,6 +16,8 @@ export class OrbitCamera {
   private readonly nextFocus=new Vector3();
   private readonly lookTarget=new Vector3();
   private combatLocked=false;
+  firstPerson=false;private savedPitch=42*RAD;
+  private readonly crosshair:HTMLDivElement;
   private wasLocked=false;private releasing=false;
   private readonly altKeys=new Set<string>();
   private resumeCapture=false;private destroyed=false;
@@ -32,6 +34,9 @@ export class OrbitCamera {
     this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · R lock · Esc to release';
     Object.assign(this.hint.style,{position:'absolute',left:'50%',top:'12px',transform:'translateX(-50%)',zIndex:'8',padding:'7px 12px',background:'#18201ee6',color:'#f2e6c7',border:'1px solid #8b7954',borderRadius:'5px',fontSize:'12px',cursor:'pointer'});
     this.hint.hidden=true;parent.append(this.hint);this.hint.addEventListener('click',this.capture);
+    this.crosshair=document.createElement('div');this.crosshair.setAttribute('aria-label','First-person aim');
+    this.crosshair.textContent='·';this.crosshair.hidden=true;
+    Object.assign(this.crosshair.style,{position:'absolute',left:'50%',top:'50%',transform:'translate(-50%,-50%)',color:'#f4eee0',font:'32px Georgia',textShadow:'0 0 3px #000',pointerEvents:'none',zIndex:'6'});parent.append(this.crosshair);
     this.hint.textContent='Mouse look · click to capture · hold Alt for cursor · R lock · Esc to release';
     canvas.addEventListener('pointerdown',this.down);canvas.addEventListener('pointermove',this.touchMove);canvas.addEventListener('pointerup',this.up);canvas.addEventListener('pointercancel',this.up);
     canvas.addEventListener('wheel',this.wheel,{passive:false});canvas.addEventListener('contextmenu',this.contextMenu);
@@ -52,6 +57,11 @@ export class OrbitCamera {
   private readonly clearControls=()=>{this.altKeys.clear();this.resumeCapture=false;this.release();};
   private readonly visibilityChanged=()=>{if(document.hidden)this.clearControls();};
   private readonly keyDown=(event:KeyboardEvent)=>{
+    if(event.code==='KeyV'&&!event.repeat&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&this.controlsAllowed()){
+      const element=event.target as HTMLElement|null;
+      if(element?.isContentEditable||element?.closest('input,textarea,select'))return;
+      event.preventDefault();mobileInput.setAttackHeld(false);toggleCameraMode();return;
+    }
     if(event.code!=='AltLeft'&&event.code!=='AltRight')return;
     if(!this.enabled&&!this.locked&&!this.altKeys.size)return;
     event.preventDefault();
@@ -80,7 +90,7 @@ export class OrbitCamera {
     if(this.combatLocked)return;
     const scale=.0025*this.settings.sensitivity;
     this.targetYaw-=Math.max(-140,Math.min(140,dx))*scale;
-    this.targetPitch=Math.max(-60*RAD,Math.min(75*RAD,this.targetPitch+dy*scale*(this.settings.invertY?-1:1)));
+    this.targetPitch=Math.max((this.firstPerson?-85:-60)*RAD,Math.min((this.firstPerson?85:75)*RAD,this.targetPitch+dy*scale*(this.settings.invertY?-1:1)));
   }
   private readonly mouseMove=(event:MouseEvent)=>{if(this.enabled&&!this.altKeys.size&&this.locked&&this.controlsAllowed())this.rotate(event.movementX,event.movementY);};
   private readonly mouseUp=()=>{mobileInput.setAttackHeld(false);};
@@ -90,7 +100,7 @@ export class OrbitCamera {
     touch.moved ||=Math.hypot(touch.x-touch.startX,touch.y-touch.startY)>6;
     if(this.touches.size===1&&touch.moved)this.rotate(dx,dy);
     else if(this.touches.size===2){const points=[...this.touches.values()],distance=Math.hypot(points[0].x-points[1].x,points[0].y-points[1].y);
-      if(this.touchDistance>0)this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*this.touchDistance/Math.max(20,distance)));
+      if(this.touchDistance>0&&!this.firstPerson)this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*this.touchDistance/Math.max(20,distance)));
       this.touchDistance=distance;for(const point of points)point.moved=true;
     }
   };
@@ -98,12 +108,19 @@ export class OrbitCamera {
     if(touch&&!touch.moved&&event.type!=='pointercancel')this.pick(event);
     if(this.canvas.hasPointerCapture(event.pointerId))this.canvas.releasePointerCapture(event.pointerId);
   };
-  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
+  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();if(this.firstPerson)return;this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
-    lockedTarget?:{x:number;y:number}){
+    lockedTarget?:{x:number;y:number},eyeHeight?:number){
+    const firstPerson=this.settings.mode==='first-person'&&eyeHeight!==undefined;
+    if(firstPerson!==this.firstPerson){
+      if(firstPerson){this.savedPitch=this.targetPitch;this.pitch=this.targetPitch=0;}
+      else this.pitch=this.targetPitch=this.savedPitch;
+      this.firstPerson=firstPerson;this.initialized=false;
+    }
+    this.crosshair.hidden=!firstPerson||!enabled;
     if(this.enabled&&!enabled){if(!this.altKeys.size)this.resumeCapture=false;this.release();}this.enabled=enabled;
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
-    this.combatLocked=enabled&&Boolean(lockedTarget);
+    this.combatLocked=enabled&&Boolean(lockedTarget)&&!firstPerson;
     if(this.combatLocked&&lockedTarget){
       const desired=Math.atan2(target.x-lockedTarget.x,target.y-lockedTarget.y);
       this.targetYaw=this.yaw+Math.atan2(Math.sin(desired-this.yaw),Math.cos(desired-this.yaw));
@@ -123,12 +140,17 @@ export class OrbitCamera {
     // A bounded frustum keeps terrain streaming finite on ultrawide displays.
     const distance=Math.max(MIN_DISTANCE,Math.min(1350,1900/Math.max(1,native.width/native.height),base*this.zoom));
     this.camera.aspect=native.width/native.height;
+    this.camera.fov=firstPerson?this.settings.firstPersonFov:38;this.camera.near=firstPerson ? .35 : 2;
     const orbitPitch=Math.max(8*RAD,this.pitch);
     const horizontal=distance*Math.cos(orbitPitch),vertical=distance*Math.sin(orbitPitch);
     this.camera.position.set(this.focus.x+horizontal*Math.sin(this.yaw),this.focus.y+vertical,this.focus.z+horizontal*Math.cos(this.yaw));
     // Only scenery obstructing the player fades in the presentation collector.
     // Keep the player's chosen orbit distance instead of zooming at wall edges.
-    if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
+    if(firstPerson){
+      this.camera.position.set(target.x,ground+eyeHeight!,target.y);
+      this.lookTarget.copy(this.camera.position).add(this.nextFocus.set(-Math.sin(this.yaw)*Math.cos(this.pitch),-Math.sin(this.pitch),-Math.cos(this.yaw)*Math.cos(this.pitch)));
+      this.camera.lookAt(this.lookTarget);
+    }else if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
     else{
       this.lookTarget.copy(this.camera.position).add(this.nextFocus.set(-Math.sin(this.yaw)*Math.cos(this.pitch),-Math.sin(this.pitch),-Math.cos(this.yaw)*Math.cos(this.pitch)));
       this.camera.lookAt(this.lookTarget);
@@ -163,7 +185,7 @@ export class OrbitCamera {
   }
   destroy(){
     this.destroyed=true;this.enabled=false;
-    this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();
+    this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();this.crosshair.remove();
     this.canvas.removeEventListener('pointerdown',this.down);this.canvas.removeEventListener('pointermove',this.touchMove);this.canvas.removeEventListener('pointerup',this.up);this.canvas.removeEventListener('pointercancel',this.up);
     this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('contextmenu',this.contextMenu);
     document.removeEventListener('mousemove',this.mouseMove);document.removeEventListener('mouseup',this.mouseUp);document.removeEventListener('pointerlockchange',this.lockChanged);

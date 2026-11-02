@@ -17,8 +17,9 @@ import { PlayerSkillSystem } from '../systems/PlayerSkillSystem';
 import { RecoverySystem } from '../systems/RecoverySystem';
 import { approachVelocity, strideRate } from '../systems/locomotion';
 import {localPlayCheatsEnabled} from '../../utils/localPlayCheats';
-import {screenMovement,viewDirection,worldHeight,onPlane} from '../presentation25d/plane';
+import {screenMovement,viewDirection,worldHeight,onPlane,firstPersonAim} from '../presentation25d/plane';
 import {actorAimDirection,type ActorDirection} from '../../data/directionalEnemyArt';
+import {meleeReach} from '../systems/combatSpacing';
 
 export class Player extends DepthSortedSprite {
   readonly moveSpeed = 165;
@@ -50,6 +51,9 @@ export class Player extends DepthSortedSprite {
   private comboExpiresAt=0;
   private comboWeaponId='';
   private pendingBasicAttack:{weapon:WeaponDefinition;direction:Phaser.Math.Vector2;step:BasicAttackStep;startedAt:number;impactAt:number;activeUntil:number;endsAt:number;hitIds:Set<string>;emitted:boolean;lungeDistance:number;lungeTravelled:number}|null=null;
+  get presentationAttack(){return this.pendingBasicAttack;}
+  get presentationAttackStep(){return this.attackStep;}
+  ownsPresentation(object:Phaser.GameObjects.GameObject){return object===this||object===this.attackVisual||object===this.skills.weaponActor||object===this.shadowVisual;}
   private attackQueuedUntil=0;
   private nextDashAt = 0;
   private nextFootstepAt = 0;
@@ -203,12 +207,14 @@ export class Player extends DepthSortedSprite {
     let x = (this.keys.right.isDown ? 1 : 0) - (this.keys.left.isDown ? 1 : 0) + mobileInput.moveX;
     let y = (this.keys.down.isDown ? 1 : 0) - (this.keys.up.isDown ? 1 : 0) + mobileInput.moveY;
     const movement=this.movement;screenMovement(scene,x,y,movement);
+    const firstPerson=firstPersonAim(scene,this.screenFacing);
     if (movementLocked) movement.set(0,0);
     if (movement.lengthSq() > 1) movement.normalize();
     x = movement.x;
     y = movement.y;
 
-    if (movement.lengthSq() > 0.01) {
+    if (firstPerson&&!movementLocked) this.lastDirection.set(this.screenFacing.x,this.screenFacing.y);
+    else if (!firstPerson&&movement.lengthSq() > 0.01) {
       this.lastDirection.copy(movement).normalize();
     }
 
@@ -222,7 +228,7 @@ export class Player extends DepthSortedSprite {
       this.nextDashAt = time + dodge.cooldownMs;
       this.dashUntil = time + dodge.durationMs;
       this.invulnerableUntil = time + dodge.invulnerableMs;
-      this.dashDirection.copy(this.lastDirection);
+      this.dashDirection.copy(firstPerson&&movement.lengthSq()>.01?movement:this.lastDirection).normalize();
       this.nextDashTrailAt = time;
       scene.recordTraining('drill-dash');
       scene.shakeCombatCamera(75, 0.0015);
@@ -276,7 +282,7 @@ export class Player extends DepthSortedSprite {
     if (this.attackVisual?.active) setDepthIfChanged(this.attackVisual,this.depth).setPosition(this.x,this.y);
 
     const lockedTarget=scene.targeting.lockedTarget;
-    if(lockedTarget&&!movementLocked&&!dashing)this.lastDirection.set(lockedTarget.x-this.x,lockedTarget.y-this.y).normalize();
+    if(lockedTarget&&!firstPerson&&!movementLocked&&!dashing)this.lastDirection.set(lockedTarget.x-this.x,lockedTarget.y-this.y).normalize();
     const equippedArts=slottedActiveSkills(state.skillSlots);
     for (const action of ['skill1','skill2','skill3','skill4'] as const) {
       const touchPressed = mobileInput.consume(action);
@@ -321,8 +327,10 @@ export class Player extends DepthSortedSprite {
       const cooldown = weapon.cooldownMs * progression.cooldownMultiplier * step.recoveryMultiplier;
       if (this.spendStamina(basicAttackStamina(weapon.staminaCost,step))) {
         const direction=this.lastDirection.clone().normalize();
-        const target=scene.targeting.meleeTarget(weapon.reach+32,direction);
-        if(target)direction.set(target.x-this.x,target.y-this.y).normalize();
+        const reach=meleeReach(scene,weapon.reach,weapon.kind);
+        const candidate=scene.targeting.meleeTarget(reach+32,direction);
+        const target=candidate&&(!firstPerson||(candidate.x-this.x)*direction.x+(candidate.y-this.y)*direction.y>=Math.hypot(candidate.x-this.x,candidate.y-this.y)*.85)?candidate:null;
+        if(target&&!firstPerson)direction.set(target.x-this.x,target.y-this.y).normalize();
         if(direction.lengthSq()===0)direction.set(0,1);
         this.lastDirection.copy(direction);this.attackQueuedUntil=0;
         this.nextAttackAt = time + cooldown;
@@ -331,7 +339,10 @@ export class Player extends DepthSortedSprite {
         this.comboWeaponId=weapon.id;
         this.recovery.interrupt();
         const impactAt=time+cooldown*step.impactFraction;
-        const lungeDistance=target?Math.min(step.lungeDistance,Math.max(0,Math.hypot(target.x-this.x,target.y-this.y)-(target.definition.bodyRadius??12)-16)):step.lungeDistance;
+        // First person keeps the real blade's outer reach instead of driving
+        // the eye camera into a foe's chest on every buffered swing.
+        const gap=target?Math.max((target.definition.bodyRadius??12)+16,firstPerson?Math.min(88,reach*.92):0):0;
+        const lungeDistance=target?Math.min(step.lungeDistance,Math.max(0,Math.hypot(target.x-this.x,target.y-this.y)-gap)):step.lungeDistance;
         this.pendingBasicAttack={weapon,direction,step,startedAt:time,impactAt,activeUntil:Math.min(time+cooldown-20,impactAt+step.activeMs),endsAt:time+cooldown,hitIds:new Set(),emitted:false,lungeDistance,lungeTravelled:0};
         if (weapon.kind === 'sword' || weapon.kind === 'greatsword') this.playSwordVisual(cooldown,stepIndex);
       }
@@ -501,6 +512,7 @@ export class Player extends DepthSortedSprite {
       .setOrigin(this.originX, this.originY).setScale(this.scaleX, this.scaleY)
       .setFlipX(this.flipX).setTint(0x9debdc).setAlpha(0.38).setBlendMode(Phaser.BlendModes.ADD)
       .setDepth((this.scene as WorldScene).playerRenderDepth(this.y) - 1).setName('player-dash-afterimage');
+    trail.setData('hideInFirstPerson',true);
     onPlane(trail,'upright',{get x(){return trail.x;},get y(){return trail.y;},presentationElevation:this.presentationElevation});
     this.scene.tweens.add({ targets: trail, alpha: 0, x: trail.x - this.dashDirection.x * 18,
       y: trail.y - this.dashDirection.y * 18, duration: 180, onComplete: () => trail.destroy() });
