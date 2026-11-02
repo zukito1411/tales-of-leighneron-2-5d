@@ -8,6 +8,11 @@ import {awakenedProfile} from '../../data/awakening';
 import type Phaser from 'phaser';
 import type {WorldScene} from '../scenes/WorldScene';
 
+// Shared by every normal and awakened sword loaded into the first-person rig.
+// Keep the grip/guard region fixed; lengthen only the exposed blade.
+const FIRST_PERSON_BLADE_START=.24;
+const FIRST_PERSON_BLADE_LENGTH_SCALE=1.6;
+
 /** Approved weapon painting mapped onto a ridged blade and rounded grip.
  * A single native-resolution crop is decoded only on entering this view or
  * changing equipment. One loaded mesh plus one cancellable job, never a cache
@@ -150,10 +155,10 @@ function bladeGeometry(pixels:Uint8ClampedArray,width:number,height:number,sourc
   const bladeAxisX=Math.sin(source.nativeAngle),bladeAxisY=Math.cos(source.nativeAngle);
   const vertex=(x:number,y:number,z:number,u:number,v:number,shade:number)=>{
     const localX=(x-source.gripX)/length,localY=(source.gripY-y)/length;
-    // Extend the exposed blade 18% along its registered grip-to-tip axis.
+    // Extend the exposed blade 60% along its registered grip-to-tip axis.
     // Preserve the lower quarter for the grip, guard and their ornamentation;
     // diagonal/curved artwork keeps its width, thickness and hand registration.
-    const extension=Math.max(0,localX*bladeAxisX+localY*bladeAxisY-.24)*.18;
+    const extension=Math.max(0,localX*bladeAxisX+localY*bladeAxisY-FIRST_PERSON_BLADE_START)*(FIRST_PERSON_BLADE_LENGTH_SCALE-1);
     positions.push(localX+bladeAxisX*extension,localY+bladeAxisY*extension,z);uv.push(u,1-v);colors.push(shade,shade,shade);
   };
   const opaque=(x:number,y:number)=>x>=0&&y>=0&&x<width&&y<height&&pixels[(Math.floor(y)*width+Math.floor(x))*4+3]>100;
