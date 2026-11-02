@@ -25,7 +25,7 @@ interface Cast {
   barrageTargets?:Enemy[];barrageSlash?:Phaser.GameObjects.Sprite;
   viewFacing?:ActorDirection;
   effectColor?:number;weaponId:string;
-  target?:Enemy;nextAimAt:number;targetRange?:number;landingAim?:Vec2;
+  target?:Enemy;nextAimAt:number;targetRange?:number;landingAim?:Vec2;lockedAim:boolean;
 }
 interface EmberField {point:Vec2;elapsed:number;nextPulse:number;skill:ActiveSkillDefinition;visual:Phaser.GameObjects.Sprite;effectColor?:number;weaponId:string;roots:Map<Enemy,Phaser.GameObjects.Sprite>}
 interface SlashWave {sprite:Phaser.GameObjects.Sprite;direction:Phaser.Math.Vector2;remaining:number;skill:ActiveSkillDefinition;multiplier:number;effectColor?:number;weaponId:string}
@@ -77,14 +77,16 @@ export class PlayerSkillSystem {
       this.scene.notify(`${skill.name} is recovering (${Math.ceil(this.cooldowns[id] / 1000)}s).`);
       return false;
     }
-    const barrageTargets=id==='barrage'?this.collectBarrageTargets(skill.targetingRange!):undefined;
-    if(barrageTargets&&!barrageTargets.length){this.scene.notify('No reachable enemies in Barrage range.');return false;}
+    const locked=this.scene.targeting.lockedTarget;
+    const lockedAim=isFirstPersonView(this.scene)&&Boolean(locked);
     const targetRange=id==='skyfall-slam'||id==='iron-tempest'?TargetingSystem.breakRange:skill.targetingRange;
-    const target=targetRange?this.scene.targeting.skillTarget(targetRange):null;
-    const selected=this.scene.targeting.lockedTarget??this.scene.targeting.selected;
-    if(targetRange&&id!=='barrage'&&selected?.active&&selected.isAlive&&!target){
+    const target=targetRange?this.scene.targeting.skillTarget(targetRange,lockedAim):null;
+    const selected=locked??this.scene.targeting.selected;
+    if(targetRange&&(id!=='barrage'||lockedAim)&&selected?.active&&selected.isAlive&&!target){
       this.scene.notify(`${skill.name}: target is out of range or behind cover.`);return false;
     }
+    const barrageTargets=id==='barrage'?this.collectBarrageTargets(skill.targetingRange!,lockedAim?target:null):undefined;
+    if(barrageTargets&&!barrageTargets.length){this.scene.notify('No reachable enemies in Barrage range.');return false;}
     if(target&&(id==='ember-cleave'||id==='skyfall-slam')&&!this.scene.safeSkillPosition(target)){
       this.scene.notify(`${skill.name}: no safe ground at the target.`);return false;
     }
@@ -123,7 +125,7 @@ export class PlayerSkillSystem {
     const rushDistance=id==='iron-tempest'&&target
       ?Math.max(0,Math.hypot(target.x-start.x,target.y-start.y)-(isFirstPersonView(this.scene)?(target.definition.boss?96:82):(target.definition.boss?52:38)))
       :160;
-    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets,target:target??undefined,nextAimAt:0,targetRange,landingAim:landing?{...mark}:undefined };
+    this.cast = { skill,elapsed:0,nextHit:0,direction,visual,start,landing,shadow,mark,rushDistance,rushTravelled:0,effectColor,weaponId:state.weaponId,barrageTargets,target:target??undefined,nextAimAt:0,targetRange,landingAim:landing?{...mark}:undefined,lockedAim };
     if(barrageTargets)this.cast.barrageSlash=this.scene.add.sprite(start.x,start.y,'effect_slash',0)
       .setVisible(false).setDisplaySize(100,100).setBlendMode(Phaser.BlendModes.ADD);
     this.updateFlurryTargets();
@@ -231,7 +233,7 @@ export class PlayerSkillSystem {
       } else if(cast.skill.id==='azure-cleave') {
         // Reacquire at release, then freeze flight direction: never home or
         // apply melee damage before the traveling wave actually connects.
-        const target=cast.target&&this.scene.targeting.eligible(cast.target,cast.skill.targetingRange??620)?cast.target:null;
+        const target=cast.target&&this.scene.targeting.skillEligible(cast.target,cast.skill.targetingRange??620,cast.lockedAim)?cast.target:null;
         if(target){cast.direction.set(target.x-this.player.x,target.y-this.player.y).normalize();this.scene.targeting.selected=target;}
         this.player.lastDirection.copy(cast.direction);
         cast.visual?.setFlipX(viewDirection(this.scene,cast.direction.x,cast.direction.y,this.visualAim).x<0);
@@ -305,12 +307,14 @@ export class PlayerSkillSystem {
   }
 
   // One bounded snapshot per cast; no target scans or sprite allocation per frame.
-  private collectBarrageTargets(range:number):Enemy[]{
+  private collectBarrageTargets(range:number,primary:Enemy|null=null):Enemy[]{
     const targets:Enemy[]=[];
+    if(primary&&this.scene.targeting.skillEligible(primary,range,true))targets.push(primary);
+    const firstCandidate=targets.length;
     for(const enemy of this.scene.getCombatEnemies()){
-      if(!this.scene.targeting.eligible(enemy,range))continue;
+      if(enemy===primary||!this.scene.targeting.eligible(enemy,range))continue;
       const distance=Phaser.Math.Distance.Squared(this.player.x,this.player.y,enemy.x,enemy.y);
-      let index=0;
+      let index=firstCandidate;
       while(index<targets.length&&Phaser.Math.Distance.Squared(this.player.x,this.player.y,targets[index].x,targets[index].y)<distance)index++;
       if(index<6){targets.splice(index,0,enemy);if(targets.length>6)targets.pop();}
     }

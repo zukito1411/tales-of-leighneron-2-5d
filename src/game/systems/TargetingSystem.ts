@@ -65,10 +65,18 @@ export class TargetingSystem {
     return eligible;
   }
   /** Tracking attention never overrides attack range, cover or vulnerability. */
-  skillTarget(range:number){
+  skillEligible(enemy:Enemy,range:number,lockedAim=false){
+    if(!lockedAim)return this.eligible(enemy,range);
+    const p=this.scene.player,dx=enemy.x-p.x,dy=enemy.y-p.y;
+    // An explicitly commanded lock is already known. Darkness, camera angle
+    // and reticle position must not turn it back into an automatic sight probe.
+    return enemy.active&&enemy.visible&&enemy.isAlive&&enemy.canBeTargeted
+      &&dx*dx+dy*dy<=range*range&&this.scene.hasClearPath(p.x,p.y,enemy.x,enemy.y);
+  }
+  skillTarget(range:number,lockedAim=false){
     const locked=this.lockedTarget;
     // A temporarily obstructed/out-of-range lock must never redirect an art.
-    if(locked)return this.eligible(locked,range)?locked:null;
+    if(locked)return this.skillEligible(locked,range,lockedAim)?locked:null;
     const selected=this.selected;
     return selected&&this.eligible(selected,range)?selected:this.nearest(range);
   }
