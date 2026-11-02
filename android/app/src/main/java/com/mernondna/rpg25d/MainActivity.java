@@ -19,7 +19,7 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
         if(gameAssets.enabled)bridge.setWebViewClient(new BridgeWebViewClient(bridge){
             @Override public WebResourceResponse shouldInterceptRequest(WebView view,WebResourceRequest request){
-                if(bridge.getHost().equals(request.getUrl().getHost())){
+                if(MainActivity.this.bridge.getHost().equals(request.getUrl().getHost())){
                     WebResourceResponse local=gameAssets.serve(request);if(local!=null)return local;
                 }
                 return super.shouldInterceptRequest(view,request);
