@@ -62,6 +62,7 @@ type ImageObject=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite|Phaser.GameO
 type DrawingObject=ImageObject|Phaser.GameObjects.Graphics|Phaser.GameObjects.Shape|Phaser.GameObjects.TileSprite;
 interface LocalRect {left:number;top:number;width:number;height:number}
 interface StaticPacket {
+  name:string;plane:PresentationPlane;
   frame:Phaser.Textures.Frame;hint:PresentationHint|undefined;source:Phaser.Textures.TextureSource;texture:Texture;
   x:number;y:number;scaleX:number;scaleY:number;rotation:number;originX:number;originY:number;depth:number;
   alpha:number;flipX:boolean;flipY:boolean;fillTint:boolean;blendMode:Phaser.GameObjects.Image['blendMode'];mask:Phaser.GameObjects.Image['mask'];billboard:boolean;ground:boolean;interior:boolean;key:string;
@@ -109,6 +110,7 @@ export class ThreePresentation {
   private readonly viewProjection=new Matrix4();
   private readonly clipModel=new Matrix4();
   private staticModelHits=0;private staticModelBuilds=0;
+  private cachedDispatchHits=0;
   private readonly staticPackets=new WeakMap<Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,StaticPacket>();
   private readonly world=new Scene();
   private readonly background=new Scene();
@@ -430,7 +432,7 @@ export class ThreePresentation {
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
       gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
-      staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds},shadowModels:this.gpuShadows.stats()};
+      staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds,dispatchHits:this.cachedDispatchHits},shadowModels:this.gpuShadows.stats()};
     this.game.registry.set('presentationPerf',result);
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
@@ -472,6 +474,11 @@ export class ThreePresentation {
     const explicit=object.getData(PRESENTATION_HINT) as PresentationHint|undefined;
     if(this.orbit.firstPerson&&this.firstPersonPlayer&&(this.firstPersonPlayer.ownsPresentation(object)
       ||explicit?.anchor===this.firstPersonPlayer&&!explicit.combat||object.getData('hideInFirstPerson')))return;
+    // A prepared static packet already owns its plane, source, geometry and
+    // batch identity. Validate it before repeating the general classification
+    // and attachment discovery used by changing actors and effects.
+    if(!inherited&&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite)
+      &&this.collectCached(object,camera,alpha,explicit))return;
     if(object instanceof Phaser.GameObjects.Container){
       const hint=explicit??inherited??{plane:'upright'};
       const matrix=object.getWorldTransformMatrix(this.transform,this.parentTransform);
@@ -493,8 +500,7 @@ export class ThreePresentation {
     const wallDepth=!emissionOwner&&!hint?.overlay?hint?.wall?.thickness??0:0;
     const volumeDepth=houseVolume?house!.depth:wallDepth;
     const staticImage=(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite&&Boolean(house||furniture))&&staticSpatialIndex(object.scene).has(object)
-      &&!object.parentContainer&&!hint?.anchor&&!hint?.overlay&&!hint?.fixture&&!hint?.beam&&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset&&!hint?.combat
-      &&!object.isCropped&&(plane==='ground'||plane==='upright'&&(Boolean(house||furniture)||!object.input?.enabled));
+      &&!emissionOwner&&this.staticCompatible(object,hint,plane,Boolean(house||furniture));
     if(staticImage&&this.collectStatic(object,camera,alpha,hint))return;
     // Conservative early culling. The old code rasterized offscreen Graphics
     // and calculated matrices/elevation for offscreen sprites before inView().
@@ -755,7 +761,7 @@ export class ThreePresentation {
     if(staticImage&&source){
       if(houseVolume||furnitureVolume)this.staticModelBuilds++;
       this.staticPackets.set(object,{
-      frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
+      name:object.name,plane,frame:object.frame,hint,source,texture,x:object.x,y:object.y,scaleX:object.scaleX,scaleY:object.scaleY,
       rotation:object.rotation,originX:object.originX,originY:object.originY,depth:object.depth,
       alpha:alpha*camera.alpha,flipX:object.flipX,flipY:object.flipY,fillTint:object.tintFill,blendMode:object.blendMode,mask:object.mask,billboard,ground:followsTerrain,interior:this.interior,key,
       modelState:houseVolume||furnitureVolume?captureModelState(object,hint):undefined,
@@ -804,9 +810,22 @@ export class ThreePresentation {
     for(let column=0;column<3;column++){const i=column*4,a=e[i],b=e[i+2];e[i]=a*c+b*s;e[i+2]=-a*s+b*c;}
     const a=e[12]-x,b=e[14]-z;e[12]=x+a*c+b*s;e[14]=z-a*s+b*c;
   }
-  private collectStatic(object:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined){
+  private staticCompatible(object:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,hint:PresentationHint|undefined,plane:PresentationPlane,volume:boolean){
+    return !object.parentContainer&&!object.isCropped&&!hint?.anchor&&!hint?.overlay&&!hint?.fixture&&!hint?.beam
+      &&!hint?.worldDirection&&!hint?.wall&&!hint?.depthOffset&&!hint?.combat
+      &&(plane==='ground'||plane==='upright'&&(volume||!object.input?.enabled));
+  }
+  private collectCached(object:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined){
     const packet=this.staticPackets.get(object);
-    if(!packet||packet.billboard&&object.input?.enabled||packet.frame!==object.frame||packet.hint!==hint||packet.interior!==this.interior
+    if(!packet||!this.staticCompatible(object,hint,hint?.plane??packet.plane,Boolean(hint?.house||hint?.furniture))
+      ||object.getData('emissionOwner'))return false;
+    if(!this.collectStatic(object,camera,alpha,hint,packet))return false;
+    this.cachedDispatchHits++;return true;
+  }
+  private collectStatic(object:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,camera:Phaser.Cameras.Scene2D.Camera,alpha:number,hint:PresentationHint|undefined,packet=this.staticPackets.get(object)){
+    if(!packet||packet.name!==object.name||hint?.plane!==undefined&&packet.plane!==hint.plane
+      ||Boolean(packet.modelState)!==Boolean(hint?.house||hint?.furniture)
+      ||packet.billboard&&object.input?.enabled||packet.frame!==object.frame||packet.hint!==hint||packet.interior!==this.interior
       ||packet.x!==object.x||packet.y!==object.y||packet.scaleX!==object.scaleX||packet.scaleY!==object.scaleY
       ||packet.flipX!==object.flipX||packet.flipY!==object.flipY||packet.fillTint!==object.tintFill||packet.blendMode!==object.blendMode||packet.mask!==object.mask
       ||packet.rotation!==object.rotation||packet.originX!==object.originX||packet.originY!==object.originY||packet.depth!==object.depth
@@ -819,7 +838,7 @@ export class ThreePresentation {
     const eligible=!packet.ground&&(Boolean(packet.modelState)||packet.billboard)&&object.getData('presentation25dPlayerVisual')!==true;
     const factor=eligible?this.sceneryOpacity(object,batch):1;
     const drawingBatch=factor<1?this.foregroundBatch(packet.key,batch):batch;
-    drawingBatch.add(packet.matrix,packet.uv,packet.colors,packet.alpha*factor,object,packet.rect,this.frame,packet.repeat);
+    drawingBatch.addStatic(packet.matrix,packet.uv,packet.colors,packet.alpha*factor,object,packet.rect,this.frame,packet.repeat,packet);
     if(packet.modelState)this.staticModelHits++;
     if(object instanceof Phaser.GameObjects.Sprite)this.markDrawnSprite(object);
     camera.addToRenderList(object);return true;

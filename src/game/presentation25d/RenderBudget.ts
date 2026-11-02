@@ -32,7 +32,11 @@ export class RenderBudget {
       // upscaling/reallocation cycle while the player moves or turns.
       if(this.elapsed>=8000){
         if(this.average>20){
-          this.factor=Math.max(.85,Math.min(1,(this.quality==='high'?1.7:1.25)/(density*base)));
+          // Pixel cost is approximately quadratic in linear resolution. The
+          // old density-only ceiling returned 1 at ordinary desktop DPR, so
+          // sustained GPU overload consumed this one adjustment without
+          // reducing any pixels. Keep the existing 15% linear quality bound.
+          this.factor=Math.max(.85,Math.min(1,Math.sqrt(16.7/this.average),(this.quality==='high'?1.7:1.25)/(density*base)));
           this.reduced=true;
         }else this.elapsed=0;
       }

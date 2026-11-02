@@ -64,8 +64,10 @@ export class WeatherSystem {
   private destroyed=false;
   private readonly thunderAudio=new ThunderAudio();
   private thunderRemaining=1600;private ambientFlashAge=1000;
+  private thunderDuckUntil=-Infinity;
   thunder(distant=false){
     if(this.destroyed||!this.audio||!this.audioBus||!this.source?.buffer||!useGameStore.getState().weatherAudio||document.hidden)return;
+    this.thunderDuckUntil=this.elapsed+(distant?2600:3400);
     this.thunderAudio.play(this.audio,this.audioBus,this.source.buffer,distant);
   }
   private updateThunder(delta:number,muted:boolean){
@@ -288,7 +290,10 @@ export class WeatherSystem {
       ? this.strength*(this.kind==='storm'?.34:this.kind==='rain'?.15:.035):0;
     const bed=coast ? .013+Math.sin(this.elapsed*.0007)*.005 : biome==='forest' ? .005 :
       region==='nardorous'||region==='frostlands' ? .007 : region==='darkav' ? .005 : .004;
-    this.gain.gain.setTargetAtTime(weather+bed,now,.8);
+    // Heavy rain masks distant low-frequency thunder. Briefly lower only
+    // its noise bed so each crack and roll remains distinct, then fade back.
+    const thunder=this.elapsed<this.thunderDuckUntil;
+    this.gain.gain.setTargetAtTime(weather*(thunder?.38:1)+bed,now,thunder?.08:.8);
     this.audioFilter.frequency.setTargetAtTime(this.kind==='storm'?4200:this.kind==='rain'?1800:coast?420:260,now,1);
   }
   destroy(){if(this.destroyed)return;this.destroyed=true;

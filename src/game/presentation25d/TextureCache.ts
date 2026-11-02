@@ -34,6 +34,13 @@ export class TextureCache {
   get(source:Phaser.Textures.TextureSource,frame:number,text?:Phaser.GameObjects.Text){
     const width=sourceWidth(source),height=sourceHeight(source);
     let entry=this.entries.get(source);
+    // Shared atlases can be requested hundreds of times in one draw. Their
+    // memory charge changes only when image identity/dimensions change. Keep
+    // immediate dirty-version checks, including updates made in this frame.
+    if(entry&&entry.width===width&&entry.height===height&&entry.texture.image===source.image&&(!text||entry.text===text)){
+      entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);
+      return entry.texture;
+    }
     if(!entry){
       this.coldCreates++;
       const texture=new Texture(source.image);

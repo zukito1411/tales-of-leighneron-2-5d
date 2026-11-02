@@ -7,7 +7,8 @@ interface CpuProfile {nodes:Array<{id:number;callFrame:{functionName:string;url:
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('profile real overworld travel, mob combat and boss combat',async({browser})=>{
   test.setTimeout(240000);
-  const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage();
+  const width=Number(process.env.LEIGHNERON_PERF_WIDTH??1280),height=Number(process.env.LEIGHNERON_PERF_HEIGHT??800);
+  const context=await browser.newContext({viewport:{width,height}}),page=await context.newPage();
   const errors:string[]=[];page.on('pageerror',e=>errors.push(e.message));
   const cdp=await context.newCDPSession(page),reports=[];
   try{
@@ -17,7 +18,7 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
     await page.getByRole('button',{name:/Skip scene/}).click();
     await page.waitForFunction(()=>!(window.__mernondnaGame!.scene.getScene('world') as WorldScene)['cinematicDirector'].active);
     await cdp.send('Profiler.enable');await cdp.send('Profiler.setSamplingInterval',{interval:2000});
-    for(const phase of ['idle','travel','mobs','boss'] as const){
+    for(const phase of ['idle','travel','mobs','boss','storm'] as const){
       await cdp.send('Profiler.start');
       const metrics=await page.evaluate(async phase=>{
         const inputPath='/src/game/input.ts',storePath='/src/store/gameStore.ts';
@@ -25,6 +26,10 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
         const {useGameStore}=await import(/* @vite-ignore */ storePath) as typeof import('../../src/store/gameStore');
         const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene,p=s.player;
         p.resetInput();const owned:ReturnType<WorldScene['createStoryEnemy']>[]=[];
+        if(phase==='storm'){
+          const weather=s.presentationWeather;weather['kind']=weather['target']='storm';weather['strength']=1;
+          weather['thunderRemaining']=0;
+        }
         if(phase==='mobs'||phase==='boss'){
           const target=s.getCombatEnemies().find(e=>e.active&&e.isAlive&&s.isEnemyTerritory(e.x,e.y)
             &&s.safeSkillPosition({x:e.x-72,y:e.y})&&s.hasClearPath(e.x-72,e.y,e.x,e.y));
@@ -54,6 +59,7 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
               if(phase==='travel'){
                 const leg=Math.floor(elapsed/3500)%4;
                 mobileInput.setMove(leg===1?1:leg===3?-1:0,leg===0?-1:leg===2?1:0);mobileInput.setSprint(true);
+              }else if(phase==='storm'){p.hp=p.maxHp;
               }else if(phase==='mobs'||phase==='boss'){
                 p.hp=p.maxHp;p.stamina=p.maxStamina;mobileInput.setAttackHeld(true);
                 if(elapsed-lastSkill>4800){lastSkill=elapsed;mobileInput.press('skill1');}
@@ -63,7 +69,7 @@ test('profile real overworld travel, mob combat and boss combat',async({browser}
           });
           const summarize=(values:number[])=>{const sorted=[...values].sort((a,b)=>a-b),n=sorted.length;
             return {n,p50:sorted[Math.floor(n*.5)],p95:sorted[Math.floor(n*.95)],p99:sorted[Math.min(n-1,Math.floor(n*.99))],max:sorted[n-1],over33:sorted.filter(v=>v>33.34).length,over50:sorted.filter(v=>v>50).length};};
-          return {frames:summarize(frames),simulation:summarize(simulation),snapshots,spawned:owned.length,
+          return {frames:summarize(frames),simulation:summarize(simulation),snapshots,spawned:owned.length,viewport:{width:s.scale.width,height:s.scale.height},
             displacement:Math.hypot(p.x-origin.x,p.y-origin.y),actors:s.getCombatEnemies().length,children:s.children.length,
             graphics:useGameStore.getState().minuteOfDay};
         }finally{p.resetInput();for(const enemy of owned)if(enemy.active)s.releaseStoryEnemy(enemy);}

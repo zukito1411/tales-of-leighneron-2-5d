@@ -345,6 +345,8 @@ export class SpriteBatch {
   interactive=false;
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
+  private readonly staticTokens:Array<object|undefined>=[];
+  private readonly staticAlphas:number[]=[];
 
   constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},presentationUniforms?:PresentationUniforms,occluder=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry){
     this.foregroundFactory=()=>{
@@ -384,9 +386,21 @@ export class SpriteBatch {
    * write opaque depth over them. Original instances keep their normal depth. */
   createForegroundVariant(){return this.foregroundFactory();}
   begin(){this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);}
+  /** A validated, immutable scenery packet can retain the same instance
+   * slot. Camera yaw/lighting still animate in shared shader uniforms. */
+  addStatic(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat:ArrayLike<number>|undefined,token:object){
+    const slot=this.used,entry=this.slots[slot];
+    if(this.staticTokens[slot]===token&&this.staticAlphas[slot]===alpha&&entry?.object===object){
+      this.used++;if(object.input?.enabled)this.interactive=true;
+      this.objects[slot]=entry;this.lastUsed=frame;return slot;
+    }
+    const next=this.add(matrix,uv,colors,alpha,object,rect,frame,repeat);
+    this.staticTokens[next]=token;this.staticAlphas[next]=alpha;return next;
+  }
   add(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat?:ArrayLike<number>){
     if(this.used===this.capacity)this.grow();
     const slot=this.used++;
+    this.staticTokens[slot]=undefined;
     if(object.input?.enabled)this.interactive=true;
     const data=this.mesh.instanceMatrix.array,elements=matrix.elements,offset=slot*16;
     let changed=false;
@@ -416,7 +430,7 @@ export class SpriteBatch {
     this.mesh.count=this.used;this.mesh.visible=this.used>0;
     // Keep bounded slot/rectangle storage when view-edge instances disappear,
     // but release their actor references rather than retaining unloaded scenes.
-    for(let i=this.used;i<this.objects.length;i++)this.objects[i].object=undefined;
+    for(let i=this.used;i<this.objects.length;i++){this.objects[i].object=undefined;this.staticTokens[i]=undefined;}
     this.objects.length=this.used;
     if(!this.used)return;
     const attributes=this.attributes;
@@ -451,7 +465,7 @@ export class SpriteBatch {
     this.scene.remove(previous);previous.geometry.dispose();previous.dispose();this.scene.add(next);
     this.mesh=next;this.capacity=capacity;this.bindAttributes();
   }
-  destroy(){this.scene.remove(this.mesh);this.mesh.geometry.dispose();this.mesh.dispose();this.material.dispose();this.objects.length=this.slots.length=0;}
+  destroy(){this.scene.remove(this.mesh);this.mesh.geometry.dispose();this.mesh.dispose();this.material.dispose();this.objects.length=this.slots.length=this.staticTokens.length=this.staticAlphas.length=0;}
 }
 
 /** Retain a small recent set across view-edge occlusion and animation gaps.

@@ -5,7 +5,7 @@ export class ThunderAudio {
   private readonly voices=new Map<AudioScheduledSourceNode,()=>void>();
   play(audio:AudioContext,bus:AudioNode,noise:AudioBuffer,distant:boolean){
     if(this.voices.size>=12)return;
-    const now=audio.currentTime,level=distant?.62:1;
+    const now=audio.currentTime,level=distant?.9:1;
     const layer=(delay:number,duration:number,frequency:number,volume:number,crack=false)=>{
       const source=audio.createBufferSource(),filter=audio.createBiquadFilter(),gain=audio.createGain();
       source.buffer=noise;source.loop=true;source.playbackRate.value=.7+Math.random()*.4;
@@ -20,7 +20,7 @@ export class ThunderAudio {
       this.voices.set(source,release);source.onended=release;
       source.start(start,Math.random()*noise.duration);source.stop(start+duration+.02);
     };
-    if(!distant)layer(0,.23,2100,1.7,true);
+    layer(distant?.08:0,distant?.18:.23,distant?1100:2100,distant?1.1:1.7,true);
     layer(distant?.12:.025,2.1,750,distant?2.8:3.4);
     layer(.4,5.3,260,4.2);layer(1.4,5.8,150,3.1);
     const bass=audio.createOscillator(),gain=audio.createGain();

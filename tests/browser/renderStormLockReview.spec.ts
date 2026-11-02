@@ -130,10 +130,29 @@ test('stable locks, culling parity, storm audio and offshore boarding',async({br
       w['kind']=w['target']='storm';w['strength']=1;w['thunderRemaining']=0;w['enableAudio']();
       w.update(100,s.player.x,s.player.y,false);
     });
-    await page.waitForFunction(()=>window.__renderReview!.rain>=256&&window.__renderReview!.thunder>=2);
+    await page.waitForFunction(()=>window.__renderReview!.rain===1024&&window.__renderReview!.thunder>=2);
+    const mix=await page.evaluate(()=>{
+      const w=(window.__mernondnaGame!.scene.getScene('world') as WorldScene).presentationWeather,param=w['gain']!.gain,original=param.setTargetAtTime;
+      const levels:number[]=[];
+      param.setTargetAtTime=function(value,time,constant){levels.push(value);return original.call(this,value,time,constant);};
+      try{
+        const sample=()=>{w['lastAmbienceUpdateAt']=-Infinity;w['updateAmbience']('trandum','forest',0,false);};
+        w['thunderDuckUntil']=-Infinity;sample();w.thunder(true);sample();
+        w['elapsed']+=3500;sample();return {normal:levels[0],duringThunder:levels[1],restored:levels[2]};
+      }finally{param.setTargetAtTime=original;}
+    });
+    expect(mix.duringThunder).toBeLessThan(mix.normal*.5);expect(mix.restored).toBeCloseTo(mix.normal,4);
     const rain=await page.evaluate(()=>window.__renderReview);expect(rain!.rainKind).toBe(0);
     expect(rain!.corners).toBeGreaterThan(300);expect(rain!.differences).toBe(0);
     await page.screenshot({path:'test-results/heavy-thunderstorm.png'});
+    await page.evaluate(async()=>{
+      const path='/src/game/systems/effectsQuality.ts';const {setEffectsQuality}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/systems/effectsQuality');setEffectsQuality('low');
+    });
+    await page.waitForFunction(()=>window.__renderReview!.rain===384);
+    await page.evaluate(async()=>{
+      const path='/src/game/systems/effectsQuality.ts';const {setEffectsQuality}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/systems/effectsQuality');setEffectsQuality('normal');
+    });
+    await page.waitForFunction(()=>window.__renderReview!.rain===1024);
     await page.evaluate(async()=>{
       const path='/src/data/pirateFlagship.ts';const {shipPoint,FLAGSHIP_GANGPLANK}=await import(/* @vite-ignore */ path) as typeof import('../../src/data/pirateFlagship');
       const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
@@ -143,6 +162,6 @@ test('stable locks, culling parity, storm audio and offshore boarding',async({br
     await page.evaluate(()=>{const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;s.scene.pause();s.player.resetInput();});
     await page.mouse.wheel(0,650);await page.waitForTimeout(350);
     await page.screenshot({path:'test-results/offshore-flagship-gangplank.png'});
-    console.log(JSON.stringify({lock,shadow,migration,audio,rain}));expect(errors).toEqual([]);
+    console.log(JSON.stringify({lock,shadow,migration,audio,rain,mix}));expect(errors).toEqual([]);
   }finally{await context.close();}
 });
