@@ -12,8 +12,10 @@ Source causes:
 - The presentation update cancelled ordinary routes within 72 units of the
   player, even when the player had not opened dialogue.
 
-The shared segment-spacing probe now detects close/identical feet and permits
-movement that monotonically separates an existing overlap. Normal approaches
+The shared segment-spacing probe now detects close/identical feet. Ordinary
+movement treats coincident feet as blocked; checked detours and yielding may
+monotonically separate that overlap. An idle pedestrian checks for an existing
+tight pile every 400 ms, so already stuck actors do not need a respawn. Normal approaches
 still respect the 43-unit pedestrian corridor. The existing spatial crowd index
 is retained; no extra world-sized crowd search runs each frame.
 

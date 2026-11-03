@@ -705,7 +705,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
 
   /** Nearest person in an NPC's intended segment; used for local crowd avoidance. */
-  npcPathBlocker(from:Vec2,to:Vec2,exclude?:Npc):Npc|Player|null {
+  npcPathBlocker(from:Vec2,to:Vec2,exclude?:Npc,escaping=false):Npc|Player|null {
     const dx=to.x-from.x,dy=to.y-from.y,len2=dx*dx+dy*dy;
     if(len2<1)return null;
     let best=Infinity,point:Npc|Player|null=null;
@@ -727,8 +727,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       if(other===exclude||!other.active||order<0)return;
       if(other instanceof Npc&&!includeRoadLife&&other.definition.id.startsWith('road-life:'))return;
       if(other.x<left||other.x>right||other.y<top||other.y>bottom)return;
-      if(!pedestrianBlocksSegment(from,to,other))return;
       const ahead=(other.x-from.x)**2+(other.y-from.y)**2;
+      // Coincident walkers with the same destination would otherwise keep
+      // identical velocities forever. Only a checked detour may escape them.
+      if(!(ahead<8*8&&!escaping)&&!pedestrianBlocksSegment(from,to,other))return;
       if(ahead<best||ahead===best&&order<bestOrder){best=ahead;bestOrder=order;point=other;}
     };
     // Include adjacent buckets so a body that moved a few pixels earlier in

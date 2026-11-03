@@ -73,6 +73,7 @@ export class Npc extends DepthSortedSprite {
   private lastAvoidAttempt=0;
   private crowdWaitAt:number|null=null;
   private nextCrowdRouteAt=0;
+  private nextIdleCrowdCheckAt=0;
   private yieldPoint:Vec2|null=null;
   private yieldUntil=0;private yieldHoldUntil=0;private yieldCheckAt=0;private nextYieldAt=0;
   private yieldBlocked=false;
@@ -333,7 +334,7 @@ export class Npc extends DepthSortedSprite {
     // new road leg or detour. Spread checks across actors by their spawn time.
     if(scene.time.now>=this.roadCheckAt){
       this.roadCheckAt=scene.time.now+120;
-      this.roadBlocker=scene.npcPathBlocker(this,ahead,this);
+      this.roadBlocker=scene.npcPathBlocker(this,ahead,this,Boolean(this.npcDetour));
       this.roadBlocked=!scene.canNpcVisit(this,ahead)||!scene.canTraverseGround(this,ahead)||Boolean(this.roadBlocker);
     }
     if(this.roadBlocked){
@@ -367,6 +368,17 @@ export class Npc extends DepthSortedSprite {
     this.setDepth(scene.playerRenderDepth(this.y));
     if(this.storyAttack||this.storyGoal||this.storyGuard||this.companionControl||this.escortGoal){this.yieldPoint=null;this.yieldHoldUntil=0;}
     else if(this.updatePedestrianYield(time))return;
+    else if(!this.target&&!this.routePending&&!this.roadRoute&&time>=this.nextIdleCrowdCheckAt){
+      // Recover a pile that already stopped before the fix, rather than
+      // requiring a new journey or a respawn to trigger avoidance.
+      this.nextIdleCrowdCheckAt=time+400;
+      const ahead={x:this.x+this.facing.x*36,y:this.y+this.facing.y*36};
+      const other=scene.npcPathBlocker(this,ahead,this);
+      if(other instanceof Npc&&this.definition.id>other.definition.id&&(other.x-this.x)**2+(other.y-this.y)**2<32*32){
+        this.makeWayFor(other,{x:other.x+other.facing.x*100,y:other.y+other.facing.y*100});
+        if(this.updatePedestrianYield(time))return;
+      }
+    }
     if(this.storyAttack){body.setVelocity(0,0);return;}
     if(this.storyGoal){
       const dx=this.storyGoal.x-this.x,dy=this.storyGoal.y-this.y,distance=Math.hypot(dx,dy);
@@ -376,7 +388,7 @@ export class Npc extends DepthSortedSprite {
       // checks validate the immediate segment and pedestrians every frame.
       const routeDue=time>=this.storyRouteCheckAt;
       if(routeDue)this.storyRouteCheckAt=time+120;
-      if(!scene.canNpcVisit(this,routeDue?this.storyGoal:ahead)||scene.npcPathBlocker(this,ahead,this)){
+      if(!scene.canNpcVisit(this,routeDue?this.storyGoal:ahead)||scene.npcPathBlocker(this,ahead,this,true)){
         this.endStoryMovement();return;
       }
       this.facing.set(dx,dy).normalize();
@@ -476,7 +488,7 @@ export class Npc extends DepthSortedSprite {
       const checkRoute=this.routeCheckMs>=120;
       if(checkRoute)this.routeCheckMs=0;
       if(checkRoute || this.stalledMs>1050) {
-        const blocker=scene.npcPathBlocker(this,ahead,this);
+        const blocker=scene.npcPathBlocker(this,ahead,this,Boolean(this.npcDetour));
         const obstructed=!scene.canNpcVisit(this,ahead)||Boolean(blocker)||this.stalledMs>1050;
         if(obstructed)this.crowdWaitAt??=time;else this.crowdWaitAt=null;
         if(obstructed && (time-this.lastAvoidAttempt>420||this.lastAvoidAttempt===0)) {
@@ -568,7 +580,7 @@ export class Npc extends DepthSortedSprite {
     for(const lateral of [72,104])for(const side of [1,-1]){
       const point={x:this.x-fy*lateral*side,y:this.y+fx*lateral*side};
       if(!scene.npcCanStandAt(point.x,point.y,this)||!scene.canNpcVisit(this,point)
-        ||!scene.canTraverseGround(this,point)||scene.npcPathBlocker(this,point,this))continue;
+        ||!scene.canTraverseGround(this,point)||scene.npcPathBlocker(this,point,this,true))continue;
       if(this.routePending){this.cancelStreetRoute();this.routineKey='';this.routineRetryAt=time+600;}
       this.yieldPoint=point;this.yieldUntil=time+2600;this.yieldCheckAt=0;return;
     }
@@ -583,7 +595,7 @@ export class Npc extends DepthSortedSprite {
     if(time>=this.yieldCheckAt){
       this.yieldCheckAt=time+120;
       const ahead={x:this.x+dx/distance*Math.min(24,distance),y:this.y+dy/distance*Math.min(24,distance)};
-      this.yieldBlocked=!scene.canNpcVisit(this,ahead)||!scene.canTraverseGround(this,ahead)||Boolean(scene.npcPathBlocker(this,ahead,this));
+      this.yieldBlocked=!scene.canNpcVisit(this,ahead)||!scene.canTraverseGround(this,ahead)||Boolean(scene.npcPathBlocker(this,ahead,this,true));
     }
     if(this.yieldBlocked){this.storyRest();return true;}
     this.stalledMs=0;this.facing.set(dx/distance,dy/distance);
@@ -611,7 +623,7 @@ export class Npc extends DepthSortedSprite {
       const candidate={x:this.x+forwardX*advance-forwardY*side*lateral,
         y:this.y+forwardY*advance+forwardX*side*lateral};
       if(!scene.npcCanStandAt(candidate.x,candidate.y,this))continue;
-      if(!scene.canNpcVisit(this,candidate)||!scene.canTraverseGround(this,candidate)||scene.npcPathBlocker(this,candidate,this))continue;
+      if(!scene.canNpcVisit(this,candidate)||!scene.canTraverseGround(this,candidate)||scene.npcPathBlocker(this,candidate,this,true))continue;
       this.avoidSide=side;
       return candidate;
     }
