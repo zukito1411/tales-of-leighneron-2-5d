@@ -239,6 +239,10 @@ export class ThreePresentation {
     this.firstPersonWeapon=new FirstPersonWeapon(this.renderer);
     this.firstPersonFeedback=new FirstPersonFeedback(parent);
     this.shaderWarmup=new ShaderWarmup(this.renderer,this.orbit.camera,this.elevation,this.atmosphere);
+    this.shaderWarmup.queueOptional([
+      ...this.gpuClouds.warmupObjects(),...this.gpuWater.warmupObjects(),...this.gpuWeather.warmupObjects(),
+      ...this.gpuNight.warmupObjects(),...this.gpuLightning.warmupObjects(),
+    ]);
     this.preparePrograms(Promise.all([this.shaderWarmup.ready,this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}));
     bindResourcePreparation(game,{
       request:source=>{this.textures.get(source,this.frame);},warm:source=>this.textures.prefetch(source,this.frame),ready:source=>this.textures.ready(source),
@@ -406,6 +410,7 @@ export class ThreePresentation {
       if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled,elevationMs);
       work.charge('elevation',elevationStart);
       const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
+      this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
   }
@@ -1058,6 +1063,7 @@ export class ThreePresentation {
     if(this.stopped||this.contextLost)return;
     this.reportGraphicsFault('context-lost',{status:'statusMessage' in event?String(event.statusMessage).slice(0,2000):undefined});
     this.contextLost=true;this.programsReady=false;this.preparationEpoch++;
+    this.shaderWarmup.restartOptional();
     this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();this.firstPersonFeedback.suspend();
     this.game.registry.set('presentationRecovering',true);
     this.game.registry.set('presentationProgramsReady',false);
@@ -1085,11 +1091,11 @@ export class ThreePresentation {
     this.game.canvas.style.visibility=this.originalCanvasVisibility;
     if(this.game.input.mouse&&this.originalMouseEnabled!==undefined)this.game.input.mouse.enabled=this.originalMouseEnabled;
     if(this.game.input.touch&&this.originalTouchEnabled!==undefined)this.game.input.touch.enabled=this.originalTouchEnabled;
-    this.preparationEpoch++;this.recoveryDeadline.clear();
+    this.preparationEpoch++;this.recoveryDeadline.clear();this.shaderWarmup.destroy();
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
     releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuLightning.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
-    clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();this.shaderWarmup.destroy();
+    clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();
     this.firstPersonWeapon.destroy();this.firstPersonFeedback.destroy();this.firstPersonPlayer=undefined;
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();
     this.effectGeometry.dispose();this.flash.material.dispose();this.fade.material.dispose();

@@ -46,6 +46,7 @@ export class GpuWater {
     this.material=new ShaderMaterial({uniforms:{...elevation.uniforms,...atmosphere,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,transparent:true,depthWrite:false,depthTest:true,side:DoubleSide,forceSinglePass:true});
     this.mesh=new Mesh(this.geometry,this.material);this.mesh.frustumCulled=false;this.mesh.renderOrder=-9.99;this.mesh.visible=false;world.add(this.mesh);
   }
+  warmupObjects(){return [this.mesh];}
   update(scene:Phaser.Scene,source:WaterSurfaceSystem|undefined,focus:{x:number;y:number},frame:number,interior:boolean){
     if(source!==this.source){this.mask?.dispose();this.mask=undefined;this.source=source;this.version=-1;}
     const state=source?.presentation;this.mesh.visible=Boolean(state?.enabled&&!interior);

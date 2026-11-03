@@ -95,6 +95,7 @@ export class GpuWeather {
     this.material=new ShaderMaterial({uniforms:{...elevation.uniforms,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,transparent:true,depthTest:false,depthWrite:false,blending:NormalBlending});
     this.mesh=new InstancedMesh(this.geometry,this.material,MAX_WEATHER_PARTICLES);this.mesh.frustumCulled=false;this.mesh.visible=false;screen.add(this.mesh);
   }
+  warmupObjects(){return [this.mesh];}
   update(source:WeatherSystem|undefined,camera:PerspectiveCamera,focus:{x:number;y:number},night:number,interior:boolean,bounds:{left:number;right:number;top:number;bottom:number}){
     if(source!==this.source){
       this.releaseArtwork();this.source=source;

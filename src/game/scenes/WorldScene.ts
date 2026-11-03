@@ -178,6 +178,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private eventDirector!: EventDirector;
   private readonly enemies = new Set<Enemy>();
   private readonly npcs: Npc[] = [];
+  private npcCrowdFrame=-1;private npcCrowdRevision=0;private npcCrowdBuiltRevision=-1;
+  private readonly npcCrowdGrid=new Map<string,Npc[]>();private readonly npcCrowdOrder=new Map<Npc,number>();
   private buildings!: Phaser.Physics.Arcade.StaticGroup;
   private treeBodies!: Phaser.Physics.Arcade.StaticGroup;
   private npcBodies!: Phaser.Physics.Arcade.Group;
@@ -437,7 +439,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   damageRoadNpc(npc:Npc,damage:number){if(!this.aliceCompanion?.damage(npc,damage))this.roadLife?.damage(npc,damage);}
   createRoadNpc(definition:NpcDefinition,point:Vec2){
     const npc=new Npc(this,definition,point.x,point.y,point);
-    npc.disableInteractive();this.npcBodies.add(npc);this.npcs.push(npc);this.groundShadows.register(npc);
+    npc.disableInteractive();this.npcBodies.add(npc);this.npcs.push(npc);this.npcCrowdRevision++;this.groundShadows.register(npc);
     return npc;
   }
   releaseRoadNpc(npc:Npc){this.npcBodies.remove(npc);this.destroyContentActor(npc);}
@@ -693,27 +695,53 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const dx=to.x-from.x,dy=to.y-from.y,len2=dx*dx+dy*dy;
     if(len2<1)return null;
     let best=Infinity,point:Vec2|null=null;
-    // This runs for every walking road NPC. Traverse existing actors directly
-    // instead of allocating a filtered crowd list on every movement frame.
+    // Build the crowd index once per simulation frame. Road routines ask this
+    // several times per actor, so repeated full NPC scans become quadratic in
+    // dense settlements. The exact projection and spacing rules below remain
+    // unchanged; the grid only removes actors outside the segment bounds.
+    this.prepareNpcCrowdIndex();
     const includeRoadLife=Boolean(exclude?.definition.id.startsWith('road-life:'));
     // A character farther than 43 px outside this segment's rectangle cannot
     // collide with it. Cull them before doing projection or square roots.
     const left=Math.min(from.x,to.x)-43,right=Math.max(from.x,to.x)+43;
     const top=Math.min(from.y,to.y)-43,bottom=Math.max(from.y,to.y)+43;
-    for(let i=0;i<=this.npcs.length;i++){
-      const other=i===this.npcs.length?this.player:this.npcs[i];
-      if(!other||other===exclude||!other.active)continue;
-      if(i<this.npcs.length&&!includeRoadLife&&(other as Npc).definition.id.startsWith('road-life:'))continue;
-      if(other.x<left||other.x>right||other.y<top||other.y>bottom)continue;
+    let bestOrder=Infinity;
+    const consider=(other:Npc|Player,order:number)=>{
+      if(other===exclude||!other.active||order<0)return;
+      if(other instanceof Npc&&!includeRoadLife&&other.definition.id.startsWith('road-life:'))return;
+      if(other.x<left||other.x>right||other.y<top||other.y>bottom)return;
       const vx=other.x-from.x,vy=other.y-from.y;
       const fraction=Math.max(0,Math.min(1,(vx*dx+vy*dy)/len2));
       const projectedX=from.x+dx*fraction,projectedY=from.y+dy*fraction;
       const sideGap=Math.hypot(other.x-projectedX,other.y-projectedY);
       const ahead=Math.hypot(vx,vy);
-      if(ahead<8||sideGap>=43||fraction<=0)continue;
-      if(ahead<best){best=ahead;point={x:other.x,y:other.y};}
+      if(ahead<8||sideGap>=43||fraction<=0)return;
+      if(ahead<best||ahead===best&&order<bestOrder){best=ahead;bestOrder=order;point={x:other.x,y:other.y};}
+    };
+    // Include adjacent buckets so a body that moved a few pixels earlier in
+    // this same frame is still considered; exact current coordinates are
+    // checked by consider().
+    const size=192,gridMargin=48;
+    for(let cy=Math.floor((top-gridMargin)/size);cy<=Math.floor((bottom+gridMargin)/size);cy++)for(let cx=Math.floor((left-gridMargin)/size);cx<=Math.floor((right+gridMargin)/size);cx++){
+      const bucket=this.npcCrowdGrid.get(cx+':'+cy);if(!bucket)continue;
+      for(const other of bucket)consider(other,this.npcCrowdOrder.get(other)??-1);
     }
+    if(this.player)consider(this.player,this.npcs.length);
     return point;
+  }
+  private prepareNpcCrowdIndex(){
+    const frame=this.game.loop.frame;
+    if(frame===this.npcCrowdFrame&&this.npcCrowdBuiltRevision===this.npcCrowdRevision)return;
+    this.npcCrowdFrame=frame;this.npcCrowdBuiltRevision=this.npcCrowdRevision;this.npcCrowdOrder.clear();
+    for(const bucket of this.npcCrowdGrid.values())bucket.length=0;
+    // Bound retained empty cells when NPCs travel between distant regions.
+    if(this.npcCrowdGrid.size>4096)this.npcCrowdGrid.clear();
+    const size=192;
+    for(let i=0;i<this.npcs.length;i++){
+      const npc=this.npcs[i];this.npcCrowdOrder.set(npc,i);if(!npc.active)continue;
+      const key=Math.floor(npc.x/size)+':'+Math.floor(npc.y/size);
+      let bucket=this.npcCrowdGrid.get(key);if(!bucket){bucket=[];this.npcCrowdGrid.set(key,bucket);}bucket.push(npc);
+    }
   }
   /** Talk across a counter from its public front, or directly from a clear
    * side/rear. The same reach and wall checks serve click, keyboard and HUD. */
@@ -852,7 +880,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.npcBodies = this.physics.add.group();
     this.creatureBodies = this.physics.add.group();
     this.chunkManager = new ChunkManager(this,this.worldGenerator,this.treeSway,this.dayNight,this.worldSprites);
-    this.enemies.clear();this.combatEnemyListDirty=true; this.npcs.length = 0; this.interactables.clear();
+    this.enemies.clear();this.combatEnemyListDirty=true; this.npcs.length = 0;this.npcCrowdRevision++;this.interactables.clear();
     this.storyCampRetryAt.clear();this.enemyPlacementRetryAt.clear();this.enemyNavigation.clear();
     this.spawnAttempts = 0; this.spawnAccumulator = 0; this.hudAccumulator = 0;
     this.nextAmbientIntervalMs = 11000; this.nextRoadBanditsAt=0; this.encounters.clear();
@@ -2374,7 +2402,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           useGameStore.getState().startDialogue(npc.definition.id);
         }
       });
-      this.npcs.push(npc);
+      this.npcs.push(npc);this.npcCrowdRevision++;
       return npc;
     }
     if (definition.kind === 'creature') {
@@ -2456,7 +2484,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private destroyContentActor(actor: ContentActor) {
     if (actor instanceof Enemy) {this.enemies.delete(actor);this.combatEnemyListDirty=true;this.forgetOrcSpears(actor.instanceId);}
     if (actor instanceof Npc) {
-      const i = this.npcs.indexOf(actor); if (i >= 0) this.npcs.splice(i, 1);
+      const i = this.npcs.indexOf(actor); if (i >= 0){this.npcs.splice(i, 1);this.npcCrowdRevision++;}
     }
     this.interactables.delete(actor.name);
     actor.destroy();

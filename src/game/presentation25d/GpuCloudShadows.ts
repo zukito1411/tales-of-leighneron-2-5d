@@ -27,6 +27,7 @@ export class GpuCloudShadows {
     this.material=new ShaderMaterial({uniforms:{...elevation.uniforms,...atmosphere,...this.uniforms},vertexShader:vertex,fragmentShader:fragment,transparent:true,depthWrite:false,depthTest:true,side:DoubleSide,forceSinglePass:true,polygonOffset:true,polygonOffsetFactor:-1,polygonOffsetUnits:-2});
     this.mesh=new Mesh(this.geometry,this.material);this.mesh.frustumCulled=false;this.mesh.renderOrder=-9.98;this.mesh.visible=false;world.add(this.mesh);
   }
+  warmupObjects(){return [this.mesh];}
   update(artwork:Texture,ready:boolean,focus:{x:number;y:number},minute:number,weather:WeatherPresentation|undefined,interior:boolean){
     const effects=getGraphicEffects(),day=Math.max(0,sunDirection(minute,this.sun).y);
     this.mesh.visible=!interior&&ready&&day>.05&&effects.cloudShadows;

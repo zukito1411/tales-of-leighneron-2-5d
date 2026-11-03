@@ -51,6 +51,7 @@ export class GpuNightMask {
     this.geometry.setAttribute('light',this.lights);this.geometry.setAttribute('lightDepth',this.lightDepths);this.holes.frustumCulled=false;this.scene.add(this.holes);
     this.overlay.frustumCulled=false;this.overlay.renderOrder=1_000_000;this.overlay.visible=false;screen.add(this.overlay);
   }
+  warmupObjects(){return [this.holes,this.overlay];}
   active(night:number,_interior:boolean){return night>0&&getGraphicEffects().nightDarkness;}
   render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number,merged=false){
     const active=this.active(night,interior)&&Boolean(source&&depth);

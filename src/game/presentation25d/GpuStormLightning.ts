@@ -18,6 +18,7 @@ export class GpuStormLightning {
     for(const mesh of [this.glow,this.core]){mesh.frustumCulled=false;mesh.visible=false;mesh.renderOrder=2;world.add(mesh);}
     this.ring.visible=false;this.ring.rotation.x=-Math.PI/2;this.ring.renderOrder=2;world.add(this.ring);
   }
+  warmupObjects(){return [this.glow,this.core,this.ring];}
   update(bolt:StormBolt|null|undefined,height:(x:number,y:number)=>number){
     this.core.visible=this.glow.visible=this.ring.visible=Boolean(bolt);if(!bolt)return;
     if(bolt.id!==this.lastId){this.lastId=bolt.id;this.build(bolt);}

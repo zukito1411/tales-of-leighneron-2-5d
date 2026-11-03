@@ -1,4 +1,4 @@
-import {DataTexture,Scene,WebGLRenderTarget,type Camera,type WebGLRenderer} from 'three';
+import {DataTexture,Scene,WebGLRenderTarget,type Camera,type Object3D,type WebGLRenderer} from 'three';
 import {SpriteBatch,type DistanceAtmosphere} from './SpriteBatch';
 import type {ElevationField} from './ElevationField';
 import {createWallGeometry} from './HouseGeometry';
@@ -9,9 +9,9 @@ import {createCombatEffectGeometry} from './CombatEffectGeometry';
  * until teardown, so precompiled programs aren't immediately disposed. */
 export class ShaderWarmup {
   private readonly texture=new DataTexture(new Uint8Array([255,255,255,255]),1,1);
-  private readonly scene=new Scene();private readonly batches:SpriteBatch[]=[];
+  private readonly scene=new Scene();private readonly optionalScene=new Scene();private readonly batches:SpriteBatch[]=[];
   private readonly worldTarget=new WebGLRenderTarget(1,1,{depthBuffer:false,stencilBuffer:false});
-  private disposed=false;
+  private disposed=false;private optional:Object3D[]=[];private optionalIndex=0;private optionalBusy=false;private optionalEpoch=0;private optionalObject:Object3D|undefined;private optionalParallel:boolean|undefined;
   readonly ready:Promise<void>;
   constructor(renderer:WebGLRenderer,camera:Camera,elevation:ElevationField,atmosphere:DistanceAtmosphere){
     this.texture.needsUpdate=true;
@@ -40,5 +40,32 @@ export class ShaderWarmup {
     finally{renderer.setRenderTarget(previous);}
     await world;
   }
-  destroy(){this.disposed=true;for(const batch of this.batches)batch.destroy();this.batches.length=0;this.worldTarget.dispose();this.texture.dispose();}
+  queueOptional(objects:readonly Object3D[]){this.optional=objects.slice();this.optionalIndex=0;this.optionalEpoch++;}
+  /** Compile one optional effect after a world frame. The shallow clone shares
+   * its original geometry and material without moving the live effect. */
+  advanceOptional(renderer:WebGLRenderer,camera:Camera){
+    if(this.disposed||this.optionalBusy||this.optionalIndex>=this.optional.length)return;
+    this.optionalParallel??=Boolean(renderer.getContext().getExtension('KHR_parallel_shader_compile'));
+    // Leave first-use compilation as the fallback when precompilation may
+    // block the game loop on this device.
+    if(!this.optionalParallel){this.optionalIndex=this.optional.length;return;}
+    const epoch=this.optionalEpoch,source=this.optional[this.optionalIndex++],object=source.clone(false);
+    object.visible=true;this.optionalScene.add(object);this.optionalObject=object;this.optionalBusy=true;
+    const compileTarget=(target:WebGLRenderTarget|null)=>{
+      const previous=renderer.getRenderTarget();let ready:Promise<unknown>;
+      try{renderer.setRenderTarget(target);ready=renderer.compileAsync(this.optionalScene,camera);}
+      finally{renderer.setRenderTarget(previous);}
+      return ready;
+    };
+    void (async()=>{
+      try{await compileTarget(null);if(!this.disposed&&epoch===this.optionalEpoch)await compileTarget(this.worldTarget);}
+      catch{/* Optional effects retain their normal first-use compilation fallback. */}
+      finally{
+        object.removeFromParent();
+        if(epoch===this.optionalEpoch){this.optionalObject=undefined;this.optionalBusy=false;}
+      }
+    })();
+  }
+  restartOptional(){this.optionalEpoch++;this.optionalIndex=0;this.optionalBusy=false;this.optionalObject?.removeFromParent();this.optionalObject=undefined;}
+  destroy(){this.disposed=true;this.optionalEpoch++;this.optional.length=0;this.optionalIndex=0;this.optionalObject?.removeFromParent();this.optionalObject=undefined;for(const batch of this.batches)batch.destroy();this.batches.length=0;this.worldTarget.dispose();this.texture.dispose();}
 }
