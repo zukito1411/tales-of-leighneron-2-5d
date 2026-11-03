@@ -4,16 +4,22 @@ import type {DayNightSystem} from '../systems/DayNightSystem';
 import {presentationAttachmentWorld,presentationView} from './plane';
 import {FOG_START,VIEW_DISTANCE} from './environment';
 import {getEffectsQuality} from '../systems/effectsQuality';
-import {lightOcclusionShader} from './LightOcclusion';
+import {lightOcclusionShader,lightDepthShader} from './LightOcclusion';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 
-const eraseVertex=`attribute vec4 light;attribute vec2 lightDepth;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying vec2 sourceDepth;void main(){localUV=uv;sourceUV=light.xy*.5+.5;sourceDepth=lightDepth;gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);screenUV=gl_Position.xy*.5+.5;}`;
-const eraseFragment=`uniform sampler2D worldDepth;uniform vec2 clipRange;uniform vec2 depthTexel;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceUV;varying vec2 sourceDepth;
+const eraseVertex=`attribute vec4 light;attribute vec2 lightDepth;
+uniform sampler2D worldDepth;uniform vec2 clipRange;uniform vec2 depthTexel;
+varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceDepth;varying float sourceVisibility;
 ${lightOcclusionShader}
+void main(){localUV=uv;sourceDepth=lightDepth;
+sourceVisibility=lightSourceVisibility(worldDepth,light.xy*.5+.5,lightDepth.x,clipRange,depthTexel,lightDepth.y);
+gl_Position=vec4(light.xy+position.xy*light.zw*2.0,0.0,1.0);screenUV=gl_Position.xy*.5+.5;}`;
+const eraseFragment=`uniform sampler2D worldDepth;uniform vec2 clipRange;uniform vec2 depthTexel;varying vec2 localUV;varying vec2 screenUV;varying vec2 sourceDepth;varying float sourceVisibility;
+${lightDepthShader}
 void main(){float r=length((localUV-.5)*2.0);if(r>1.0)discard;
 // A light hidden by a wall must not erase darkness through that wall. Also
 // clip a visible light's pocket where nearer surfaces cover its outer halo.
-float visible=lightVisibility(worldDepth,sourceUV,screenUV,sourceDepth.x,clipRange,depthTexel,sourceDepth.y);
+float visible=sourceVisibility*lightDepthVisibility(worldDepth,screenUV,sourceDepth.x,clipRange,sourceDepth.y);
 if(visible<.001)discard;
 float a=r<.3?mix(.88,.65,r/.3):.65*(1.0-(r-.3)/.7);gl_FragColor=vec4(0.0,0.0,0.0,a*visible);}`;
 const overlayVertex=`varying vec2 screenUV;void main(){screenUV=uv;gl_Position=vec4(position.xy,0.0,1.0);}`;

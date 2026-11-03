@@ -2,7 +2,7 @@ import {captureModelState,modelStateMatches,type ModelState} from './ModelState'
 import {staticSpatialIndex} from './StaticSpatialIndex';
 import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork} from './FrameWorkBudget';
-import {Matrix4,Vector3,type Scene} from 'three';
+import {Matrix4,Vector2,Vector3,type Scene} from 'three';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import type {GroundShadowSystem,ShadowCaster} from '../systems/GroundShadowSystem';
@@ -36,6 +36,7 @@ export class GpuShadows {
   private modelHits=0;private modelBuilds=0;
   stats(){return {hits:this.modelHits,builds:this.modelBuilds};}
   private readonly batches=new Map<string,SpriteBatch>();
+  private readonly shadowProjection={value:new Vector2()};
   private readonly matrix=new Matrix4();private readonly sun=new Vector3();
   private readonly uv=new Float64Array(4);private readonly color=[0x111916,0x111916,0x111916,0x111916];
   private readonly repeat=[1,0,0,0];private readonly rect={left:0,top:0,width:1,height:1};
@@ -56,6 +57,7 @@ export class GpuShadows {
       }
       const sun=sunDirection(minute,this.sun),daylight=Math.max(0,sun.y),length=Math.max(.4,sun.y),reach=1.6;
       const px=Math.max(-reach,Math.min(reach,-sun.x/length))*.65,pz=Math.max(-reach,Math.min(reach,-sun.z/length))*.65;
+      this.shadowProjection.value.set(px,pz);
       const viewRightX=Math.cos(yaw),viewRightZ=-Math.sin(yaw),dynamic=getGraphicEffects().dynamicShadows;
       for(const caster of source.gpuCasters(bounds)){
         const owner=caster.actor as ShadowCaster['actor']&{readonly presentationShadowVisual?:Phaser.GameObjects.Sprite;readonly presentationElevation?:number};
@@ -66,7 +68,7 @@ export class GpuShadows {
         const cached=this.modelShadows.get(caster);
         if(actor===owner&&cached&&cached.art.source.image&&modelStateMatches(cached.state,actor,hint)&&optionsMatch(cached.options,caster)){
           if(owner.x+cached.reach<bounds.left||owner.x-cached.reach>bounds.right||owner.y+cached.reach<bounds.top||owner.y-cached.reach>bounds.bottom)continue;
-          this.drawModel(cached,caster,viewRightX,viewRightZ,px,pz,daylight,cloud,frame);this.modelHits++;continue;
+          this.drawModel(cached,caster,viewRightX,viewRightZ,daylight,cloud,frame);this.modelHits++;continue;
         }
         const art=caster.texture?scene.textures.getFrame(caster.texture,caster.frame):actor.frame;
         if(!art?.source?.image)continue;
@@ -117,7 +119,7 @@ export class GpuShadows {
         }
         this.uv[0]=(art.cutX+.25)/art.source.width;this.uv[1]=1-(art.cutY+height-.25)/art.source.height;
         this.uv[2]=(width-.5)/art.source.width;this.uv[3]=(height-.5)/art.source.height;
-        this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=0;
+        this.repeat[0]=caster.projectionBottom??1;this.repeat[1]=this.repeat[2]=this.repeat[3]=0;
         if(actor===owner&&(house||furniture)&&staticSpatialIndex(scene).has(actor)){
           // The current projection is affine in the two sunlight components.
           // Cache its fixed matrix and four height coefficients, retaining the
@@ -143,7 +145,7 @@ export class GpuShadows {
     const work=frameWork(scene.game),start=performance.now();
     pruneSpriteBatches(this.batches,frame,16,1,start+Math.max(.1,work.remaining('retire',.2)));work.charge('retire',start);
   }
-  private drawModel(plan:ModelShadow,caster:ShadowCaster,viewRightX:number,viewRightZ:number,px:number,pz:number,daylight:number,cloud:number,frame:number){
+  private drawModel(plan:ModelShadow,caster:ShadowCaster,viewRightX:number,viewRightZ:number,daylight:number,cloud:number,frame:number){
     const actor=caster.actor,opacity=actor.alpha*plan.opacityFactor;
     const rightX=plan.house?plan.rightX:viewRightX,rightZ=plan.house?plan.rightZ:viewRightZ;
     const footX=actor.x+plan.footDx*rightX,footZ=actor.y+plan.footDx*rightZ+(caster.groundOffsetY??0),radius=plan.radius;
@@ -152,15 +154,15 @@ export class GpuShadows {
       else this.contact(actor,footX,footZ+radius*(caster.contactOffset??0),radius*2,radius*(caster.contactHeight??2/3),opacity,frame);
     }
     if(daylight<=.02)return;
-    this.matrix.copy(plan.base);const elements=this.matrix.elements;
-    for(let i=0;i<4;i++){elements[i*4]+=px*plan.coefficients[i];elements[i*4+2]+=pz*plan.coefficients[i];}
-    this.uv.set(plan.uv);this.repeat[0]=caster.projectionBottom??1;this.repeat[2]=0;
+    this.matrix.copy(plan.base);
+    this.uv.set(plan.uv);this.repeat[0]=caster.projectionBottom??1;
+    this.repeat[1]=plan.coefficients[0];this.repeat[2]=plan.coefficients[1];this.repeat[3]=plan.coefficients[3];
     this.add(plan.art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,plan.house,plan.furniture);
   }
   private contact(actor:ShadowCaster['actor'],x:number,z:number,width:number,height:number,alpha:number,frame:number){
     if(width<=0||height<=0||!this.contactSource)return;
     this.matrix.set(width,0,0,x,0,0,1,.055,0,-height,0,z,0,0,0,1);
-    this.uv[0]=this.uv[1]=0;this.uv[2]=this.uv[3]=1;this.repeat[0]=1;
+    this.uv[0]=this.uv[1]=0;this.uv[2]=this.uv[3]=1;this.repeat[0]=1;this.repeat[1]=this.repeat[2]=this.repeat[3]=0;
     this.add(this.contactSource,actor,alpha,frame,false);
   }
   private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape){
@@ -168,7 +170,7 @@ export class GpuShadows {
     if(deck!==undefined)this.matrix.elements[13]+=deck;
     const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,this.atmosphere,true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
     batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
   destroy(){this.modelShadows=new WeakMap();for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}

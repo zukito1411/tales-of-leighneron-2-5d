@@ -4,6 +4,7 @@ import {TerrainHeightField} from '../systems/TerrainHeightField';
 import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {StormHazardSystem} from '../systems/StormHazardSystem';
+import {NpcRouteQueue} from '../systems/NpcRouteQueue';
 import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
 import {meleeReach} from '../systems/combatSpacing';
 import {firstPersonAimScore,FIRST_PERSON_DAMAGE_EVENT,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
@@ -311,6 +312,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private readonly combatEnemyList:Enemy[]=[];
   private combatEnemyListDirty=true;
   private readonly enemyNavigation=new EnemyNavigation();
+  readonly npcRouting=new NpcRouteQueue(()=>String(this.activeInteriorId)+':'+(this.worldSprites?.navigationVersion??0));
   private readonly enemyPlacementRetryAt=new Map<string,number>();
   private readonly shipPaths=new WeakMap<Enemy,{until:number;target:Vec2;point:Vec2}>();
   private playerTerritoryFrame=-1;private playerTerritoryX=NaN;private playerTerritoryY=NaN;
@@ -666,10 +668,24 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     for (let i = 0; i <= steps; i++) {
       const x = Phaser.Math.Linear(from.x, to.x, i / steps);
       const y = Phaser.Math.Linear(from.y, to.y, i / steps);
-      if (!this.worldGenerator.isWalkable(x, y) || this.exteriorPlacement.blocksNpc({x,y})
-        || this.isBlockedByBuilding(x, y) || this.isNpcObscured(x,y)) return false;
+      if (!this.npcVisitPoint(x,y)) return false;
     }
     return !this.worldSprites.blocksPath(from,to)&&this.hasClearPath(from.x, from.y, to.x, to.y);
+  }
+
+  private npcVisitPoint(x:number,y:number){
+    return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y})
+      &&!this.isBlockedByBuilding(x,y)&&!this.isNpcObscured(x,y);
+  }
+  /** Exact same samples as canNpcVisit, spread across navigation work slices. */
+  *npcVisitSteps(from:Vec2,to:Vec2):Generator<void,boolean,void>{
+    if(this.inInterior)return this.interiors.combatPath(from,to);
+    const steps=Math.max(1,Math.ceil(Math.hypot(to.x-from.x,to.y-from.y)/24));
+    for(let i=0;i<=steps;i++){
+      if(!this.npcVisitPoint(from.x+(to.x-from.x)*i/steps,from.y+(to.y-from.y)*i/steps))return false;
+      if((i&3)===3)yield;
+    }
+    return !this.worldSprites.blocksPath(from,to)&&this.hasClearPath(from.x,from.y,to.x,to.y);
   }
 
   /** Nearest person in an NPC's intended segment; used for local crowd avoidance. */
@@ -1229,6 +1245,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           const arrival=this.escortArrival();if(arrival)witness.beginEscort(arrival);
         }
       }
+      this.npcRouting.advance(frameWork(this.game));
       for (const npc of this.npcs) if (npc.active) npc.updatePatrol(time,delta);
       for (const enemy of this.enemies) {
         if (enemy.active) enemy.updateEnemy(this.combatTime,delta);
@@ -2136,7 +2153,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   enemyNavigationPoint(enemy:Enemy,target:Vec2):Vec2 {
     if(this.inInterior)return this.interiors.navigationPoint(enemy,target);
     if(!isFlagshipCombatant(enemy.instanceId,enemy.encounterKey,enemy.encounterBehavior?.home))
-      return this.enemyNavigation.point(enemy,enemy,target,this.time.now,this.game.loop.frame,(a,b)=>this.canEnemyTravel(enemy,a,b));
+      return this.enemyNavigation.point(enemy,enemy,target,this.time.now,this.game.loop.frame,(a,b)=>this.canEnemyTravel(enemy,a,b),frameWork(this.game));
     const cached=this.shipPaths.get(enemy);
     if(cached&&this.time.now<cached.until&&Math.hypot(cached.target.x-target.x,cached.target.y-target.y)<48
       &&Math.hypot(cached.point.x-enemy.x,cached.point.y-enemy.y)>24)return cached.point;
@@ -2727,6 +2744,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('terrain chunks',()=>this.chunkManager?.destroy());
     release('tree sway',()=>this.treeSway?.destroy());
     release('water surface',()=>this.waterSurface?.destroy());
+    release('NPC navigation',()=>this.npcRouting.clear());
     release('enemy navigation',()=>this.enemyNavigation.clear());this.enemyPlacementRetryAt.clear();
     this.exteriorAccess.clear();this.escortDestination=null;this.questObjectSlots.clear();
     this.regionalNpcSlots.clear();this.regionalNpcRetryAt.clear();

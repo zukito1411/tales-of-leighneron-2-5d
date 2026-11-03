@@ -12,7 +12,7 @@ import { patrolDestination } from '../systems/npcPatrol';
 import { seededRandom } from '../../utils/seededRandom';
 import type { WorldScene } from '../scenes/WorldScene';
 import { TOWN_BY_ID } from '../../data/towns';
-import { npcStreetRoute, formationPosition } from '../systems/npcRoutes';
+import { formationPosition } from '../systems/npcRoutes';
 import { useGameStore } from '../../store/gameStore';
 import {QUEST_BY_ID} from '../../data/quests';
 import {questRequirementsMet} from '../systems/questDependencies';
@@ -56,6 +56,7 @@ export class Npc extends DepthSortedSprite {
   private routeCheckMs=120;
   private route:Vec2[]=[];
   private routineKey='';
+  private routePending=false;private routeEpoch=0;
   private routineAnchor:Vec2;
   private stalledMs=0;
   private previousPosition:Vec2;
@@ -152,7 +153,7 @@ export class Npc extends DepthSortedSprite {
         .setVisible(false).setName(`npc-side-quest:${definition.id}`)
       :null;
     if(this.sideQuestMarker)onPlane(this.sideQuestMarker,'upright',this);
-    this.once('destroy', () => { this.nameLabel.destroy(); this.titleLabel.destroy(); this.sideQuestMarker?.destroy(); });
+    this.once('destroy', () => { this.cancelStreetRoute();this.nameLabel.destroy(); this.titleLabel.destroy(); this.sideQuestMarker?.destroy(); });
     if(regionalModel!==undefined)presentCitizen(this,regionalModel);
     else {
       // Start full idle poses immediately, including newly streamed visitors.
@@ -164,7 +165,25 @@ export class Npc extends DepthSortedSprite {
     }
   }
 
-  beginEscort(goal:Vec2) {this.escortRouteRetryAt=0;this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
+  private cancelStreetRoute(){
+    this.routeEpoch++;this.routePending=false;(this.scene as WorldScene).npcRouting.cancel(this);
+  }
+  private requestStreetRoute(goal:Vec2,priority=false){
+    this.cancelStreetRoute();const epoch=this.routeEpoch,scene=this.scene as WorldScene,town=TOWN_BY_ID[this.definition.townId].world;
+    const origin={x:this.x-town.x,y:this.y-town.y},destination={x:goal.x-town.x,y:goal.y-town.y};
+    this.routePending=true;
+    scene.npcRouting.request(this,this.definition.townId,origin,destination,
+      (a,b)=>scene.npcVisitSteps({x:a.x+town.x,y:a.y+town.y},{x:b.x+town.x,y:b.y+town.y}),path=>{
+        if(!this.active||epoch!==this.routeEpoch)return;
+        this.routePending=false;
+        // Explicit story/companion moves cancel the request before moving.
+        // Never apply a result to an actor teleported by an external transition.
+        if(Math.hypot(this.x-town.x-origin.x,this.y-town.y-origin.y)>8){this.target=null;this.route=[];this.routineKey='';this.routineRetryAt=0;return;}
+        this.route=path.map(p=>({x:p.x+town.x,y:p.y+town.y}));
+        this.target=this.route.shift()??null;this.routeCheckMs=120;
+      },priority);
+  }
+  beginEscort(goal:Vec2) {this.cancelStreetRoute();this.escortRouteRetryAt=0;this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
   get escorting(){return this.escortGoal!==null;}
   get usesRegionalPresentation(){return this.regionalModel!==undefined||Boolean(this.definition.settlementResident);}
   storyRest(){
@@ -186,10 +205,10 @@ export class Npc extends DepthSortedSprite {
   get storyAttackReach(){return this.combatProfile?.reach??0;}
   get storyFacing(){return actorAimDirection(this.facing.x,this.facing.y,'down');}
   beginStoryGuard(){
-    if(this.canStoryFight){this.storyGuard=true;this.storyGoal=null;this.stalledMs=0;this.holdStoryGuard();}
+    if(this.canStoryFight){this.cancelStreetRoute();this.storyGuard=true;this.storyGoal=null;this.stalledMs=0;this.holdStoryGuard();}
   }
   endStoryGuard(){
-    this.storyGuard=false;this.storyAttack=null;this.storyGoal=null;
+    this.cancelStreetRoute();this.storyGuard=false;this.storyAttack=null;this.storyGoal=null;
     this.formationRejoining=Boolean(this.definition.formation);this.formationRejoinAt=0;
     this.target=null;this.route=[];this.npcDetour=null;this.routineKey='';this.stalledMs=0;
     if(this.roadRoute){this.roadRoute.rejoin=true;this.roadRoute.joining=null;this.roadRejoinCheckAt=0;}
@@ -218,7 +237,7 @@ export class Npc extends DepthSortedSprite {
   endStoryAttack(){this.storyAttack=null;this.storyRest();}
   beginStoryMovement(goal:Vec2){
     if(!this.canStoryWalk)return;
-    if(this.storyGoal?.x!==goal.x||this.storyGoal.y!==goal.y)this.storyRouteCheckAt=0;
+    if(this.storyGoal?.x!==goal.x||this.storyGoal.y!==goal.y){this.cancelStreetRoute();this.storyRouteCheckAt=0;}
     this.storyGoal={...goal};
   }
   endStoryMovement(){this.storyGoal=null;this.storyRest();}
@@ -227,7 +246,7 @@ export class Npc extends DepthSortedSprite {
   get speechAnchorY(){return this.y+this.labelY;}
   setAdventureCompanion(enabled:boolean){
     if(enabled===this.companionControl)return;
-    this.companionControl=enabled;this.companionGoal=null;
+    this.cancelStreetRoute();this.companionControl=enabled;this.companionGoal=null;
     if(enabled){this.nameLabel.setVisible(false);this.titleLabel.setVisible(false);this.sideQuestMarker?.setVisible(false);}
     this.target=null;this.route=[];this.npcDetour=null;this.routineKey='';this.stalledMs=0;
   }
@@ -241,6 +260,7 @@ export class Npc extends DepthSortedSprite {
   }
   /** Persistent corner destinations keep travel independent of AI think ticks. */
   followRoadRoute(points:readonly Vec2[],speed=39,options:{next?:number;direction?:number;loop?:boolean}={}){
+    this.cancelStreetRoute();
     const loop=points.map(p=>({...p}));
     if(loop.length>2&&Math.hypot(loop[0].x-loop.at(-1)!.x,loop[0].y-loop.at(-1)!.y)<1)loop.pop();
     if(loop.length<2)return;
@@ -373,14 +393,14 @@ export class Npc extends DepthSortedSprite {
     const toWorld=(p:Vec2)=>({x:p.x+town.world.x,y:p.y+town.world.y});
     if(this.definition.formation && scene.getWorldHour()>=6 && scene.getWorldHour()<20) {
       const goal=toWorld(formationPosition(scene.activePlayMs+180,this.definition.formation.rank));
-      if(this.formationRejoining&&time>=this.formationRejoinAt){
+      if(this.formationRejoining&&!this.routePending&&time>=this.formationRejoinAt){
         this.formationRejoinAt=time+2000;
-        this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(goal),(a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
-        this.target=this.route.shift()??null;
+        this.requestStreetRoute(goal,true);
       }
       // Common deterministic phase keeps the file together across streaming.
       // Never snap through a wall if a future layout edit invalidates its route.
       if(Math.hypot(this.x-goal.x,this.y-goal.y)<160 && scene.canNpcVisit(this,goal)) {
+        if(this.routePending)this.cancelStreetRoute();
         this.formationRejoining=false;this.route=[];this.target=null;
         const dx=goal.x-this.x,dy=goal.y-this.y;
         if(Math.hypot(dx,dy)>.2)this.facing.set(dx,dy).normalize();
@@ -392,11 +412,11 @@ export class Npc extends DepthSortedSprite {
     if(this.escortGoal) {
       if(Math.hypot(this.x-scene.player.x,this.y-scene.player.y)>210){body.setVelocity(0,0);this.playDirection(this.facing.x,this.facing.y,false);return;}
       if(Math.hypot(this.x-this.escortGoal.x,this.y-this.escortGoal.y)<28){
-        this.escortGoal=null;this.route=[];this.target=null;this.routineAnchor={x:this.x,y:this.y};
+        this.cancelStreetRoute();this.escortGoal=null;this.route=[];this.target=null;this.routineAnchor={x:this.x,y:this.y};
         useGameStore.getState().progressQuest('escort',this.definition.id);scene.notify(`${this.definition.name} reaches the kitchen safely.`);
-      }else if(!this.target&&!this.route.length&&time>=this.escortRouteRetryAt){
+      }else if(!this.target&&!this.route.length&&!this.routePending&&time>=this.escortRouteRetryAt){
         this.escortRouteRetryAt=time+750;
-        this.route=npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.escortGoal),(a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+        this.requestStreetRoute(this.escortGoal,true);
       }
     } else if(!this.formationRejoining) {
       const hour=scene.getWorldHour();
@@ -416,13 +436,12 @@ export class Npc extends DepthSortedSprite {
         if(safe){
           this.routineKey=period;this.routineAnchor=safe;
           this.target=null;this.npcDetour=null;this.returningHome=false;
-          this.route=this.definition.campId
-            ?(scene.canNpcVisit(this,this.routineAnchor)?[{...this.routineAnchor}]:[])
-            :npcStreetRoute(this.definition.townId,toLocal(this),toLocal(this.routineAnchor),
-              (a,b)=>scene.canNpcVisit(toWorld(a),toWorld(b))).map(toWorld);
+          if(this.definition.campId)this.route=scene.canNpcVisit(this,this.routineAnchor)?[{...this.routineAnchor}]:[];
+          else {this.route=[];this.requestStreetRoute(this.routineAnchor,this.definition.questIds.length>0);}
         }
       }
     }
+    if(this.routePending){this.storyRest();return;}
     if(!this.target&&this.route.length)this.target=this.route.shift()!;
     if(this.target) {
       const moved=Math.hypot(this.x-this.previousPosition.x,this.y-this.previousPosition.y);

@@ -32,6 +32,7 @@ export const WORLD_SPRITE_OWNER='worldSpriteOwner';
 /** One source-derived ground geometry path for authored and streamed scenery.
  * Render bounds, physical contour and draw order are deliberately separate. */
 export class WorldSpriteSystem {
+  navigationVersion=0;
   private readonly entranceSurfaces=new EntranceWalkSurfaces();
   groundHeightAt(x:number,y:number,terrain:number){return this.entranceSurfaces.heightAt(x,y,terrain);}
   private readonly owned=new Map<WorldActor,Phaser.GameObjects.Rectangle[]>();
@@ -226,6 +227,7 @@ export class WorldSpriteSystem {
       this.blend?.apply(actor,texture,frame,bottom);
     };
     const publish=()=>{
+      this.navigationVersion++;
       this.entranceSurfaces.enable(actor,actor.active&&actor.visible);
       for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=actor.active&&actor.visible;
       for(const layer of layers)layer.setVisible(actor.visible);
@@ -249,6 +251,7 @@ export class WorldSpriteSystem {
   /** Story visibility and collision change together; pending scenery still
    * waits for normal publication, and retired owners cannot become solid. */
   setVisibility(actor:WorldActor,visible:boolean){
+    if(actor.visible!==visible)this.navigationVersion++;
     actor.setVisible(visible);
     const enabled=visible&&actor.active&&!this.publication.has(actor);
     this.entranceSurfaces.enable(actor,enabled);
@@ -257,13 +260,14 @@ export class WorldSpriteSystem {
   /** Make retired scenery non-authoritative immediately; expensive listener/
    * physics destruction can then be spread across subsequent frames. */
   retire(actor:WorldActor){
+    this.navigationVersion++;
     this.entranceSurfaces.enable(actor,false);
     for(const shape of this.owned.get(actor)??[])if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
   }
   private release(actor:WorldActor){
     this.entranceSurfaces.remove(actor);
     this.staged.delete(actor);this.publication.delete(actor);
-    const shapes=this.owned.get(actor);if(!shapes)return;this.owned.delete(actor);
+    const shapes=this.owned.get(actor);if(!shapes)return;this.navigationVersion++;this.owned.delete(actor);
     for(const shape of shapes)this.bodies.remove(shape,true,true);
   }
   blocksPoint(point:Vec2,width=18,height=22){

@@ -2,7 +2,8 @@ import {
   AdditiveBlending,BufferAttribute,DoubleSide,DynamicDrawUsage,InstancedBufferAttribute,
   InstancedMesh,Matrix4,NormalBlending,PlaneGeometry,Scene,ShaderMaterial,Texture,Vector4,Vector2,Vector3,Color,type BufferGeometry,
 } from 'three';
-import {lightOcclusionShader} from './LightOcclusion';
+import {cloneModelTopology,modelIsOpaque} from './modelTopology';
+import {lightOcclusionShader,lightDepthShader} from './LightOcclusion';
 import {waveVertexDeclarations,waveVertexMotion,waveFragmentDeclarations} from './WaveEnergyShader';
 import {elevationShader,TERRAIN_GRID_SEGMENTS,type ElevationField} from './ElevationField';
 import type Phaser from 'phaser';
@@ -13,7 +14,7 @@ export interface DistanceAtmosphere {
   architectureAtlas?:{value:Texture|null};furnishingsAtlas?:{value:Texture|null};buildingDetailsAtlas?:{value:Texture|null};
   natureAtlas?:{value:Texture|null};tradeAtlas?:{value:Texture|null};
   worldDepth?:{value:Texture|null};depthClipRange?:{value:Vector2};depthTexel?:{value:Vector2};
-  structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
+  shadowProjection?:{value:Vector2};structureLightDirection?:{value:Vector3};structureFill?:{value:Color};structureKey?:{value:Color};
 }
 
 export interface PresentationUniforms {viewport:{value:Vector2}}
@@ -31,6 +32,14 @@ attribute vec4 instanceTintBL;
 attribute vec4 instanceTintBR;
 attribute vec4 tileRepeat;
 uniform bool groundSurface;
+uniform bool shadow;
+uniform vec2 shadowProjection;
+uniform bool occludedOverlay;
+uniform sampler2D worldDepth;
+uniform vec2 depthClipRange;
+uniform vec2 depthTexel;
+varying float sourceVisibility;
+${lightOcclusionShader}
 uniform bool architecture;
 uniform bool structureShading;
 uniform vec3 structureLightDirection;
@@ -71,6 +80,12 @@ void main(){
   materialRect=surfaceRect;materialUV=surfaceUV;paintedFire=step(.00001,cutoutPivot.w);
 #endif
   localUV=uv;effectData=tileRepeat;
+  sourceVisibility=1.0;
+  if(occludedOverlay){
+    float n=depthClipRange.x,f=depthClipRange.y;
+    float lightDepth=n*f/(f-tileRepeat.z*(f-n));
+    sourceVisibility=lightSourceVisibility(worldDepth,tileRepeat.xy,lightDepth,depthClipRange,depthTexel,tileRepeat.w);
+  }
   sourceY=1.0-uv.y;
   shadowBottom=tileRepeat.x;
   atlasUV=atlasRect.xy+uv*atlasRect.zw;
@@ -107,6 +122,9 @@ ${waveVertexMotion}
     // Vertex lighting keeps the painted materials and fragment cost intact.
     tint.rgb*=min(vec3(1.05),structureFill*(.90+.10*max(n.y,0.0))+structureKey*max(0.0,dot(n,structureLightDirection)));
   }
+  // Static shadow bases never change with sunlight. Reuse spare tileRepeat
+  // channels for the exact affine height coefficients; no extra attributes.
+  if(shadow)world.xz+=shadowProjection*dot(vec3(presentedPosition.xy,1.0),tileRepeat.yzw);
   groundPosition=world.xz;
   if(groundSurface)world.y+=groundHeight(world.xz);
   vec4 viewed=viewMatrix*world;
@@ -121,6 +139,7 @@ uniform bool occludedOverlay;
 uniform bool fillTint;
 uniform bool tiled;
 uniform bool shadow;
+varying float sourceVisibility;
 uniform bool fadeOnly;
 uniform bool telegraph;
 uniform bool architecture;
@@ -233,7 +252,7 @@ vec4 warningPixel(){
   vec3 color=progress>=.95?mix(tint.rgb,vec3(1.0,.822,.631),boundary):tint.rgb;
   return vec4(color,max(boundary*.85,inside*.07+fill*(.22+progress*.16)));
 }
-${lightOcclusionShader}
+${lightDepthShader}
 ${waveFragmentDeclarations}
 void main(){
   float glowVisibility=1.0;
@@ -242,7 +261,7 @@ void main(){
   if(occludedOverlay){
     float n=depthClipRange.x,f=depthClipRange.y;
     float lightDepth=n*f/(f-effectData.z*(f-n));
-    glowVisibility=lightVisibility(worldDepth,effectData.xy,gl_FragCoord.xy/presentationViewport,lightDepth,depthClipRange,depthTexel,effectData.w);
+    glowVisibility=sourceVisibility*lightDepthVisibility(worldDepth,gl_FragCoord.xy/presentationViewport,lightDepth,depthClipRange,effectData.w);
     if(glowVisibility<.001)discard;
   }
   if(clipCount>0){
@@ -340,6 +359,7 @@ export class SpriteBatch {
   private readonly segments:number;
   private readonly dirtyStart=new Int32Array(7);
   private readonly dirtyEnd=new Int32Array(7);
+  private readonly dirtySlots:number[][]=Array.from({length:7},()=>[]);
   private attributes:BufferAttribute[]=[];
   lastUsed=0;
   interactive=false;
@@ -348,12 +368,12 @@ export class SpriteBatch {
   private readonly staticTokens:Array<object|undefined>=[];
   private readonly staticAlphas:number[]=[];
 
-  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},presentationUniforms?:PresentationUniforms,occluder=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry){
+  constructor(private readonly scene:Scene,texture:Texture,additive:boolean,overlay:boolean,order:number,clips:readonly Vector4[]=[],fillTint=false,opaque=false,depthWrite=!overlay&&!additive,ground=false,tiled=false,elevation?:ElevationField,terrain:boolean|number=false,atmosphere?:DistanceAtmosphere,shadow=false,telegraph=false,private readonly geometryFactory?:()=>BufferGeometry,billboard=false,billboardRight?:{value:Vector2},presentationUniforms?:PresentationUniforms,occluder=true,occludedOverlay=false,private readonly combatGeometry?:()=>BufferGeometry,allowOpaqueModels=true){
     this.foregroundFactory=()=>{
       // Copy the already prepared topology once, instead of assembling the
       // detailed prefab again on the first obstructed frame.
-      const structure=geometryFactory?()=>this.mesh.geometry.clone():undefined;
-      const batch=new SpriteBatch(scene,texture,additive,overlay,Math.max(1,order),clips,fillTint,false,false,ground,tiled,elevation,terrain,atmosphere,shadow,telegraph,structure,billboard,billboardRight,presentationUniforms,occluder,occludedOverlay,combatGeometry);
+      const structure=geometryFactory?()=>cloneModelTopology(this.mesh.geometry):undefined;
+      const batch=new SpriteBatch(scene,texture,additive,overlay,Math.max(1,order),clips,fillTint,false,false,ground,tiled,elevation,terrain,atmosphere,shadow,telegraph,structure,billboard,billboardRight,presentationUniforms,occluder,occludedOverlay,combatGeometry,false);
       batch.mesh.userData.foregroundFaded=true;
       return batch;
     };
@@ -362,13 +382,14 @@ export class SpriteBatch {
     // WebGLUniforms.upload honors needsUpdate even though IUniform omits it.
     // With clipCount=0 the shader never reads this 16-vector array.
     const clipRectsUniform={value:Array.from({length:16},(_,i)=>clips[i]??new Vector4()),needsUpdate:clips.length>0};
-    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},tradeAtlas:atmosphere?.tradeAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},tradeAtlas:atmosphere?.tradeAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},shadowProjection:atmosphere?.shadowProjection??{value:new Vector2()},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:clipRectsUniform},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,
       blending:additive?AdditiveBlending:NormalBlending});
     this.segments=typeof terrain==='number'?terrain:terrain?TERRAIN_GRID_SEGMENTS:ground?(shadow?8:4):1;
     const geometry=this.createGeometry();
+    if(allowOpaqueModels&&geometryFactory&&depthWrite&&!overlay&&!additive&&!shadow&&modelIsOpaque(geometry))this.material.transparent=false;
     if(geometry.userData.energyWave===true)this.material.defines.WAVE_ENERGY=1;
     this.atlas=new InstancedBufferAttribute(new Float32Array(this.capacity*4),4).setUsage(DynamicDrawUsage);
     this.tint=new InstancedBufferAttribute(new Float32Array(this.capacity*4),4).setUsage(DynamicDrawUsage);
@@ -385,7 +406,7 @@ export class SpriteBatch {
   /** Separate retained batch: faded objects blend after actors and cannot
    * write opaque depth over them. Original instances keep their normal depth. */
   createForegroundVariant(){return this.foregroundFactory();}
-  begin(){this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);}
+  begin(){this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);for(const slots of this.dirtySlots)slots.length=0;}
   /** A validated, immutable scenery packet can retain the same instance
    * slot. Camera yaw/lighting still animate in shared shader uniforms. */
   addStatic(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat:ArrayLike<number>|undefined,token:object){
@@ -417,7 +438,10 @@ export class SpriteBatch {
     this.lastUsed=frame;
     return slot;
   }
-  private mark(index:number,slot:number){this.dirtyStart[index]=Math.min(this.dirtyStart[index],slot);this.dirtyEnd[index]=Math.max(this.dirtyEnd[index],slot+1);}
+  private mark(index:number,slot:number){
+    this.dirtyStart[index]=Math.min(this.dirtyStart[index],slot);this.dirtyEnd[index]=Math.max(this.dirtyEnd[index],slot+1);
+    const slots=this.dirtySlots[index];if(slots.at(-1)!==slot)slots.push(slot);
+  }
   private write4(attribute:InstancedBufferAttribute,index:number,slot:number,x:number,y:number,z:number,w:number){
     x=Math.fround(x);y=Math.fround(y);z=Math.fround(z);w=Math.fround(w);
     const data=attribute.array,offset=slot*4;
@@ -437,7 +461,18 @@ export class SpriteBatch {
     for(let i=0;i<attributes.length;i++){
       const start=this.dirtyStart[i],end=this.dirtyEnd[i];if(end<0)continue;
       const attribute=attributes[i];
-      attribute.clearUpdateRanges();attribute.addUpdateRange(start*attribute.itemSize,(end-start)*attribute.itemSize);attribute.needsUpdate=true;
+      attribute.clearUpdateRanges();
+      const slots=this.dirtySlots[i];
+      // Sparse actors must not reupload the unchanged scenery between them.
+      // Bound GL calls too; densely changed batches keep one original range.
+      if(slots.length<=32){
+        let first=slots[0],last=first;
+        for(let j=1;j<=slots.length;j++){
+          const slot=slots[j];if(slot!==undefined&&slot<=last+4){last=slot;continue;}
+          attribute.addUpdateRange(first*attribute.itemSize,(last-first+1)*attribute.itemSize);first=last=slot;
+        }
+      }else attribute.addUpdateRange(start*attribute.itemSize,(end-start)*attribute.itemSize);
+      attribute.needsUpdate=true;
     }
     // Raycasting uses the current instance transforms after actors move.
     if(countChanged||this.dirtyEnd[0]>=0)this.mesh.boundingSphere=null;
@@ -445,7 +480,7 @@ export class SpriteBatch {
   private bindAttributes(){this.attributes=[this.mesh.instanceMatrix,this.atlas,this.tint,this.tintTR,this.tintBL,this.tintBR,this.repeat];}
   private createGeometry(){return this.combatGeometry?.()??this.geometryFactory?.()??new PlaneGeometry(1,1,this.segments,this.segments);}
   private grow(){
-    const previous=this.mesh,capacity=this.capacity*2,geometry=this.createGeometry();
+    const previous=this.mesh,capacity=this.capacity*2,geometry=cloneModelTopology(previous.geometry);
     const atlas=new Float32Array(capacity*4),tint=new Float32Array(capacity*4);
     atlas.set(this.atlas.array);tint.set(this.tint.array);
     this.atlas=new InstancedBufferAttribute(atlas,4).setUsage(DynamicDrawUsage);

@@ -1,4 +1,5 @@
 import type {Vec2} from '../types';
+import type {FrameWorkBudget} from '../presentation25d/FrameWorkBudget';
 
 type Clear=(from:Vec2,to:Vec2)=>boolean;
 interface Node {point:Vec2;g:number;score:number;parent:Node|null;key:string}
@@ -25,8 +26,8 @@ export class EnemyNavigation {
   private routes=new WeakMap<object,Route>();
   private readonly jobs=new Map<object,Search>();
   private workedFrame=-1;
-  point(owner:object,from:Vec2,target:Vec2,now:number,frame:number,clear:Clear):Vec2{
-    this.work(frame,now);
+  point(owner:object,from:Vec2,target:Vec2,now:number,frame:number,clear:Clear,budget?:FrameWorkBudget):Vec2{
+    this.work(frame,now,budget);
     let route=this.routes.get(owner);
     if(route&&distance(route.target,target)>112){this.forget(owner);route=undefined;}
     if(route){
@@ -49,30 +50,36 @@ export class EnemyNavigation {
     this.routes.set(owner,route);this.jobs.set(owner,{route,from:{...from},target:{...target},clear,open:[first],costs:new Map([['0:0',0]]),best:first,visited:0});
     return target;
   }
-  private work(frame:number,now:number){
+  private work(frame:number,now:number,budget?:FrameWorkBudget){
     if(frame===this.workedFrame)return;this.workedFrame=frame;
     const next=this.jobs.entries().next();if(next.done)return;
     const [owner,job]=next.value;this.jobs.delete(owner);
-    const deadline=performance.now()+1;
-    for(let expanded=0;job.open.length&&job.visited<MAX_NODES&&expanded<20;expanded++){
-      if(expanded&&performance.now()>=deadline)break;
-      const node=pop(job.open);
-      if(node.g!==(job.costs.get(node.key)??Infinity))continue;
-      job.visited++;
-      if(distance(node.point,job.target)<distance(job.best.point,job.target))job.best=node;
-      if(distance(node.point,job.target)<=STEP*2&&job.clear(node.point,job.target)){
-        this.finish(job,node,now,true);return;
+    const start=performance.now(),allowance=budget?.remaining('navigation',1)??1;
+    if(allowance<=0){this.jobs.set(owner,job);return;}
+    try{
+      const deadline=start+allowance;
+      for(let expanded=0;job.open.length&&job.visited<MAX_NODES&&expanded<20;expanded++){
+        if(expanded&&performance.now()>=deadline)break;
+        const node=pop(job.open);
+        if(node.g!==(job.costs.get(node.key)??Infinity))continue;
+        job.visited++;
+        if(distance(node.point,job.target)<distance(job.best.point,job.target))job.best=node;
+        if(distance(node.point,job.target)<=STEP*2&&job.clear(node.point,job.target)){
+          this.finish(job,node,now,true);return;
+        }
+        for(const [dx,dy] of DIRECTIONS){
+          const point={x:node.point.x+dx*STEP,y:node.point.y+dy*STEP};
+          const g=node.g+Math.hypot(dx,dy)*STEP;
+          const key=Math.round((point.x-job.from.x)/STEP)+':'+Math.round((point.y-job.from.y)/STEP);
+          if(g>MAX_COST||(job.costs.get(key)??Infinity)<=g||!job.clear(node.point,point))continue;
+          job.costs.set(key,g);push(job.open,{point,g,score:g+distance(point,job.target),parent:node,key});
+        }
       }
-      for(const [dx,dy] of DIRECTIONS){
-        const point={x:node.point.x+dx*STEP,y:node.point.y+dy*STEP};
-        const g=node.g+Math.hypot(dx,dy)*STEP;
-        const key=Math.round((point.x-job.from.x)/STEP)+':'+Math.round((point.y-job.from.y)/STEP);
-        if(g>MAX_COST||(job.costs.get(key)??Infinity)<=g||!job.clear(node.point,point))continue;
-        job.costs.set(key,g);push(job.open,{point,g,score:g+distance(point,job.target),parent:node,key});
-      }
+      if(!job.open.length||job.visited>=MAX_NODES)this.finish(job,job.best,now,false);
+      else this.jobs.set(owner,job); // Round-robin: a boxed-in foe cannot monopolize work.
+    }finally{
+      if(budget)budget.chargeMs('navigation',performance.now()-start);
     }
-    if(!job.open.length||job.visited>=MAX_NODES)this.finish(job,job.best,now,false);
-    else this.jobs.set(owner,job); // Round-robin: a boxed-in foe cannot monopolize work.
   }
   private finish(job:Search,last:Node,now:number,reached:boolean){
     const path:Vec2[]=reached?[{...job.target}]:[];

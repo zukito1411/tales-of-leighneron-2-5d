@@ -5,6 +5,7 @@ interface ScreenBounds {left:number;right:number;top:number;bottom:number;depth:
 interface Subject {x:number;y:number;presentationElevation?:number}
 interface TriangleBlocks {triangles:Uint32Array;bounds:Float64Array}
 const BLOCK_SIZE=32;
+const EMPTY_BLOCKS:TriangleBlocks={triangles:new Uint32Array(),bounds:new Float64Array()};
 export const FOREGROUND_OPACITY=.28;
 
 /** Camera visibility only. Reuses submitted geometry; never queries physics,
@@ -20,6 +21,24 @@ export class ForegroundOcclusion {
   private readonly a=new Vector3();private readonly b=new Vector3();private readonly c=new Vector3();
   private readonly hit=new Vector3();private readonly box=new Box3();
   private blocks=new WeakMap<BufferGeometry,TriangleBlocks>();
+  private readonly pending=new Map<BufferGeometry,{steps:Generator<void,TriangleBlocks,void>;dispose:()=>void}>();
+  warm(geometry:BufferGeometry){
+    const retained=geometry.userData.foregroundBlocks as TriangleBlocks|undefined;
+    if(retained){this.blocks.set(geometry,retained);return;}
+    if(this.blocks.has(geometry)||this.pending.has(geometry))return;
+    const dispose=()=>{const job=this.pending.get(geometry);this.pending.delete(geometry);job?.steps.return(EMPTY_BLOCKS);this.blocks.delete(geometry);geometry.removeEventListener('dispose',dispose);};
+    this.pending.set(geometry,{steps:this.prepareSteps(geometry),dispose});geometry.addEventListener('dispose',dispose);
+  }
+  preload(milliseconds:number){
+    if(!this.enabled||milliseconds<=0)return;
+    const deadline=performance.now()+milliseconds;
+    for(let count=0;this.pending.size&&count<128&&performance.now()<deadline;count++){
+      const [geometry,job]=this.pending.entries().next().value!;this.pending.delete(geometry);
+      const next=job.steps.next();
+      if(next.done){this.blocks.set(geometry,next.value);geometry.userData.foregroundBlocks=next.value;geometry.removeEventListener('dispose',job.dispose);}
+      else this.pending.set(geometry,job);
+    }
+  }
 
   begin(camera:Camera,subject:Subject|undefined,ground:number,leanCos:number,leanSin:number,yawCos:number,yawSin:number){
     this.enabled=false;if(!subject)return;
@@ -47,9 +66,15 @@ export class ForegroundOcclusion {
   billboardBlocked(bounds:ScreenBounds){return this.covers(bounds,true);}
 
   modelBlocked(geometry:BufferGeometry,matrix:Matrix4,bounds:ScreenBounds){
+    if(!this.enabled)return false;
+    this.warm(geometry);
     if(!this.covers(bounds))return false;
     let blocks=this.blocks.get(geometry);
-    if(!blocks){blocks=this.prepare(geometry);this.blocks.set(geometry,blocks);}
+    if(!blocks){
+      const job=this.pending.get(geometry)!;let next=job.steps.next();while(!next.done)next=job.steps.next();
+      blocks=next.value;this.blocks.set(geometry,blocks);geometry.userData.foregroundBlocks=blocks;
+      this.pending.delete(geometry);geometry.removeEventListener('dispose',job.dispose);
+    }
     if(!blocks.triangles.length||Math.abs(matrix.determinant())<1e-12)return false;
     this.inverse.copy(matrix).invert();
     let blocked=0;
@@ -69,11 +94,12 @@ export class ForegroundOcclusion {
     return false;
   }
 
-  private prepare(geometry:BufferGeometry):TriangleBlocks {
+  private *prepareSteps(geometry:BufferGeometry):Generator<void,TriangleBlocks,void> {
     const positions=geometry.getAttribute('position'),surface=geometry.getAttribute('surfaceRect');
     const index=geometry.index,count=Math.floor((index?.count??positions.count)/3);
     const triangles=new Uint32Array(count);let used=0;
     for(let triangle=0;triangle<count;triangle++){
+      if((triangle&31)===31)yield;
       const vertex=index?index.getX(triangle*3):triangle*3;
       // Painted cutout decorations (leaves, fire, crest fringes) are not solid
       // walls. The opaque modeled surfaces behind them decide visibility.
@@ -83,6 +109,7 @@ export class ForegroundOcclusion {
     }
     const bounds=new Float64Array(Math.ceil(used/BLOCK_SIZE)*6);
     for(let block=0;block<bounds.length/6;block++){
+      yield;
       this.box.makeEmpty();
       for(let i=block*BLOCK_SIZE;i<Math.min(used,(block+1)*BLOCK_SIZE);i++)for(let corner=0;corner<3;corner++){
         const vertex=index?index.getX(triangles[i]+corner):triangles[i]+corner;
@@ -114,5 +141,5 @@ export class ForegroundOcclusion {
     }
     return false;
   }
-  clear(){this.enabled=false;this.blocks=new WeakMap();}
+  clear(){this.enabled=false;for(const [geometry,job] of this.pending){geometry.removeEventListener('dispose',job.dispose);job.steps.return(EMPTY_BLOCKS);}this.pending.clear();this.blocks=new WeakMap();}
 }

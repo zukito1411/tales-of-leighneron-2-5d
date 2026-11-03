@@ -405,6 +405,7 @@ export class ThreePresentation {
       const elevationStart=performance.now(),elevationMs=work.remaining('elevation',.5);
       if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled,elevationMs);
       work.charge('elevation',elevationStart);
+      const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
   }
@@ -742,14 +743,15 @@ export class ThreePresentation {
     const terrainGrid=plane==='ground'&&!overlay?(groundBase?TERRAIN_GRID_SEGMENTS:span>128?Math.min(64,Math.max(4,2**Math.ceil(Math.log2(span/32)))):4):1;
     const opaque=groundBase&&!additive&&alpha*camera.alpha>=.999;
     const depthWrite=!overlay&&!additive&&(groundBase||plane!=='ground')&&alpha*camera.alpha>=.999;
+    const solidModel=depthWrite&&alpha*camera.alpha===1;
     const fillTint='tintFill' in object&&object.tintFill===true;
     const mask=this.rectangularMask(object);
     if(source)texture=this.textures.get(source,this.frame,object instanceof Phaser.GameObjects.Text?object:undefined);
     if(!texture)return;
     const billboard=staticImage&&!house&&!furniture&&plane==='upright'&&!object.input?.enabled;
-    const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.shopfront??'')+':'+(house!.tradeSign??'')+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
+    const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(solidModel)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.shopfront??'')+':'+(house!.tradeSign??'')+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude));this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude),undefined,solidModel);this.batches.set(key,batch);}
     const factor=emissionOwner?this.foregroundFactor(emissionOwner):fadeEligible?this.sceneryOpacity(object,batch):1;
     const drawingBatch=factor<1?this.foregroundBatch(key,batch):batch;
     const colors=this.colors;

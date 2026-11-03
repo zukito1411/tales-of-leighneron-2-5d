@@ -21,6 +21,7 @@ export class ShaderWarmup {
     // Retain the shared architecture shader before the first town enters
     // view. All roof/wall styles share this program and their existing atlases.
     this.batches.push(new SpriteBatch(this.scene,this.texture,false,false,0,[],false,false,true,false,false,elevation,false,atmosphere,false,false,()=>createWallGeometry(.06)));
+    this.batches.push(this.batches[this.batches.length-1].createForegroundVariant());
     // Combat has two shader defines distinct from scenery. Retaining these
     // tiny shared programs avoids driver compilation on the first attack.
     for(const kind of ['slash','wave'] as const)this.batches.push(new SpriteBatch(this.scene,this.texture,true,false,1,[],false,false,false,false,false,elevation,false,atmosphere,
