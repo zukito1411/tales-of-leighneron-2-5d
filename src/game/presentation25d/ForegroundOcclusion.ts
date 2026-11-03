@@ -69,12 +69,12 @@ export class ForegroundOcclusion {
     if(!this.enabled)return false;
     this.warm(geometry);
     if(!this.covers(bounds))return false;
-    let blocks=this.blocks.get(geometry);
-    if(!blocks){
-      const job=this.pending.get(geometry)!;let next=job.steps.next();while(!next.done)next=job.steps.next();
-      blocks=next.value;this.blocks.set(geometry,blocks);geometry.userData.foregroundBlocks=blocks;
-      this.pending.delete(geometry);geometry.removeEventListener('dispose',job.dispose);
-    }
+    const blocks=this.blocks.get(geometry);
+    // Never drain a preparation generator from the render traversal. A mode
+    // switch can expose many detailed models in the same frame. Until their
+    // exact blocks are ready, use the existing screen/depth overlap to keep
+    // the character visible; preload() alone advances the bounded jobs.
+    if(!blocks)return this.covers(bounds,true);
     if(!blocks.triangles.length||Math.abs(matrix.determinant())<1e-12)return false;
     this.inverse.copy(matrix).invert();
     let blocked=0;

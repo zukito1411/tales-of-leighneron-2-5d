@@ -245,7 +245,9 @@ export class Player extends DepthSortedSprite {
       this.nextDashTrailAt = time;
       scene.recordTraining('drill-dash');
       scene.shakeCombatCamera(75, 0.0015);
-      scene.playEffect('fortification', this.x, this.y, this.dashDirection);
+      // This self-only flourish can intersect the eye camera during a dodge.
+      // Keep it in TPP like the afterimage, without flashing across FPP vision.
+      scene.playEffect('fortification', this.x, this.y, this.dashDirection).setData('hideInFirstPerson',true);
       scene.playAudio('sfx-dash',.32);
     }
 

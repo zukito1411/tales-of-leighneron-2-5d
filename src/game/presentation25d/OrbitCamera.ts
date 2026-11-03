@@ -133,11 +133,13 @@ export class OrbitCamera {
     const follow=1-Math.exp(-Math.min(80,Math.max(0,delta))/55);
     if(!this.initialized||Math.hypot(this.focus.x-target.x,this.focus.z-target.y)>1200){this.focus.set(target.x,aimY,target.y);this.initialized=true;}
     else this.focus.lerp(this.nextFocus.set(target.x,aimY,target.y),follow);
+    // Select the current mode's projection before deriving orbit distance.
+    // Reusing the previous FPP FOV caused a one-frame zoom jump on return.
+    this.camera.aspect=native.width/native.height;
+    this.camera.fov=firstPerson?this.settings.firstPersonFov:38;this.camera.near=firstPerson ? .35 : 2;
     const base=native.height/(native.zoom*2*Math.tan(this.camera.fov*RAD/2));
     // A bounded frustum keeps terrain streaming finite on ultrawide displays.
     const distance=Math.max(MIN_DISTANCE,Math.min(1350,1900/Math.max(1,native.width/native.height),base*this.zoom));
-    this.camera.aspect=native.width/native.height;
-    this.camera.fov=firstPerson?this.settings.firstPersonFov:38;this.camera.near=firstPerson ? .35 : 2;
     const orbitPitch=Math.max(8*RAD,this.pitch);
     const horizontal=distance*Math.cos(orbitPitch),vertical=distance*Math.sin(orbitPitch);
     this.camera.position.set(this.focus.x+horizontal*Math.sin(this.yaw),this.focus.y+vertical,this.focus.z+horizontal*Math.cos(this.yaw));
@@ -153,7 +155,8 @@ export class OrbitCamera {
       this.camera.lookAt(this.lookTarget);
     }
     const shake=native.shakeEffect as Phaser.Cameras.Scene2D.Effects.Shake&ShakeOffset;
-    if(shake.isRunning)this.camera.setViewOffset(native.width,native.height,shake._offsetX,shake._offsetY,native.width,native.height);
+    if(shake.isRunning&&Number.isFinite(shake._offsetX)&&Number.isFinite(shake._offsetY))
+      this.camera.setViewOffset(native.width,native.height,shake._offsetX,shake._offsetY,native.width,native.height);
     else if(this.camera.view?.enabled)this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();this.camera.updateMatrixWorld();
     this.focusGround.x=target.x;this.focusGround.y=target.y;
