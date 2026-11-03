@@ -4,10 +4,13 @@ import {CombatArtIcon} from './CombatArtIcon';
 import { mobileInput } from '../game/input';
 import { useGameStore } from '../store/gameStore';
 import {ItemIcon} from './ItemIcon';
-import {POTIONS,type PotionId} from '../data/economy';
+import {POTIONS,preferredPotion} from '../data/economy';
+import {useControlSettings} from './useControlSettings';
 import {isPlayerHome} from '../data/playerHomes';
+import {keyLabel} from '../game/systems/controlSettings';
 
 export function MobileControls() {
+  const controls=useControlSettings();
   const joystickRef = useRef<HTMLDivElement>(null);
   const pointerId = useRef<number | null>(null);
   const attackPointer=useRef<number|null>(null);
@@ -41,7 +44,7 @@ export function MobileControls() {
     window.addEventListener('blur', reset);
     document.addEventListener('visibilitychange', reset);
     return () => { reset(); window.removeEventListener('blur', reset); document.removeEventListener('visibilitychange', reset); };
-  }, [blocked]);
+  }, [blocked,controls]);
 
   const updateStick = (clientX: number, clientY: number) => {
     const node = joystickRef.current;
@@ -79,15 +82,15 @@ export function MobileControls() {
   };
 
   const lockButton=(desktop=false)=><button type="button" className={desktop?'target-lock-desktop':`touch-button target-lock${targetLock?' is-locked':''}`}
-    aria-label={targetLock?`Unlock ${targetLock.name}`:'Lock target'} aria-pressed={Boolean(targetLock)} title={targetLock?`Unlock ${targetLock.name} · R`:'Lock visible enemy · R'}
+    aria-label={targetLock?`Unlock ${targetLock.name}`:'Lock target'} aria-pressed={Boolean(targetLock)} title={targetLock?`Unlock ${targetLock.name} · ${keyLabel(controls.keys.targetLock)}`:`Lock visible enemy · ${keyLabel(controls.keys.targetLock)}`}
     onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();mobileInput.press('targetLock');}}}
     onPointerDown={event=>{event.stopPropagation();mobileInput.press('targetLock');}}>
     <svg viewBox="0 0 32 32" fill="none" aria-hidden="true"><circle cx="16" cy="16" r="8"/><path d="M16 2v7m0 14v7M2 16h7m14 0h7"/><circle cx="16" cy="16" r="2"/></svg>
-    <small>{targetLock?'Unlock':'Lock'}{desktop?' · R':''}</small>
+    <small>{targetLock?'Unlock':'Lock'}{desktop?' · '+keyLabel(controls.keys.targetLock):''}</small>
   </button>;
   return <>
     {!blocked&&lockButton(true)}
-    <div className="mobile-controls" data-at-home={atHome} aria-label="Touch controls" style={blocked ? { display: 'none' } : undefined}>
+    <div className="mobile-controls" data-at-home={atHome} aria-label="Touch controls" style={{display:blocked?'none':undefined,'--touch-scale':controls.touchScale} as React.CSSProperties}>
       <div
         ref={joystickRef}
         className="joystick"
@@ -112,8 +115,9 @@ export function MobileControls() {
         {lockButton()}
         <button type="button" className="touch-button jump" aria-label="Jump" onPointerDown={()=>mobileInput.press('jump')}><span className="touch-glyph">↑</span><small>Jump</small></button>
         <div className="touch-potions" aria-label="Potion shortcuts">
-          {(['healing-potion','stamina-potion'] as PotionId[]).map(id=>{
-            const healing=id==='healing-potion',count=potions[id],full=healing?hp>=maxHp:stamina>=maxStamina;
+          {(['healing-potion','stamina-potion'] as const).map(base=>{
+            const id=preferredPotion(base,potions);
+            const healing=base==='healing-potion',count=potions[id]??0,full=healing?hp>=maxHp:stamina>=maxStamina;
             return <button key={id} type="button" className={`touch-button touch-potion ${healing?'healing':'stamina'}`} aria-label={`${POTIONS[id].name}, ${count} remaining`} title={`${POTIONS[id].name} · ${count} remaining`} disabled={count<=0||full||Boolean(activeSkillStatus.casting)} onPointerDown={()=>mobileInput.press(healing?'healPotion':'staminaPotion')}>
               <ItemIcon id={id}/><span className="touch-potion-count">{count}</span>
             </button>;
@@ -144,7 +148,7 @@ export function MobileControls() {
           );
         })}
         {interaction && <button type="button" aria-label={`Interact: ${interaction}`} title={interaction} className="touch-button interact" onPointerDown={() => mobileInput.press('interact')}>
-          <span className="touch-glyph">E</span><small>Interact</small>
+          <span className="touch-glyph">{keyLabel(controls.keys.interact)}</span><small>Interact</small>
         </button>}
         <button type="button" aria-label="Attack" title="Hold to keep attacking" className="touch-button attack"
           onPointerDown={event=>{

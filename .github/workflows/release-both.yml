@@ -48,6 +48,12 @@ jobs:
           npm run build
           node scripts/prepare-android-downloads.mjs
           npx cap sync android
+      - name: Share the existing pinned Android asset manifest with Windows
+        uses: actions/upload-artifact@v4
+        with:
+          name: Android-Pinned-Asset-Manifest
+          path: dist/native-assets.json
+          if-no-files-found: error
       - name: Upload immutable game download packs
         uses: actions/upload-artifact@v4
         with:
@@ -153,6 +159,7 @@ jobs:
           retention-days: 14
 
   portable-exe:
+    needs: android
     runs-on: windows-latest
     timeout-minutes: 65
     steps:
@@ -168,35 +175,44 @@ jobs:
         run: |
           npm run test:types
           npm exec --no -- tsc -p tsconfig.node.json --noEmit
-      - name: Bundle the complete offline game
+      - name: Bundle game code from the same commit as Android
         run: npm run build
+      - name: Download the exact manifest produced for the APK
+        uses: actions/download-artifact@v4
+        with:
+          name: Android-Pinned-Asset-Manifest
+          path: android-download-manifest
+      - name: Prepare small Windows shell using Android's existing packs
+        run: node scripts/prepare-windows-downloads.mjs android-download-manifest/native-assets.json
       - name: Install pinned Windows desktop packaging tools
         run: npm install --no-save --package-lock=false electron@45.0.0 electron-builder@26.18.0
-      - name: Package portable Windows executable
+      - name: Package Windows installer and optional portable executable
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx --no-install electron-builder --win portable --x64 --publish never
+        run: npx --no-install electron-builder --win nsis portable --x64 --publish never
       - name: Verify executable and record SHA256
         shell: pwsh
         run: |
-          $exe = Join-Path $PWD 'windows-release/Tales-of-Leighneron-2.5D-Windows.exe'
-          if (-not (Test-Path $exe)) { throw 'Windows EXE was not created.' }
-          $file = Get-Item $exe
-          if ($file.Length -lt 10000000) { throw 'Windows EXE looks incomplete.' }
-          $stream = [System.IO.File]::OpenRead($exe)
-          try {
-            if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) {
-              throw 'Windows EXE lacks the MZ header.'
-            }
-          } finally { $stream.Dispose() }
-          $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $($file.Name)" | Set-Content "$exe.sha256" -Encoding ascii
-          Write-Host "Portable Windows EXE: $($file.Length) bytes, SHA256 $hash"
+          foreach ($name in @('Tales-of-Leighneron-2.5D-Setup.exe', 'Tales-of-Leighneron-2.5D-Windows.exe')) {
+            $exe = Join-Path $PWD "windows-release/$name"
+            if (-not (Test-Path $exe)) { throw "Windows executable was not created: $name" }
+            $file = Get-Item $exe
+            if ($file.Length -lt 10000000 -or $file.Length -gt 251658240) { throw "Unexpected launcher size: $name ($($file.Length) bytes)" }
+            $stream = [System.IO.File]::OpenRead($exe)
+            try {
+              if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) { throw "Invalid Windows executable header: $name" }
+            } finally { $stream.Dispose() }
+            $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)" | Set-Content "$exe.sha256" -Encoding ascii
+            Write-Host "$name`: $($file.Length) bytes, SHA256 $hash"
+          }
       - name: Upload verified Windows EXE and checksum
         uses: actions/upload-artifact@v4
         with:
           name: Tales-of-Leighneron-2.5D-Windows-Release
           path: |
+            windows-release/Tales-of-Leighneron-2.5D-Setup.exe
+            windows-release/Tales-of-Leighneron-2.5D-Setup.exe.sha256
             windows-release/Tales-of-Leighneron-2.5D-Windows.exe
             windows-release/Tales-of-Leighneron-2.5D-Windows.exe.sha256
           if-no-files-found: error
@@ -244,9 +260,12 @@ jobs:
           set -euo pipefail
           test -s Tales-of-Leighneron-2.5D.apk
           test -s Tales-of-Leighneron-2.5D.apk.sha256
+          test -s Tales-of-Leighneron-2.5D-Setup.exe
+          test -s Tales-of-Leighneron-2.5D-Setup.exe.sha256
           test -s Tales-of-Leighneron-2.5D-Windows.exe
           test -s Tales-of-Leighneron-2.5D-Windows.exe.sha256
           sha256sum --check Tales-of-Leighneron-2.5D.apk.sha256
+          sha256sum --check Tales-of-Leighneron-2.5D-Setup.exe.sha256
           sha256sum --check Tales-of-Leighneron-2.5D-Windows.exe.sha256
       - name: Publish both files in the SAME GitHub Release
         env:
@@ -259,11 +278,14 @@ jobs:
           cat > release-notes.md <<'NOTES'
           # Tales of Leighneron 2.5D — Android and Windows
 
-          Android downloads game files on first launch, then works offline. Completed asset packs are reused across app updates. Windows includes its assets. Both downloads are built from the same source commit and published
+          Android and Windows download the same immutable game-file packs on first launch, then work offline. Completed files are reused across updates; only packs containing missing or changed files are downloaded. Both use the exact manifest built by the Android job. Both downloads are built from the same source commit and published
           together. The Android APK is the non-debuggable, signature-verified
           application com.mernondna.rpg25d; it retains the existing keystore
-          fingerprint for installation updates. The Windows x64 EXE is a portable,
-          offline Electron edition with its own persistent local save storage.
+          fingerprint for installation updates. For Windows x64, use the Setup.exe
+          to install the small launcher. Windows.exe is the optional portable launcher.
+          Both retain the existing desktop save origin and persistent local storage.
+          First-launch game-file downloads require an internet connection and disk space;
+          restarting or retrying keeps verified completed files.
 
           Traveling horse caravans have been removed from both platforms.
           Boats, quests, combat, saves and the 2.5D world remain available.
@@ -276,6 +298,8 @@ jobs:
           gh release create "$tag" \
             release-assets/Tales-of-Leighneron-2.5D.apk \
             release-assets/Tales-of-Leighneron-2.5D.apk.sha256 \
+            release-assets/Tales-of-Leighneron-2.5D-Setup.exe \
+            release-assets/Tales-of-Leighneron-2.5D-Setup.exe.sha256 \
             release-assets/Tales-of-Leighneron-2.5D-Windows.exe \
             release-assets/Tales-of-Leighneron-2.5D-Windows.exe.sha256 \
             --target "$GITHUB_SHA" \
@@ -285,7 +309,8 @@ jobs:
           {
             echo "### Both platforms are in one release"
             echo "- Android APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D.apk"
-            echo "- Windows EXE: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Windows.exe"
+            echo "- Windows installer: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Setup.exe"
+            echo "- Windows portable EXE: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Windows.exe"
             echo "- Combined release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Retain only the four newest published releases

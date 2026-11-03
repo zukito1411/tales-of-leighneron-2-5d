@@ -125,7 +125,8 @@ export function addCapitalTradeSign(m:ModelMesh,shape:HouseShape,emission:boolea
  const trade=shape.tradeSign;if(!trade||emission)return;
  const {width:W,height:H}=shape,ground=.5-shape.top-Math.max(.96,shape.ground??.96)*H;
  const X=(u:number)=>shape.left+u*W-.5,tower=Boolean(shape.profile.tiers);
- const size=W*(tower?.22:.16),cx=X(tower?.50:.78),cy=ground+H*(tower?.36:.37),z=W*(tower?.10:.12);
+ const stable=/stable/.test(shape.profile.id);
+ const size=W*(tower?.22:stable?.09:.16),cx=X(tower?.50:stable?.83:.78),cy=ground+H*(tower?.36:stable?.43:.37),z=W*(tower?.10:.12);
  const timber=atlasMaterial('furnishings',2,W*.20,W*.20),brass=atlasMaterial('furnishings',12,W*.10,W*.10);
  const emblem=atlasMaterial('trade',CAPITAL_TRADE_TILES[trade],size,size);
  m.softBox(cx-size*.57,cx+size*.57,cy-size*.57,cy+size*.57,z-W*.012,z+W*.012,timber,W*.005);

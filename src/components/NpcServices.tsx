@@ -19,7 +19,8 @@ export function NpcServices({npcId}:{npcId:string}){
  const hearts=useGameStore(s=>s.bossHearts),awakened=useGameStore(s=>s.awakenedWeapons);
  const awaken=useGameStore(s=>s.awakenBossWeapon);
  const spent=Object.values(attributes).reduce((sum,n)=>sum+n,0);
- const smith=isBlacksmith(npcId);
+ const localNpc=useGameStore(s=>s.dialogue?.localNpc);
+ const smith=isBlacksmith(npcId,localNpc);
  const housing=useGameStore(s=>s.housing),property=PLAYER_HOMES.find(h=>h.agentId===npcId);
  if(npcId!==EDMUND_ATWOOD_ID&&!smith&&!property)return null;
  const ownedBossWeapons=bossIds.filter(id=>inventory.includes(id));

@@ -14,7 +14,7 @@ export function DialoguePanel() {
   const choose=useGameStore(s=>s.chooseDialogue);
   const logicalStates = useGameStore(s => s.worldContent.states);
   if (!dialogue) return null;
-  const npc = NPC_BY_ID[dialogue.npcId];
+  const npc = NPC_BY_ID[dialogue.npcId]??dialogue.localNpc;
   if (!npc) return <div className="dialogue-wrap"><section className="dialogue-panel" role="alert">
     <p>This resident is no longer available.</p><button type="button" onClick={end}>Close conversation</button>
   </section></div>;

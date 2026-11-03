@@ -56,6 +56,11 @@ export class Npc extends DepthSortedSprite {
   private routeCheckMs=120;
   private route:Vec2[]=[];
   private routineKey='';
+  private settlementVisit:{point:Vec2;key:string}|null=null;
+  setSettlementVisit(visit:{point:Vec2;key:string}|null){
+    if(this.settlementVisit?.key===visit?.key&&(!visit||this.settlementVisit&&Math.hypot(this.settlementVisit.point.x-visit.point.x,this.settlementVisit.point.y-visit.point.y)<12))return;
+    this.settlementVisit=visit;this.cancelStreetRoute();this.route=[];this.target=null;this.npcDetour=null;this.routineKey='';this.routineRetryAt=0;
+  }
   private routePending=false;private routeEpoch=0;
   private routineAnchor:Vec2;
   private stalledMs=0;
@@ -181,6 +186,7 @@ export class Npc extends DepthSortedSprite {
         if(Math.hypot(this.x-town.x-origin.x,this.y-town.y-origin.y)>8){this.target=null;this.route=[];this.routineKey='';this.routineRetryAt=0;return;}
         this.route=path.map(p=>({x:p.x+town.x,y:p.y+town.y}));
         this.target=this.route.shift()??null;this.routeCheckMs=120;
+        if(!this.target&&Math.hypot(this.x-goal.x,this.y-goal.y)>24){this.routineKey='';this.routineRetryAt=scene.time.now+2000;}
       },priority);
   }
   beginEscort(goal:Vec2) {this.cancelStreetRoute();this.escortRouteRetryAt=0;this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
@@ -190,6 +196,11 @@ export class Npc extends DepthSortedSprite {
     (this.body as Phaser.Physics.Arcade.Body).setVelocity(0,0);
     if(this.storyAttack)return;
     if(this.storyGuard)this.holdStoryGuard();else this.playDirection(this.facing.x,this.facing.y,false);
+  }
+  /** Turn an existing complete idle pose without changing movement or scale. */
+  faceInteriorPoint(point:Vec2){
+    if(Math.hypot(point.x-this.x,point.y-this.y)>.01)this.facing.set(point.x-this.x,point.y-this.y).normalize();
+    this.storyRest();
   }
   get combatProfile(){return npcCombatArt(this.definition,this.regionalModel);}
   get canStoryWalk(){
@@ -425,13 +436,13 @@ export class Npc extends DepthSortedSprite {
       const story=useGameStore.getState();
       const returned=this.definition.id==='tovin-reed'&&(story.quests['shadows-highmere']?.objectiveProgress.escort??0)>=1;
       const council=story.storyFlags['relief-joint-council']&&['maela-quill','nella-harrow'].includes(this.definition.id);
-      const period=(routine?.startHour??0)+':'+returned+':'+Boolean(council);
+      const period=this.settlementVisit?.key??((routine?.startHour??0)+':'+returned+':'+Boolean(council));
       if(period!==this.routineKey&&time>=this.routineRetryAt) {
         this.routineRetryAt=time+500;
         const arrival=returned?scene.escortArrival():null;
         const location=returned?(arrival?toLocal(arrival):null):council?{x:this.definition.id==='maela-quill'?160:-180,y:140}
           :npcSchedulePosition(this.definition,this.definition.schedule.findIndex(p=>p.startHour===routine?.startHour));
-        const desired=location?toWorld(location):null;
+        const desired=this.settlementVisit?.point??(location?toWorld(location):null);
         const safe=desired?(scene.inInterior?desired:scene.safeExteriorNpcDestination(desired,this)):null;
         if(safe){
           this.routineKey=period;this.routineAnchor=safe;
@@ -474,7 +485,7 @@ export class Npc extends DepthSortedSprite {
       }
     }
     this.previousPosition.x=this.x;this.previousPosition.y=this.y;
-    if (!this.target && time >= this.nextPatrolAt) {
+    if (!this.target && time >= this.nextPatrolAt&&!this.settlementVisit) {
       if(this.escortGoal)return;
       if (this.returningHome) {
         if (Phaser.Math.Distance.Between(this.x, this.y, this.routineAnchor.x, this.routineAnchor.y) <= 14) {
@@ -525,6 +536,11 @@ export class Npc extends DepthSortedSprite {
 
   /** Try a short sidestep to either side of the blockage. The real target
    * and remaining schedule never change, so movement rejoins the old path. */
+  pedestrianDetour(destination:Vec2){
+    const scene=this.scene as WorldScene;
+    const point=this.npcDetourWaypoint(scene,scene.npcPathBlocker(this,destination,this),destination);
+    return point&&scene.canNpcVisit(point,destination)&&!scene.npcPathBlocker(point,destination,this)?point:null;
+  }
   private npcDetourWaypoint(scene:WorldScene, blocker:Vec2|null,destination=this.target):Vec2|null {
     if(!destination)return null;
     const dx=destination.x-this.x,dy=destination.y-this.y;
@@ -548,7 +564,7 @@ export class Npc extends DepthSortedSprite {
   }
 
   private get mayPatrol(){
-    return this.regionalModel===undefined&&npcMayPatrol(this.definition)&&(!this.definition.townRoutine||this.canStoryWalk);
+    return Boolean(this.settlementVisit&&this.canStoryWalk)||this.regionalModel===undefined&&npcMayPatrol(this.definition)&&(!this.definition.townRoutine||this.canStoryWalk);
   }
 
   updatePresentation(playerX: number, playerY: number, questTarget: boolean, paused = false, cinematic=false) {

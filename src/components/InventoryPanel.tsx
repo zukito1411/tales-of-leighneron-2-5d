@@ -1,6 +1,6 @@
 import {useMemo,useState} from 'react';
 import {useGameStore} from '../store/gameStore';
-import {POTIONS,weaponEffect,type PotionId} from '../data/economy';
+import {POTIONS,weaponEffect,type SupplyId} from '../data/economy';
 import {ItemIcon} from './ItemIcon';
 import {goldLabel,localPlayCheatsEnabled} from '../utils/localPlayCheats';
 import {WEAPON_PROFILES,weaponProcDescription} from '../data/weaponProfiles';
@@ -77,8 +77,8 @@ function OpenInventory(){
           {selectedArmor&&kind!=='weapons'&&<section className="bag-inspection"><div className="bag-inspection-title"><ItemIcon id={selectedArmor.id}/><div><small>{selectedArmor.setId==='shadow-magus'?'Legendary · ':''}{ARMOR_SLOT_NAMES[selectedArmor.slot]} · Level {selectedArmor.minLevel}</small><h3>{selectedArmor.name}</h3></div></div><p>{armorBonusLines(selectedArmor.bonuses).join(' · ')}</p><p><strong>{ARMOR_SET_BY_ID[selectedArmor.setId].name} set ({ARMOR_SLOTS.filter(s=>equippedArmor[s]&&ARMOR_BY_ID[equippedArmor[s]!].setId===selectedArmor.setId).length}/3)</strong><br/>Full set: {armorBonusLines(ARMOR_SET_BY_ID[selectedArmor.setId].bonus).join(' · ')}</p>{equippedArmor[selectedArmor.slot]!==selectedArmor.id&&<p className="bag-detail-note">Current armor: {armorBonusLines(armorBonuses).join(' · ')||'None'}.<br/>After equipping, including set changes: {armorBonusLines(preview).join(' · ')}. Current HP is retained, capped at your new maximum.</p>}<details><summary>Armor profile & provenance</summary><p>{selectedArmor.appearance}</p><p>{selectedArmor.origin}</p><p>{selectedArmor.history}</p><p>{selectedArmor.setId==='shadow-magus'?'Guaranteed only in the Grand Magus treasure on Tower of Might floor 10-5.':selectedArmor.bossId?'Found only among its regional boss’s spoils.':'Available from traveling suppliers and smiths.'}</p></details></section>}
           <button type="button" className="bag-lore-link" onClick={()=>useGameStore.getState().openPanel('codex')}>Open the world codex →</button>
         </>:<section className="potion-cards"><div className="vital-summary"><span>Health <b>{Math.ceil(hp)} / {maxHp}</b></span><span>Stamina <b>{Math.ceil(stamina)} / {maxStamina}</b></span></div>
-          {Object.entries(POTIONS).map(([key,p])=>{const id=key as PotionId,full=p.hp?hp>=maxHp:stamina>=maxStamina,count=potions[id];return <article className="potion-card item-row" key={id}><ItemIcon id={id}/><div><strong>{p.name}</strong><small>{count} / 99 bottles</small><p>{p.hp?`Restores ${p.hp} health`:`Restores ${p.stamina} stamina`}</p></div><button type="button" disabled={count===0||full||Boolean(casting)} onClick={()=>drink(id)}>{count===0?'Empty':full?'Full':'Drink'}</button></article>;})}
-          <p className="equipment-help">Full health or stamina never wastes a bottle. PC shortcuts: 5 for health, 6 for stamina.</p>
+          {Object.entries(POTIONS).map(([key,p])=>{const id=key as SupplyId,full=p.hp?hp>=maxHp:stamina>=maxStamina,count=potions[id]??0;return <article className="potion-card item-row" key={id}><ItemIcon id={id}/><div><strong>{p.name}</strong><small>{count} / 99 bottles</small><p>{p.description}</p></div><button type="button" disabled={count===0||full||Boolean(casting)} onClick={()=>drink(id)}>{count===0?'Empty':full?'Full':'Drink'}</button></article>;})}
+          <p className="equipment-help">Full health or stamina never wastes a bottle. Health and stamina shortcuts use standard bottles first, then concentrated supplies. Choose a specific bottle here at any time.</p>
         </section>}
       </div>
     </section>

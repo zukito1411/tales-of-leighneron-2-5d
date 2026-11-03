@@ -1,6 +1,5 @@
 import { ROAD_ROUTES } from '../../data/roadRoutes';
-import { ASHEN_DOCK_ROAD } from '../../data/ports';
-import { BLACKSPIRE_LAIR_ROADS, DRAGON_LAIR_TRAIL } from '../../data/dragonLair';
+import { SETTLEMENT_ACCESS_ROADS } from '../../data/settlementAccessRoads';
 import type { Vec2 } from '../types';
 import {stoneBridgeApproachSpan} from '../../data/bridgeDeck';
 
@@ -12,10 +11,7 @@ const node=(p:Vec2)=>{
   if(i<0){i=nodes.length;nodes.push({...p,links:new Map()});}return i;
 };
 // Use the surveyed corridors, including their actual bridge approaches.
-const darkavTrail=[DRAGON_LAIR_TRAIL[0],DRAGON_LAIR_TRAIL[1],BLACKSPIRE_LAIR_ROADS[1].at(-1)!,...DRAGON_LAIR_TRAIL.slice(2)];
-const routes=[...ROAD_ROUTES.map(r=>r.points),ASHEN_DOCK_ROAD,
-  [ASHEN_DOCK_ROAD[0],...BLACKSPIRE_LAIR_ROADS[0]],
-  [ASHEN_DOCK_ROAD[0],...BLACKSPIRE_LAIR_ROADS[1]],darkavTrail];
+const routes=[...ROAD_ROUTES.map(r=>r.points),...SETTLEMENT_ACCESS_ROADS.map(r=>r.points)];
 for(const points of routes)for(let i=1;i<points.length;i++){
   const a=node(points[i-1]),b=node(points[i]),cost=Math.hypot(nodes[a].x-nodes[b].x,nodes[a].y-nodes[b].y);
   nodes[a].links.set(b,cost);nodes[b].links.set(a,cost);segments.push({a,b});

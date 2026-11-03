@@ -1,19 +1,29 @@
-import type {Vec2} from '../game/types';
+import type {Vec2,NpcDefinition} from '../game/types';
+import {diningFurniture,type FurnitureHeading} from './interiorFurnitureLayout';
 import {WORLD_CONTENT} from './content';
 import {TOWNS,TOWN_BY_ID} from './towns';
 import {spriteBounds} from './settlementGeometry';
-import type {ArtTextureKey} from './art';
+import {artFrameSize,type ArtTextureKey} from './art';
+import {architectureProfile} from './architecture';
+import {STABLE_ENTRANCE} from './stableEntrance';
 import {NPC_BY_ID,NPC_NAME_ALIASES} from './npcs';
 import {rewriteNpcMentions} from './npcPresentation';
 import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {CASTLE_GUARD_POSTS} from './castleResidents';
 import type {InteriorArtKey} from './interiorArt';
+import type {CapitalTrade} from './highmereStreetStyle';
+import {establishmentFurnishingUse,roomFurnishingUse} from './interiorEstablishmentIdentity';
 import {TOWER_ROOM_SIZE,TOWER_ROUND_FLOOR,TOWER_SOUTH_ENTRY} from './towerRoom';
+import {establishmentPlan,supportingInteriorOccupants} from './establishmentInteriors';
 
-export type InteriorProfile='home'|'villa'|'inn'|'castle'|'archive'|'store'|'workshop'|'barracks'|'kitchen'|'market'|'civic'|'chapel'|'cave';
-export function interiorProfile(name:string,hall=false):InteriorProfile {
+export type InteriorProfile='home'|'villa'|'inn'|'castle'|'archive'|'store'|'workshop'|'barracks'|'kitchen'|'market'|'civic'|'chapel'|'cave'|'guild'|'armory'|'stable';
+export function interiorProfile(name:string,hall=false,architectureId=''):InteriorProfile {
+  // A barn facade remains a barn even when its neighborhood label says Hearth.
+  if(/stable/.test(architectureId)||/\bstables?\b/i.test(name))return 'stable';
   if(/Crown Hall|Whitebough Hall|Citadel Hall|Obsidian Citadel|Clan Assembly Hall|Great River Hall|Clan Longhouse|castle/i.test(name))return 'castle';
   if(/inn|tavern/i.test(name))return 'inn';
+  if(/armory|armoury|arsenal/i.test(name))return 'armory';
+  if(/guild(?!.*forge)/i.test(name)&&!/rope guild|forge guild/i.test(name))return 'guild';
   if(/barrack|guard post/i.test(name))return 'barracks';
   if(/archive|lore|charter|counting|customs/i.test(name))return 'archive';
   if(/store|granary|warehouse/i.test(name))return 'store';
@@ -25,22 +35,25 @@ export function interiorProfile(name:string,hall=false):InteriorProfile {
   if(/villa|manor|noble|estate|council house|^Grove House$/i.test(name))return 'villa';
   return hall?'civic':'home';
 }
-export interface InteriorEntry {id:string;townId:string;name:string;kit:string;door:Vec2;hall:boolean;profile:InteriorProfile}
+export interface InteriorEntry {id:string;townId:string;name:string;kit:string;door:Vec2;hall:boolean;profile:InteriorProfile;doorWidth?:number;doorHeight?:number}
 const kits:Record<string,string>={trandum:'trandum_rustic',narenthil:'narenthil_elven',nardorous:'nardorous_alpine',
   rindass:'rindass_orcan',druganwoods:'druganwoods_dwarven',portquill:'portquill_maritime',frostlands:'frostlands_longhouse',darkav:'darkav_obsidian'};
 /** Stable links to existing exterior buildings, never menu-selected stages. */
 export const INTERIOR_ENTRIES:InteriorEntry[]=TOWNS.flatMap(town=>{
   const buildings=WORLD_CONTENT.filter(d=>d.kind==='settlement-prop'&&d.id.startsWith(`town:${town.id}:building:`)
-    &&d.label&&!/\b(tower|stable|gate|gatehouse|shrine|ruin)s?\b/i.test(d.label)
+    &&d.label&&!/\b(tower|gate|gatehouse|shrine|ruin)s?\b/i.test(d.label)
     &&(!/\bwatch\b/i.test(d.label)||/\bbarracks?\b/i.test(d.label)));
   return buildings.flatMap(d=>{
     if(d.kind!=='settlement-prop'||!d.texture||!d.label)return [];
     const b=spriteBounds(d.texture as ArtTextureKey,d.frame,d.scale,d.world.x,d.world.y);
     const hall=/hall|castle|archive|citadel|court|crown/i.test(d.label);
-    const profile=interiorProfile(d.label,hall);
+    const profile=interiorProfile(d.label,hall,architectureProfile(d.texture as ArtTextureKey,d.frame)?.id);
+    const stableSize=profile==='stable'?artFrameSize(d.texture as ArtTextureKey,d.frame):undefined;
     const noble=town.id==='highmere'&&(profile==='castle'||profile==='villa'||/Royal Archive/.test(d.label));
     return [{id:d.id,townId:town.id,name:d.label,kit:noble?'highmere_noble':kits[town.regionId],
-      door:{x:d.world.x,y:b.bottom+38},hall,profile}];
+      door:{x:d.world.x,y:b.bottom+38},hall,profile,
+      ...(stableSize?{doorWidth:stableSize.width*d.scale*STABLE_ENTRANCE.facadeWidth,
+        doorHeight:stableSize.height*d.scale*STABLE_ENTRANCE.facadeHeight}:{})}];
   });
 });
 /** Explicit story/workplace residency. Trainers, patrols, field workers and
@@ -61,16 +74,32 @@ export const INTERIOR_RESIDENTS_BY_ENTRY=Object.fromEntries(INTERIOR_ENTRIES.map
   INTERIOR_RESIDENTS.filter(r=>r.entry.id===e.id)])) as Record<string,InteriorResident[]>;
 export const interiorTown=(entry:InteriorEntry)=>TOWN_BY_ID[entry.townId];
 export interface RoomRect {x:number;y:number;width:number;height:number}
-export type RoomKind='living'|'bedroom'|'kitchen'|'storage'|'tavern'|'throne'|'council'|'library'|'gallery'|'barracks'|'dining'|'workshop'|'archive'|'office'|'market'|'chapel';
+export type RoomKind='living'|'bedroom'|'kitchen'|'storage'|'tavern'|'throne'|'council'|'library'|'gallery'|'barracks'|'dining'|'workshop'|'archive'|'office'|'market'|'chapel'|'guild'|'armory'|'stable';
 export interface InteriorRoom extends RoomRect {id:string;label:string;kind:RoomKind;material:0|1}
 export interface RoomFloor extends RoomRect {material:0|1;kind?:RoomKind}
-export interface RoomObject {art:InteriorArtKey;x:number;y:number;width:number;solid?:RoomRect}
+export type InteriorFurnishingUse='tavern'|'guild'|'armory'|'store'|'stable'|'clothier'|'bakery'|'restaurant'|'barracks'|'kitchen'|'workshop'|'herbalist'|'bookseller'|'chapel'|'market'|'stable-hay'|'stable-bedding'|'stable-gear';
+export interface RoomObject {art:InteriorArtKey;x:number;y:number;width:number;solid?:RoomRect;use?:InteriorFurnishingUse;rotation?:FurnitureHeading}
+export interface InteriorOccupant extends Vec2 {
+  id:string;role:string;family:'npc_attendant'|'npc_adventurer'|'npc_villager'|'npc_blacksmith'|'npc_general';
+  lines:readonly string[];facing?:Vec2;stroll?:Vec2;
+  /** Local activity point, retained when safe placement moves this occupant. */
+  lookAt?:Vec2;
+  /** Visitors keep their approved cultural artwork instead of becoming locals. */
+  visualRegion?:NpcDefinition['visualRegion'];ancestry?:NpcDefinition['ancestry'];
+}
 export interface RoomPlan {
   floors:RoomFloor[];rooms:InteriorRoom[];objects:RoomObject[];entrance:Vec2;residents:Vec2[];
   roundFloor?:Vec2&{radius:number};
   /** Clear opening and lintel height, shared by mesh, collision and interaction. */
   entranceWidth?:number;entranceHeight?:number;
   throneResident?:Vec2;guardPosts?:{west:Vec2;east:Vec2};
+  /** Local ambience belongs to the open room, never outdoor/save content. */
+  occupants?:InteriorOccupant[];
+  /** Authored social positions, distinct from permanent quest/work contacts. */
+  visitorPositions?:Vec2[];
+  populationLimit?:number;
+  /** Reserved routes between public entrances, counters and side rooms. */
+  aisles?:RoomRect[];
 }
 export function roomFloorContains(plan:RoomPlan,x:number,y:number){
   if(plan.roundFloor){const circle=plan.roundFloor;return (x-circle.x)**2+(y-circle.y)**2<=circle.radius**2;}
@@ -79,7 +108,7 @@ export function roomFloorContains(plan:RoomPlan,x:number,y:number){
 const floorObject=(art:InteriorArtKey)=>art==='rug';
 /** Deliberately separated rooms and broad overlapping hallways. Floors form a
  * connected union; gaps between rooms stay black and are never traversable. */
-export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(name,hall),kit=''):RoomPlan {
+export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(name,hall),kit='',trade?:CapitalTrade,entryDoor?:Pick<InteriorEntry,'doorWidth'|'doorHeight'>):RoomPlan {
   if(selectedProfile==='cave'&&name==='Tower of Might')return {
     // Bounding rectangle is for camera extents only; movement uses roundFloor.
     floors:[{x:0,y:0,width:TOWER_ROOM_SIZE,height:TOWER_ROOM_SIZE,material:0}],
@@ -92,6 +121,9 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
     rooms:[{id:'cavern',label:name,kind:'storage',x:120,y:120,width:960,height:900,material:0}],
     objects:[],entrance:{x:600,y:1280},residents:[],
   };
+  const furnishingUse=establishmentFurnishingUse(selectedProfile,name,trade);
+  const establishment=establishmentPlan(selectedProfile,name,furnishingUse,entryDoor);
+  if(establishment)return establishment;
   const rooms:InteriorRoom[]=[],floors:RoomFloor[]=[],objects:RoomObject[]=[];
   const room=(id:string,label:string,kind:RoomKind,x:number,y:number,width:number,height:number,material:0|1=0)=>{
     const r={id,label,kind,x,y,width,height,material};rooms.push(r);floors.push(r);return r;
@@ -137,10 +169,10 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
     passage(130,300,580,140);passage(330,980,180,160);entrance={x:420,y:1070};
   }
   const contactHeight:Partial<Record<InteriorArtKey,number>>={bed:1.1,table:.5,chair:.5,bench:.32,
-    hearth:.3,counter:.32,wardrobe:.34,bookcase:.3,pantry:.34,workstation:.3,signature:.35,barrel:.5,chest:.45,planter:.35};
+    hearth:.3,counter:.32,wardrobe:.34,bookcase:.3,pantry:.34,workstation:.3,signature:.35,barrel:.86,chest:.45,planter:.55};
   const place=(r:InteriorRoom,art:InteriorArtKey,x:number,y:number,width:number)=>{
     const wx=r.x+x,wy=r.y+y,h=width*(contactHeight[art]??.3);
-    objects.push({art,x:wx,y:wy,width,...(!floorObject(art)?{solid:{x:wx-width*.43,y:wy-h,width:width*.86,height:h}}:{})});
+    objects.push({art,x:wx,y:wy,width,use:roomFurnishingUse(r.kind),...(!floorObject(art)?{solid:{x:wx-width*.5,y:wy-h,width,height:h}}:{})});
   };
   for(const r of rooms){
     const w=r.width,h=r.height;
@@ -148,7 +180,10 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
       place(r,'bed',w<360?80:100,220,w<360?100:115);
       place(r,'wardrobe',w<360?w-65:w-95,195,w<360?80:100);
       place(r,'chest',w<360?w-65:w-95,h-65,w<360?75:90);
-      if(r.kind==='barracks'&&w>=420)place(r,'bed',245,220,115);
+      if(r.kind==='barracks'&&w>=420){
+        place(r,'bed',245,220,115);
+        place(r,'bookcase',105,h-70,140);
+      }
       else if(w>=420)place(r,'rug',w/2,h-75,170);
     }else if(r.kind==='kitchen'){
       place(r,'hearth',w<360?80:105,w<360?140:190,w<360?105:140);
@@ -178,8 +213,8 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
       place(r,'signature',w/2,210,165);place(r,'rug',w/2,420,240);
       place(r,'bench',160,350,180);place(r,'bench',w-160,350,180);
     }else if(r.kind==='council'||r.kind==='dining'){
-      place(r,'table',w/2,250,210);place(r,'chair',85,280,65);
-      place(r,'chair',w-85,280,65);place(r,'bookcase',w-100,h-65,120);
+      objects.push(...diningFurniture(r.x+w/2,r.y+250,210,65).map(o=>({...o,use:roomFurnishingUse(r.kind)})));
+      place(r,'bookcase',w-100,h-65,120);
     }else {
       place(r,'counter',180,255,230);
       place(r,'table',w-265,265,205);
@@ -191,6 +226,7 @@ export function roomPlan(hall:boolean,name='',selectedProfile=interiorProfile(na
     }
   }
   return {floors,rooms,objects,entrance,entranceWidth,entranceHeight,throneResident,guardPosts,
+    occupants:supportingInteriorOccupants(selectedProfile,rooms),
     residents:[{x:main.x+180,y:main.y+350},{x:main.x+main.width-260,y:main.y+370},
       {x:main.x+main.width/2-140,y:main.y+470}]};
 }

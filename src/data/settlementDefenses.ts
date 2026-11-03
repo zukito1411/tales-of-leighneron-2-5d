@@ -2,6 +2,7 @@ import {TOWNS,TOWN_BY_ID} from './towns';
 import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {SETTLEMENT_PROFILES,type SettlementProfileId} from './settlementProfiles';
 import {ROAD_ROUTES} from './roadRoutes';
+import {SETTLEMENT_ACCESS_ROADS} from './settlementAccessRoads';
 import {ART_BY_KEY,artFrameSize} from './art';
 import {architectureProfile,architecturePassageFootprints} from './architecture';
 import type {PropContentDefinition,Vec2} from '../game/types';
@@ -30,6 +31,13 @@ function intersection(a:Vec2,b:Vec2,c:Vec2,d:Vec2) {
   if(Math.abs(det)<.00001)return null;
   const px=c.x-a.x,py=c.y-a.y,t=(px*ey-py*ex)/det,u=(px*dy-py*dx)/det;
   return t>=0&&t<=1&&u>=0&&u<=1?{x:a.x+dx*t,y:a.y+dy*t,t,u}:null;
+}
+/** Width along the wall, including the road's sweep through the complete
+ * curtain thickness. Oblique roads need more room than a perpendicular cut. */
+function roadOpeningWidth(roadWidth:number,a:Vec2,b:Vec2,c:Vec2,d:Vec2,thickness:number){
+  const dx=b.x-a.x,dy=b.y-a.y,ex=d.x-c.x,ey=d.y-c.y,scale=Math.hypot(dx,dy)*Math.hypot(ex,ey);
+  const sine=Math.abs(dx*ey-dy*ex)/scale,cosine=Math.abs(dx*ex+dy*ey)/scale;
+  return (roadWidth+thickness*cosine)/Math.max(.00001,sine)+88;
 }
 /** The rendered curtain has flat ends. A capsule would extend half its
  * thickness into every gate opening, creating invisible blocks past the mesh. */
@@ -120,12 +128,15 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
     }
     entrances.push({id:`defense:${town.id}:entrance:${entrances.length}`,townId:town.id,point:p,width,kind,northSouth});
   };
-  // Actual regional travel routes determine their crossings, not arbitrary gates.
-  for(const route of ROAD_ROUTES.filter(r=>r.from===town.id||r.to===town.id))for(let i=1;i<route.points.length;i++)
+  const cutRoad=(route:{width:number;points:readonly Vec2[]})=>{
+    for(let i=1;i<route.points.length;i++)
     for(let edge=0;edge<vertices.length;edge++){
       const hit=intersection(route.points[i-1],route.points[i],vertices[edge],vertices[(edge+1)%vertices.length]);
-      if(hit)add(hit,route.width+88,'road',Math.abs(vertices[edge].y-vertices[(edge+1)%vertices.length].y)<1);
+      if(hit)add(hit,roadOpeningWidth(route.width,route.points[i-1],route.points[i],vertices[edge],vertices[(edge+1)%vertices.length],size.thickness),'road',Math.abs(vertices[edge].y-vertices[(edge+1)%vertices.length].y)<1);
     }
+  };
+  // Keep existing gate ordering/IDs; add transit/service cuts afterward.
+  for(const route of ROAD_ROUTES)if(route.from===town.id||route.to===town.id)cutRoad(route);
   const northX=town.id==='oakmere'?-550:0,southX=0;
   const north=point(northX,settlementNorthBoundary(town,northX)),south=point(southX,bounds.bottom);
   const gateWidth=town.id==='highmere'?500:town.id==='blackspire'?260:170;
@@ -153,6 +164,10 @@ export const SETTLEMENT_DEFENSES:DefensiveSurvey[]=TOWNS.map(town=>{
     if(hit)add(hit,220,'water',Math.abs(a.y-b.y)<1);
   }
   if(town.kind==='harbor')add(point(700,bounds.bottom),220,'water',true);
+  // Append service openings after the established gates/water ports, keeping
+  // their existing IDs stable. A painted quest road must not end at a wall.
+  for(const route of ROAD_ROUTES)if(route.from!==town.id&&route.to!==town.id)cutRoad(route);
+  for(const route of SETTLEMENT_ACCESS_ROADS)if(route.townId===town.id)cutRoad(route);
   const lines:CurtainLine[]=[];
   for(let edge=0;edge<vertices.length;edge++){
     const a=vertices[edge],b=vertices[(edge+1)%vertices.length],length=Math.hypot(b.x-a.x,b.y-a.y);

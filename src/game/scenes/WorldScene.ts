@@ -3,6 +3,8 @@ import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {TerrainHeightField} from '../systems/TerrainHeightField';
 import {walkSurfaceHeight,surfacePathWalkable,surfaceSpeedScale} from '../presentation25d/WalkSurface';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
+import {SettlementLifeSystem} from '../systems/SettlementLifeSystem';
+import {getControlSettings} from '../systems/controlSettings';
 import {StormHazardSystem} from '../systems/StormHazardSystem';
 import {NpcRouteQueue} from '../systems/NpcRouteQueue';
 import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
@@ -262,7 +264,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.contentManager.update(this.player.x,this.player.y,projectedGroundView(this.cameras.main,this.player.x,this.player.y));
       this.notify('Oakmere’s arrival is obstructed. You have been returned safely outside the tower.');
     }
-    this.coverWorldArrival(this.player,this.player,true);this.refreshWorldLighting();this.syncState();this.updateNavigation();saveGame();
+    this.coverWorldArrival(this.player,this.player,true);this.refreshWorldLighting();saveGame();this.updateNavigation();
   }
   dungeonPoint(point:Vec2){return this.interiors.localPoint(point);}
   dungeonEntranceSuitable(point:Vec2,region:RegionId){return this.worldGenerator.getRegionAt(point.x,point.y)===region&&!this.worldGenerator.isRoad(point.x,point.y,110);}
@@ -314,6 +316,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private readonly combatEnemyList:Enemy[]=[];
   private combatEnemyListDirty=true;
   private readonly enemyNavigation=new EnemyNavigation();
+  readonly settlementLife=new SettlementLifeSystem(this);
   readonly npcRouting=new NpcRouteQueue(()=>String(this.activeInteriorId)+':'+(this.worldSprites?.navigationVersion??0));
   private readonly enemyPlacementRetryAt=new Map<string,number>();
   private readonly shipPaths=new WeakMap<Enemy,{until:number;target:Vec2;point:Vec2}>();
@@ -341,6 +344,16 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private impactVariation=0;
   private readonly combatReducedMotion=window.matchMedia('(prefers-reduced-motion: reduce)');
   private readonly pathObstacleBounds=new Phaser.Geom.Rectangle(0,0,0,0);
+  routineNpcActor(id:string){const actor=this.contentManager?.getActor('npc:'+id);return actor instanceof Npc?actor:undefined;}
+  relocateUnloadedRoutineNpc(id:string,door:Vec2){
+    if(!this.contentManager||this.contentManager.getActor('npc:'+id))return;
+    const state=this.contentManager.getState('npc:'+id);
+    if(state&&(state.x!==door.x||state.y!==door.y))this.contentManager.patchState('npc:'+id,{...door});
+  }
+  enterRoutineRoom(npc:Npc,door:Vec2){
+    if(this.routineNpcActor(npc.definition.id)!==npc)return;
+    this.contentManager.patchState('npc:'+npc.definition.id,{...door});
+  }
   getWorldHour(){return this.dayNight.getHour();}
   restAtHome(){
     const s=useGameStore.getState();
@@ -383,7 +396,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       rest.committed=true;
       if(rest.inn)store.hydrate({gold:store.gold-INN_REST_COST});
       this.player.restoreRestVitals();this.player.resetInput();
-      this.refreshWorldLighting();this.syncState();saveGame();
+      this.refreshWorldLighting();saveGame();
       this.screenTransition.night();
     }
     if(this.screenTransition.morning)this.screenTransition.reveal();
@@ -699,7 +712,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     // several times per actor, so repeated full NPC scans become quadratic in
     // dense settlements. The exact projection and spacing rules below remain
     // unchanged; the grid only removes actors outside the segment bounds.
-    this.prepareNpcCrowdIndex();
+    const interiorResidents=this.inInterior?this.interiors.getResidents():undefined;
+    if(!interiorResidents)this.prepareNpcCrowdIndex();
     const includeRoadLife=Boolean(exclude?.definition.id.startsWith('road-life:'));
     // A character farther than 43 px outside this segment's rectangle cannot
     // collide with it. Cull them before doing projection or square roots.
@@ -722,11 +736,15 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     // this same frame is still considered; exact current coordinates are
     // checked by consider().
     const size=192,gridMargin=48;
-    for(let cy=Math.floor((top-gridMargin)/size);cy<=Math.floor((bottom+gridMargin)/size);cy++)for(let cx=Math.floor((left-gridMargin)/size);cx<=Math.floor((right+gridMargin)/size);cx++){
+    if(interiorResidents){
+      // Outdoor actors stay alive behind the room's camera filter. Their
+      // coordinates must never obstruct local staff or indoor story actors.
+      for(let i=0;i<interiorResidents.length;i++)consider(interiorResidents[i],i);
+    }else for(let cy=Math.floor((top-gridMargin)/size);cy<=Math.floor((bottom+gridMargin)/size);cy++)for(let cx=Math.floor((left-gridMargin)/size);cx<=Math.floor((right+gridMargin)/size);cx++){
       const bucket=this.npcCrowdGrid.get(cx+':'+cy);if(!bucket)continue;
       for(const other of bucket)consider(other,this.npcCrowdOrder.get(other)??-1);
     }
-    if(this.player)consider(this.player,this.npcs.length);
+    if(this.player)consider(this.player,interiorResidents?.length??this.npcs.length);
     return point;
   }
   private prepareNpcCrowdIndex(){
@@ -755,6 +773,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     return best;
   }
   npcCanStandAt(x:number,y:number,exclude?:Npc,regional=false):boolean {
+    if(this.inInterior)return this.interiors.combatFeet(x,y,18,exclude)
+      &&Math.hypot(this.player.x-x,this.player.y-y)>=52;
     return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y},undefined,true,exclude?.definition.workplaceId)
       &&!this.isBlockedByBuilding(x,y)
       &&!this.isNpcObscured(x,y,regional||Boolean(exclude?.usesRegionalPresentation))
@@ -960,16 +980,16 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           ||Math.hypot(actor.x-this.player.x,actor.y-this.player.y)<=Math.max(actor.definition.aggroRange,actor.definition.attackRange+384)),
       canActivate: (definition, runtime) => {
         if(definition.kind==='creature'&&this.storyCombatActive)return false;
-        if(definition.kind==='npc'&&NPC_INTERIOR_BY_ID[definition.npcId])return false;
+        if(definition.kind==='npc'&&(NPC_INTERIOR_BY_ID[definition.npcId]||this.settlementLife.roomFor(NPC_BY_ID[definition.npcId])))return false;
         if(definition.kind==='npc'){
           if(this.time.now<(this.regionalNpcRetryAt.get(definition.id)??0))return false;
           const npc=NPC_BY_ID[definition.npcId];
           const regional=Boolean(npc.settlementResident||citizenModel(npc)!==undefined);
           const questReturned=npc.id==='tovin-reed'
             &&(useGameStore.getState().quests['shadows-highmere']?.objectiveProgress.escort??0)>=1;
-          const preferred=useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime
+          const preferred=this.settlementLife.spawnPosition(npc)??(useGameStore.getState().storyFlags['relocated:'+definition.id]?runtime
             :questReturned?this.escortArrival()
-            :npcMayPatrol(npc)||npc.formation||npc.id==='tovin-reed'?runtime:definition.world;
+            :npcMayPatrol(npc)||npc.formation||npc.id==='tovin-reed'?runtime:definition.world);
           if(!preferred)return false;
           const point=this.safeNpcSpawn(preferred,npc,regional);
           if(point){this.regionalNpcSlots.set(definition.id,point);this.regionalNpcRetryAt.delete(definition.id);}
@@ -1122,15 +1142,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(this.player.hp<=0)this.requestPlayerRespawn();
 
     if (!this.input.keyboard) throw new Error('Keyboard input is unavailable.');
-    for (const [action, key] of [['map', 'M'], ['inventory', 'I'], ['character', 'C'], ['pause', 'ESC'],['journal','J'],['codex','B']] as const) {
-      this.input.keyboard.addKey(key).setEmitOnRepeat(false).on('down', () => {
-        if(action!=='pause'&&document.activeElement?.matches('input,textarea,select,[contenteditable="true"]'))return;
-        this.panelActions.add(action);
-      });
-    }
-    for (const key of ['E', 'SPACE']) this.input.keyboard.addKey(key).on('down', () => {
-      if (useGameStore.getState().dialogue) this.panelActions.add('dialogue');
-    });
+    document.addEventListener('keydown',this.panelKeyDown);
 
     this.notify('Oakmere is open to explore. Follow the eastern road and speak with Edmund beyond the farms.');
     this.registry.set('loadingStage','Waiting for first frame');
@@ -1187,7 +1199,11 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(this.registry.get('presentationInitialViewReady')===false){
       this.physics.world.pause();this.player.discardActions();return;
     }
-    const work=frameWork(this.game),placementStart=performance.now();
+    const work=frameWork(this.game);
+    const routeState=useGameStore.getState();
+    if(this.focused&&!this.inInterior&&!routeState.panel&&!routeState.dialogue&&!this.cinematicDirector.active)this.npcRouting.advance(work);
+    this.settlementLife.advance(work);
+    const placementStart=performance.now();
     this.exteriorAccess.advance(this.time.now,work.remaining('actors',.55));
     work.charge('actors',placementStart);
     if(this.pendingRespawn){
@@ -1273,8 +1289,12 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           const arrival=this.escortArrival();if(arrival)witness.beginEscort(arrival);
         }
       }
-      this.npcRouting.advance(frameWork(this.game));
-      for (const npc of this.npcs) if (npc.active) npc.updatePatrol(time,delta);
+      // Preserve actor update order when entering a room removes one slot.
+      for(let i=0;i<this.npcs.length;){
+        const npc=this.npcs[i];
+        if(npc.active){this.settlementLife.updateNpc(npc,time);if(npc.active)npc.updatePatrol(time,delta);}
+        if(this.npcs[i]===npc)i++;
+      }
       for (const enemy of this.enemies) {
         if (enemy.active) enemy.updateEnemy(this.combatTime,delta);
       }
@@ -1568,10 +1588,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const consider=(label:string,x:number,y:number,height:number,width:number,activate:()=>void,score=firstPersonAimScore(this,x,y,height,width))=>{
       if(Number.isFinite(score)&&(!best||score<best.score))best={label,score,activate};
     };
-    const building=this.interiors.nearest(p.x,p.y,e=>Number.isFinite(firstPersonAimScore(this,e.door.x,e.door.y,110,34)));
+    const building=this.interiors.nearest(p.x,p.y,e=>Number.isFinite(firstPersonAimScore(this,e.door.x,e.door.y,e.doorHeight??110,e.doorWidth?e.doorWidth/2:34)));
     if(building){const home=PLAYER_HOME_BY_ID[building.id];
       const label=home?housingFor(s.housing,home.id).owned?`Enter ${home.homeName}`:`Home for sale · Speak with ${home.agentName}`:`Enter ${building.name}`;
-      consider(label,building.door.x,building.door.y,110,34,()=>this.interiors.enter(building));
+      consider(label,building.door.x,building.door.y,building.doorHeight??110,building.doorWidth?building.doorWidth/2:34,()=>this.interiors.enter(building));
     }
     for(const npc of this.npcs){
       if(!npc.active||!npc.visible||npc.adventureCompanion||npc.definition.id.startsWith('road-life:'))continue;
@@ -2025,10 +2045,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.targeting.clear();
     this.refreshWorldLighting();
     this.coverWorldArrival(landing,landing,true);
-    this.syncState();
+    saveGame();
     this.updateNavigation();
     store.showToast(`Leigneron awakens in ${town.name} after falling in battle.`);
-    saveGame();
   }
   refreshWorldLighting(){
     this.cameras.main.preRender();
@@ -2082,7 +2101,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
           this.landFromPassage(landing,true);return;
         }
         arrival.safe={...arrival.point};arrival.phase='revealing';
-        this.refreshWorldLighting();this.syncState();saveGame();this.screenTransition.reveal();
+        this.refreshWorldLighting();saveGame();this.screenTransition.reveal();
       }else if(arrival.elapsed>=30000)throw new Error('Area preparation timed out');
     }catch(error){
       console.warn('[arrival] Area preparation interrupted:',error);
@@ -2118,8 +2137,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     this.cameras.main.centerOn(point.x,point.y).startFollow(this.player,true,1,1);
     this.contentManager.update(point.x,point.y,view);
     if(hold)this.physics.world.pause();else this.physics.world.resume();
-    this.targeting.clear();this.refreshWorldLighting();this.syncState();this.updateNavigation();
-    if(!hold)saveGame();
+    this.targeting.clear();this.refreshWorldLighting();
+    if(hold)this.syncState();else saveGame();
+    this.updateNavigation();
   }
 
   countEnemies() {
@@ -2671,6 +2691,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     }
   }
 
+  private readonly panelKeyDown=(event:KeyboardEvent)=>{
+    if(event.repeat||event.ctrlKey||event.metaKey||event.altKey)return;
+    if((event.target as HTMLElement|null)?.closest('input,textarea,select,[contenteditable="true"],.controls-settings'))return;
+    const keys=getControlSettings().keys;
+    if(useGameStore.getState().dialogue&&(event.keyCode===keys.interact||event.keyCode===keys.jump))this.panelActions.add('dialogue');
+    const action=({77:'map',73:'inventory',67:'character',27:'pause',74:'journal',66:'codex'} as const)[event.keyCode as 77|73|67|27|74|66];
+    if(action)this.panelActions.add(action);
+  };
   private handlePanelHotkeys() {
     const store = useGameStore.getState();
     const actions = new Set(this.panelActions);
@@ -2681,7 +2709,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.player.discardActions();
       if (actions.has('pause')) store.endDialogue();
       else if (actions.has('dialogue')) {
-        const npc = NPCS.find(n => n.id === store.dialogue?.npcId);
+        const npc = NPC_BY_ID[store.dialogue.npcId]??store.dialogue.localNpc;
         if (npc && store.dialogue.lineIndex < (store.dialogue.lines??npc.dialogue).length - 1) store.advanceDialogue();
         else if(!store.dialogue.choices?.length) store.endDialogue();
       }
@@ -2759,7 +2787,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('targeting',()=>this.targeting?.clear());
     release('boss display',()=>useGameStore.getState().setBossEncounter(null));
     mobileInput.reset();
-    this.panelActions.clear();
+    this.panelActions.clear();document.removeEventListener('keydown',this.panelKeyDown);
     release('night lighting',()=>this.dayNight?.destroy());
     release('enemy sounds',()=>this.enemySounds?.destroy());
     release('traffic',()=>this.traffic?.destroy());
@@ -2773,6 +2801,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('tree sway',()=>this.treeSway?.destroy());
     release('water surface',()=>this.waterSurface?.destroy());
     release('NPC navigation',()=>this.npcRouting.clear());
+    release('Settlement routines',()=>this.settlementLife.clear());
     release('enemy navigation',()=>this.enemyNavigation.clear());this.enemyPlacementRetryAt.clear();
     this.exteriorAccess.clear();this.escortDestination=null;this.questObjectSlots.clear();
     this.regionalNpcSlots.clear();this.regionalNpcRetryAt.clear();

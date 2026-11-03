@@ -35,7 +35,18 @@ for(const [edge,line] of ROYAL_WALL_LINES.entries()){
 ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:south-gate',kind:'prop',world:gate,texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',label:'Royal Audience Gate'});
 ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:north-postern',kind:'prop',world:world(0,HIGHMERE_ROYAL_POSTERN_Y),texture:'royal_walls',frame:5,scale:gateScale,solid:false,anchor:'center',label:'Royal Garden Postern'});
 const towerScale=size.towerDiameter/(artFrameSize('royal_walls',3).width*.78);
-for(const [i,p] of vertices.entries())if(i%4===0)ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:corner:'+(i/4),kind:'prop',world:p,texture:'royal_walls',frame:3,scale:towerScale,solid:true,anchor:'center'});
+const royalGates=[gate,world(0,HIGHMERE_ROYAL_POSTERN_Y)],towerClearance=size.towerDiameter/2+32;
+const clearRoyalGate=(p:Vec2)=>royalGates.every(g=>{
+  const nearestX=Math.max(g.x+ROYAL_GATE_OPENING.left,Math.min(g.x+ROYAL_GATE_OPENING.right,p.x));
+  return Math.hypot(p.x-nearestX,p.y-g.y)>=towerClearance;
+});
+for(const [i,p] of vertices.entries())if(i%4===0){
+  // Cardinal openings fall between polygon corners. A complete round tower
+  // can protrude back into their cart lane even after the curtains are cut.
+  // Keep the existing tower/ID, on the nearest clear corner of the same ring.
+  const location=clearRoyalGate(p)?p:[1,-1,2,-2].map(offset=>vertices[(i+offset+vertices.length)%vertices.length]).find(clearRoyalGate)??p;
+  ROYAL_FORTIFICATION_PROPS.push({id:'fort:highmere:corner:'+(i/4),kind:'prop',world:location,texture:'royal_walls',frame:3,scale:towerScale,solid:true,anchor:'center'});
+}
 
 const royalCollision=new CurtainCollision(ROYAL_WALL_LINES);
 export function fortificationBlocksPoint(x:number,y:number,radius=12){

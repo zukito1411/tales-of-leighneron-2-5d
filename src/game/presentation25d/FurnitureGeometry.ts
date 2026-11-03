@@ -8,9 +8,14 @@ import {createLifeTreeGeometry} from './LifeTreeGeometry';
 import {createRockGeometry} from './RockGeometry';
 import {createBridgeGeometry} from './BridgeGeometry';
 import {createCoastalBoatGeometry} from './CoastalBoatGeometry';
+import {addStableDoor} from './StableDoorGeometry';
+import {createStableFitting} from './StableInteriorGeometry';
+import {createInteriorFitting,addInteriorSurfaceStock} from './InteriorDetailsGeometry';
 import {ModelMesh,atlasMaterial,paintedMaterial,brass,metal,glass,lampGlass,water,pigment,regionalFabric,regionalWood,masonry,type ModelMaterial,type V3} from './ModelMesh';
 import type Phaser from 'phaser';
 import type {HomeFurnitureArt} from '../../data/housing';
+import type {InteriorFurnishingUse} from '../../data/interiors';
+import {STABLE_ENTRANCE} from '../../data/stableEntrance';
 import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 import {propPassageFootprints} from '../../data/worldPropGroundPlan';
@@ -20,6 +25,7 @@ export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
   streetStyle?:CapitalPropStyle;
+  interiorUse?:InteriorFurnishingUse;
   art:FurnitureArt;kit:string;key:string;
   /** Visible artwork in frame UV coordinates, independent of atlas padding. */
   left:number;top:number;width:number;height:number;
@@ -36,6 +42,10 @@ export interface FurniturePlacement {x:number;y:number;width:number;heading:numb
 /** Structural feet of hollow prefabs. Their openings must never be replaced
  * with one enclosing solid rectangle. Coordinates match the mesh below. */
 export function furniturePassageFootprints(shape:FurnitureShape):ReadonlyArray<readonly [number,number,number,number]> {
+  if(shape.art==='doorway'&&shape.interiorUse==='stable'){
+    const outer=STABLE_ENTRANCE.outerHalf,inner=STABLE_ENTRANCE.clearRatio/2;
+    return [[-outer,-inner,-shape.depth,0],[inner,outer,-shape.depth,0]];
+  }
   return propPassageFootprints(shape.art,shape.depth);
 }
 export function furniturePlacement(owner:Pick<Phaser.GameObjects.Image,'x'|'y'|'rotation'|'displayWidth'>,shape:FurnitureShape,out:FurniturePlacement){
@@ -85,6 +95,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
+  if(createStableFitting(m,shape,emission)||createInteriorFitting(m,shape,emission))return m.finish();
   // Source crops contain shaded object paintings and transparent margins,
   // rather than flat diffuse wood. Enlarging a tiny patch loses the grain;
   // alpha-forced mesh faces can expose the source's plain background RGB.
@@ -158,6 +169,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   };
   const table=(bench=false,desk=false)=>{
     const backrest=bench&&kit.startsWith('world:'),seat=backrest?H*.48:H;
+    const stocked=shape.interiorUse&&['bakery','restaurant','kitchen','herbalist','bookseller','workshop','armory','barracks'].includes(shape.interiorUse);
     legs(seat*.88);m.softBox(-.48,.48,seat*.86,seat,-D,0,wood);
     // Broad individual boards retain the source art's dark plank joins.
     for(let i=0;i<4;i++)m.softBox(-.455,.455,seat-.004,seat+.006,-D+i*D/4+.004,-D+(i+1)*D/4-.004,wood,.004);
@@ -167,9 +179,26 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     if(backrest){for(const x of [-.43,.43])box(x-.025,x+.025,seat,H,-D,-D+.05);for(const y of [.58,.78,.94])box(-.43,.43,H*y,H*(y+.055),-D,-D+.04);}
     if(!bench){box(-.14,.14,seat+.002,seat+.009,-D+.018,-.018,fabric);if(!kit.startsWith('world:'))top(-.14,.14,-D+.018,-.018,seat+.010,[.39,.46,.67,.88]);}
     if(!bench){
-      if(desk){box(-.38,-.05,seat,seat+H*.10,-D*.7,-D*.35,fabric);box(-.34,-.01,seat+H*.10,seat+H*.17,-D*.68,-D*.35,ivory);}
-      else{tube(-.18,-D*.5,seat,seat+H*.018,.10,.10,ivory);cup(.19,-D*.40,seat,H*.07);}
-      if(!shape.streetStyle)candle(.28,-D*.75,seat,H*.24);
+      if(!stocked&&desk){box(-.38,-.05,seat,seat+H*.10,-D*.7,-D*.35,fabric);box(-.34,-.01,seat+H*.10,seat+H*.17,-D*.68,-D*.35,ivory);}
+      else if(!stocked){tube(-.18,-D*.5,seat,seat+H*.018,.10,.10,ivory);cup(.19,-D*.40,seat,H*.07);}
+      if(!shape.streetStyle&&!stocked)candle(.28,-D*.75,seat,H*.24);
+      if(shape.interiorUse==='tavern'){
+        cup(-.31,-D*.25,seat,H*.10);cup(.30,-D*.25,seat,H*.10);
+        // Earthenware pitcher, dark drink surfaces and a shared bread board.
+        tube(.05,-D*.68,seat,seat+H*.21,.035,.046,fabric);
+        m.ring(.05,-D*.68,seat+H*.21,seat+H*.26,.027,.019,ivory,12);
+        tube(-.31,-D*.25,seat+H*.11,seat+H*.115,H*.065,H*.065,dark);
+        box(-.29,-.06,seat+.008,seat+.016,-D*.56,-D*.38,wood);
+        m.softBox(-.26,-.09,seat+.016,seat+H*.10,-D*.54,-D*.40,ivory,.016);
+      }else if(shape.interiorUse==='guild'){
+        box(-.32,.12,seat+.012,seat+.018,-D*.76,-D*.27,ivory);
+        for(let i=0;i<3;i++)box(-.29,.08,seat+.019,seat+.020,-D*.68+i*D*.10,-D*.67+i*D*.10,dark);
+        tube(.23,-D*.28,seat,seat+H*.12,.025,.025,dark);
+        box(.12,.32,seat+.012,seat+.020,-D*.48,-D*.42,brass);
+      }else if(desk&&shape.interiorUse==='store'){
+        box(.02,.28,seat+.01,seat+.018,-D*.67,-D*.25,ivory);
+        tube(.30,-D*.25,seat,seat+H*.11,.025,.02,dark);
+      }
     }
   };
   const cabinet=(shelves=false,pantry=false)=>{
@@ -220,6 +249,10 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     const seat=H*.35;legs(seat);m.softBox(-.43,.43,seat,seat+H*.13,-D+.08,-.035,ivory);
     box(-.46,.46,seat+H*.10,H*.94,-D,-D+.08);
     for(const x of [-.43,.43]){box(x-.035,x+.035,seat,H*.72,-D,-.04);m.beam([x,H*.72,-D],[x,H*.72,-.04],.035,trim,8);}
+  }else if(art==='bench'&&shape.interiorUse==='stable'){
+    for(const x of [-.43,.43])box(x-.035,x+.035,0,H,-D*.55,-D*.35,wood);
+    for(const y of [.35,.78])box(-.46,.46,H*y,H*(y+.12),-D*.55,-D*.35,trim);
+    for(const x of [-.40,.40]){m.ring(x,-D*.29,H*.66,H*.70,.035,.024,metal,12);box(x-.06,x+.06,0,H*.08,-D,.02,wood);}
   }else if(art==='chair'||art==='signature'&&/noble|orcan/.test(kit))chair(art==='signature');
   else if(art==='table'||art==='bench'||art==='workstation')table(art==='bench',art==='workstation');
   else if(art==='wardrobe'||art==='bookcase'||art==='pantry')cabinet(art==='bookcase',art==='pantry');
@@ -227,6 +260,22 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     box(-.46,.46,0,H*.80,-D,0);box(-.49,.49,H*.80,H*.88,-D-.02,.02);box(-.48,.48,0,H*.07,-D-.012,.012,trim);
     face(-.42,.42,H*.15,H*.65,.018,[.10,.62,.90,.87]);
     for(const z of [.006,-D-.006])for(let i=0;i<4;i++){const x=-.42+i*.22;box(x,x+.18,H*.15,H*.65,z-.006,z+.006,trim);box(x+.016,x+.164,H*.18,H*.62,z+.007,z+.010);}
+    if(shape.interiorUse==='tavern'){
+      for(const x of [-.31,-.14,.03])cup(x,-D*.35,H*.88,H*.055);
+      tube(.28,-D*.56,H*.88,H*1.02,.035,.026,fabric);
+      candle(.38,-D*.45,H*.88,H*.18);
+    }else if(shape.interiorUse==='guild'){
+      box(-.29,.04,H*.89,H*.92,-D*.8,-D*.20,ivory);tube(.25,-D*.42,H*.88,H*.99,.024,.022,dark);
+    }
+  }else if(art==='chest'&&shape.interiorUse==='stable'){
+    // Open feed trough with raised feet and a recessed grain surface. Its
+    // footprint is the same authored chest footprint used by room collision.
+    for(const x of [-.38,.38])box(x-.045,x+.045,0,H*.45,-D*.88,-D*.12,trim);
+    box(-.45,.45,H*.28,H*.35,-D+.02,-.02,wood);
+    for(const z of [-D,-.045])box(-.47,.47,H*.35,H*.78,z,z+.045,wood);
+    for(const x of [-.47,.425])box(x,x+.045,H*.35,H*.78,-D,0,wood);
+    m.softBox(-.40,.40,H*.35,H*.57,-D+.06,-.06,ivory,.016);
+    for(let i=0;i<9;i++)tube(-.32+i*.08,-D*.48+(i%2)*D*.13,H*.57,H*.59,.018,.015,ivory);
   }else if(art==='chest'||art==='openChest'){
     m.softBox(-.46,.46,0,H*.56,-D,0,wood,.014);
     box(-.47,.47,0,H*.06,-D-.006,.006,trim);
@@ -257,7 +306,14 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
       for(const x of [-.30,.30])for(let i=1;i<profile.length;i++){const [za,ya]=profile[i-1],[zb,yb]=profile[i];m.quad([x-.025,ya+.004,za],[x+.025,ya+.004,za],[x-.025,yb+.004,zb],[x+.025,yb+.004,zb],cultural?brass:metal);}
       box(-.035,.035,H*.37,H*.62,0,.025,brass);
     }
-  }else if(art==='barrel')barrel(0,-D/2,0,H*.96,Math.min(.44,D/2));
+  }else if(art==='barrel'){
+    barrel(0,-D/2,0,H*.96,Math.min(.44,D/2));
+    if(shape.interiorUse==='tavern'){
+      m.beam([0,H*.32,-D*.11],[0,H*.32,.025],.018,brass,8);
+      m.beam([0,H*.32,.025],[0,H*.26,.025],.012,brass,8);
+      m.beam([-.035,H*.37,-D*.09],[.035,H*.37,-D*.09],.008,wood,6);
+    }
+  }
   else if(art==='barrels'){for(const [x,z,y,t] of [[-.24,-D*.3,0,H*.55],[.24,-D*.3,0,H*.55],[0,-D*.65,H*.45,H]])barrel(x,z,y,t,Math.min(.22,D*.28));}
   else if(art==='crate')crate(-.47,.47,0,H,-D,0);
   else if(art==='ledger'){
@@ -282,6 +338,9 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     m.extrude(archPath,.009,-.075,stone);
     m.fire(0,H*.16,-.055,.50,H*.43,[.33,.42,.69,.78]);
     for(let i=0;i<5;i++){const x=-.25+i*.125;box(x-.009,x+.009,H*.12,H*.29,-.025,0,metal);}
+  }else if(art==='doorway'&&shape.interiorUse==='stable'){
+    const inner=STABLE_ENTRANCE.clearRatio/2;
+    addStableDoor(m,-inner,inner,0,H*STABLE_ENTRANCE.clearHeightRatio,0,D,true);
   }else if(art==='arch'||art==='doorway'||art==='tower-door-open'||art==='tower-door-closed'||art==='sealed-gate'){
     arch(art!=='tower-door-closed'&&art!=='sealed-gate');
     if(art==='sealed-gate')face(-.29,.29,H*.04,H*.77,-D+.09,[.23,.24,.80,.95]);
@@ -459,6 +518,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     m.cutout([-.5,0,-D/2+.004],[.5,0,-D/2+.004],[-.5,H,-D/2+.004],[.5,H,-D/2+.004],[0,0,1,1]);
   }else if(art==='ship-pennant')m.cutout([-.5,0,0],[.5,0,0],[-.5,H,0],[.5,H,0],[0,0,1,1]);
   else cabinet(false,true);
+  addInteriorSurfaceStock(m,shape,emission);
   addCapitalMarketStock(m,shape,emission);
   return m.finish();
 }

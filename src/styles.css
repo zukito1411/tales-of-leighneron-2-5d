@@ -266,7 +266,7 @@ kbd { font-size: 10px; opacity: .65; }
 @media (max-width: 720px) {
   .hud-actions { top: 212px; bottom: auto; left: auto; right: max(12px, env(safe-area-inset-right)); transform: none; display: grid; grid-template-columns: repeat(2, minmax(60px, 1fr)); width: min(164px, 44vw); }
   .hud-actions button { min-height: 38px; padding: 0 5px; font-size: 11px; }
-  .touch-actions { right: max(12px, calc(env(safe-area-inset-right) + 8px)); bottom: max(14px, calc(env(safe-area-inset-bottom) + 10px)); transform: scale(.88); transform-origin: bottom right; }
+  .touch-actions { right: max(12px, calc(env(safe-area-inset-right) + 8px)); bottom: max(14px, calc(env(safe-area-inset-bottom) + 10px)); --touch-base:.88; transform: scale(.88); transform-origin: bottom right; }
   .quest-card { top: 116px; }
   .gear-grid { grid-template-columns: 1fr; }
   .character-grid { grid-template-columns: 1fr; gap: 22px; }
@@ -341,7 +341,7 @@ kbd { font-size: 10px; opacity: .65; }
  .joystick { left: max(30px, calc(env(safe-area-inset-left) + 18px)); bottom: max(26px, calc(env(safe-area-inset-bottom) + 16px)); width: clamp(108px, 29vh, 132px); height: clamp(108px, 29vh, 132px); }
  .joystick::after { inset: 17px; }
  .joystick-knob { width: 46px; height: 46px; }
- .touch-actions { right: max(24px, calc(env(safe-area-inset-right) + 16px)); bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px)); transform: scale(.94); transform-origin: bottom right; }
+ .touch-actions { right: max(24px, calc(env(safe-area-inset-right) + 16px)); bottom: max(16px, calc(env(safe-area-inset-bottom) + 10px)); --touch-base:.94; transform: scale(.94); transform-origin: bottom right; }
  .touch-button.attack .touch-glyph { width: 40px; height: 32px; }
  .touch-glyph { font-size: 16px; }
  .touch-button small { font-size: 7px; }
@@ -362,7 +362,7 @@ kbd { font-size: 10px; opacity: .65; }
 }
 
 @media (orientation: landscape) and (hover: none), (orientation: landscape) and (pointer: coarse) {
-  .touch-actions { right: max(20px, calc(env(safe-area-inset-right) + 12px)); bottom: max(14px, calc(env(safe-area-inset-bottom) + 8px)); transform: scale(.9); transform-origin: bottom right; }
+  .touch-actions { right: max(20px, calc(env(safe-area-inset-right) + 12px)); bottom: max(14px, calc(env(safe-area-inset-bottom) + 8px)); --touch-base:.9; transform: scale(.9); transform-origin: bottom right; }
   .joystick { left: max(30px, calc(env(safe-area-inset-left) + 18px)); bottom: max(26px, calc(env(safe-area-inset-bottom) + 16px)); }
 }
 .journal-link { pointer-events:auto; margin-top:4px; padding:3px 7px; font-size:10px; background:transparent; border:1px solid #7f6945; color:#e8d6ab; }
@@ -639,3 +639,10 @@ kbd { font-size: 10px; opacity: .65; }
 @media(max-width:900px),(max-height:600px){.minimap-services{display:none}}
 
 .breakthrough-service{margin-top:12px;padding:12px;border:1px solid #a88b54;border-radius:8px}.breakthrough-service h3{margin:0 0 8px}.breakthrough-service p{line-height:1.45}.breakthrough-service button{min-height:44px;max-width:100%;white-space:normal}
+
+.control-bindings {display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:8px}
+.control-bindings label {display:flex;align-items:center;justify-content:space-between;gap:12px}
+.controls-settings {text-align:left;padding:10px;max-width:100%}
+.controls-settings input[type=range] {display:block;width:100%}
+.mobile-controls .joystick {transform:scale(var(--touch-scale,1));transform-origin:bottom left}
+.mobile-controls .touch-actions {transform:scale(calc(var(--touch-base,1)*var(--touch-scale,1)));transform-origin:bottom right}

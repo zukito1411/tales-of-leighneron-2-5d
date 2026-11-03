@@ -1,8 +1,9 @@
 import type {HouseShape} from './HouseGeometry';
+import {STABLE_ENTRANCE} from '../../data/stableEntrance';
 export const AUTHORED_BUILDINGS=new Set(['old-cottage','cottage','old-inn','inn','hall','manor','smithy','capital-smithy','stable','storehouse','castle','chapel','road-shrine','old-shrine',
   'gatehouse','elven-cottage','elven-manor','elven-gate','elven-chapel','elven-smithy','elven-stable','elven-guildhall','elven-estate','elven-palace']);
 export interface EntryDoor {center:number;front:number;width:number;height:number}
-export interface EntryTread {left:number;right:number;back:number;front:number;bottom:number;top:number}
+export interface EntryTread {left:number;right:number;back:number;front:number;bottom:number;top:number;frontTop?:number}
 /** The rendered entrance and outdoor foot solver share these same dimensions.
  * No inferred collision box or separately guessed staircase is involved. */
 export function architectureEntryDoor(shape:HouseShape):EntryDoor|undefined{
@@ -10,11 +11,12 @@ export function architectureEntryDoor(shape:HouseShape):EntryDoor|undefined{
  if(!AUTHORED_BUILDINGS.has(id)||shape.profile.tiers||shape.segment||shape.profile.board||/gate|chapel|shrine/.test(id))return;
  let center=.50,front=.014*W,width=.22,height=H*(/guildhall/.test(id)?.30:.25);
  if(id==='castle'||id==='elven-palace'){front=.030*W;width=.15;height=H*.25;}
- else if(/smithy|stable/.test(id)){front=.015*W;width=/smithy/.test(id)?.23:.29;height=Math.max(shape.doorHeight??0,H*.30);}
+ else if(/stable/.test(id)){front=.015*W;width=STABLE_ENTRANCE.facadeWidth;height=H*STABLE_ENTRANCE.facadeHeight;}
+ else if(/smithy/.test(id)){front=.015*W;width=.23;height=Math.max(shape.doorHeight??0,H*.30);}
  else if(/inn|manor|estate/.test(id)){center=.52;front=.065*W;width=.22;height=H*.24;}
  else if(/cottage/.test(id)){center=elf?.50:.58;front=.015*W;width=elf?.24:.23;height=H*.34;}
  height=Math.max(height,shape.doorHeight??0);
- if(!/castle|palace/.test(id))width=Math.min(width,height/W*.60);
+ if(!/castle|palace|stable/.test(id))width=Math.min(width,height/W*.60);
  return {center,front,width,height};
 }
 export function architectureEntryTreads(shape:HouseShape):EntryTread[]{
@@ -24,6 +26,9 @@ export function architectureEntryTreads(shape:HouseShape):EntryTread[]{
  if(/chapel|shrine/.test(id))return Array.from({length:3},(_,i)=>({left:X(.27-i*.035),right:X(.73+i*.035),
   back:.035*W,front:(.09+i*.035)*W,bottom:ground-.01*W,top:ground+(.022-i*.006)*H}));
  const entry=architectureEntryDoor(shape);if(!entry)return [];
+ if(/stable/.test(id))return [{left:X(entry.center-entry.width*.60),right:X(entry.center+entry.width*.60),
+  back:Math.max(.0001*W,entry.front-.015*W),front:entry.front+.084*W,
+  bottom:ground-.015*W,top:ground+.008*W,frontTop:ground+.0008*W}];
  return Array.from({length:3},(_,i)=>({left:X(entry.center-entry.width*.65-i*.022),right:X(entry.center+entry.width*.65+i*.022),
   // Keep the building's own anchor outside its steps: sampling an owner's
   // height must never lift its whole model onto its own top tread.

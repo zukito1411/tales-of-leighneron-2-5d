@@ -22,7 +22,7 @@ import {ADVENTURE_REVISION_FLAG} from '../data/adventure';
 import {ROAD_STORIES_REVISION,ROAD_POLISH_REVISION,ROAD_STORY_FLAG_BUDGET} from '../data/roadStories';
 import {migrateRoadStoryProgress} from '../game/systems/roadStoryMigration';
 import {ACTIVE_SKILL_BY_ID,DEFAULT_SKILL_SLOTS,type ActiveSkillId} from '../data/activeSkills';
-import {POTIONS,type PotionId} from '../data/economy';
+import {POTIONS,type PotionInventory} from '../data/economy';
 import {BOSS_WEAPON_IDS,MAX_WEAPON_UPGRADE,MAX_BOSS_MATERIALS} from '../data/weaponUpgrades';
 import {AWAKENING_BY_BOSS,MAX_BOSS_HEARTS} from '../data/awakening';
 import {MAX_AREA_MONSTER_LEVEL,globalMonsterBonus,scaledEnemy} from '../data/enemyTiers';
@@ -480,7 +480,11 @@ export function parseSave(raw: string): SaveData | null {
     // Additive equipment schema: old installations keep their four original
     // arts and receive no repeat free items when these fields are absent.
     const consumables=s.consumables===undefined?{'healing-potion':0,'stamina-potion':0}:s.consumables;
-    if(!record(consumables)||!Object.keys(POTIONS).every(id=>numberIn(consumables[id],0,99)&&Number.isInteger(consumables[id])))return invalidSave('invalid consumables');
+    if(!record(consumables)||!Object.keys(POTIONS).every(id=>{
+      const count=consumables[id];
+      // New optional supplies default to zero; existing bottle counts remain required.
+      return count===undefined&&id.startsWith('concentrated-')||numberIn(count,0,99)&&Number.isInteger(count);
+    }))return invalidSave('invalid consumables');
     const weaponUpgrades=s.weaponUpgrades??{},bossMaterials=s.bossMaterials??{};
     const bossHearts=s.bossHearts??{},awakenedWeapons=s.awakenedWeapons??[];
     if(!record(bossHearts)||Object.entries(bossHearts).some(([id,count])=>!Object.hasOwn(AWAKENING_BY_BOSS,id)||!numberIn(count,0,MAX_BOSS_HEARTS)||!Number.isInteger(count))
@@ -541,7 +545,7 @@ export function parseSave(raw: string): SaveData | null {
       nextTowerResetAt:typeof s.nextTowerResetAt==='number'&&Number.isSafeInteger(s.nextTowerResetAt)&&s.nextTowerResetAt>=0&&s.nextTowerResetAt<8640000000000000
         ?s.nextTowerResetAt:nextTowerWeeklyReset(),
        weaponUpgrades:weaponUpgrades as Record<string,number>,bossMaterials:bossMaterials as Record<string,number>,bossHearts:bossHearts as Record<string,number>,awakenedWeapons,
-       consumables:consumables as Record<PotionId,number>,learnedCombatArts:learnedCombatArts as ActiveSkillId[],skillSlots:skillSlots as (ActiveSkillId|null)[], worldContent, quests: result.quests, xp, gold: state.gold + rewards.gold,
+       consumables:consumables as PotionInventory,learnedCombatArts:learnedCombatArts as ActiveSkillId[],skillSlots:skillSlots as (ActiveSkillId|null)[], worldContent, quests: result.quests, xp, gold: state.gold + rewards.gold,
       storyFlags:questConsequences(result.quests,storyFlags as Record<string,boolean>),storyChoices:storyChoices as Record<string,string>,
       cinematicQueue:strings(s.cinematicQueue)?[...new Set(s.cinematicQueue)].filter(id=>Object.hasOwn(CINEMATICS,id)&&!storyFlags['scene:'+id]):[],
       trackedQuestId:typeof s.trackedQuestId==='string'&&result.quests[s.trackedQuestId]?.status==='active'?s.trackedQuestId:

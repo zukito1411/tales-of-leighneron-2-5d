@@ -10,6 +10,7 @@ export class TargetingSystem {
   selected:Enemy|null=null;
   private manual:Enemy|null=null;
   private locked:Enemy|null=null;
+  private lockHiddenSince:number|null=null;
   get lockedTarget(){const e=this.locked;return e?.active&&e.isAlive&&e.canRemainLocked?e:null;}
   // Explicit attention follows the rendered world, not melee/casting range.
   static readonly acquireRange=VIEW_DISTANCE;
@@ -119,7 +120,7 @@ export class TargetingSystem {
     // choose another enemy; a crowd crossing the cursor cannot steal it.
     if(this.lockedTarget&&this.lockedTarget!==enemy)return;
     if(!this.lockEligible(enemy,TargetingSystem.acquireRange))return;
-    this.locked=this.manual=this.selected=enemy;
+    this.lockHiddenSince=null;this.locked=this.manual=this.selected=enemy;
     this.nextSelectionAt=0;this.publishLock();this.publishBoss(true);
   }
   toggleLock(){
@@ -139,10 +140,16 @@ export class TargetingSystem {
   update(){
     const locked=this.locked,now=this.scene.time.now;
     if(locked){
-      // Visibility, range and airborne vulnerability gate individual hits,
-      // never identity. Death, explicit release and scene transitions clear it.
-      if(this.lockedTarget&&this.scene.player.hp>0){this.selected=locked;this.publishBoss(true);return;}
-      this.locked=null;this.manual=null;this.publishLock();
+      const p=this.scene.player,inRange=(locked.x-p.x)**2+(locked.y-p.y)**2<=TargetingSystem.breakRange**2;
+      const visible=locked.visible&&this.lockOnScreen(locked);
+      if(visible)this.lockHiddenSince=null;
+      else this.lockHiddenSince??=now;
+      // Render submission lags simulation by one frame. A short grace avoids
+      // edge flicker; weapon range and temporary vulnerability never clear attention.
+      if(this.lockedTarget&&p.hp>0&&inRange&&(visible||now-(this.lockHiddenSince??now)<300)){
+        this.selected=locked;this.publishBoss(true);return;
+      }
+      this.lockHiddenSince=null;this.locked=null;this.manual=null;this.publishLock();
       this.nextSelectionAt=0;
     }
     // Automatic assistance is a perception decision, not a damage check.
@@ -157,7 +164,7 @@ export class TargetingSystem {
     if(this.engaged&&(this.engaged===manual?!manualEligible:!this.eligible(this.engaged)))this.engaged=null;
     this.selected=this.manual??this.nearest(680);this.publishBoss(true);
   }
-  clear(){this.locked=null;this.manual=null;this.engaged=null;this.selected=null;this.nextSelectionAt=0;this.publishLock();this.publishBoss();}
+  clear(){this.lockHiddenSince=null;this.locked=null;this.manual=null;this.engaged=null;this.selected=null;this.nextSelectionAt=0;this.publishLock();this.publishBoss();}
   private publishBoss(selectionChecked=false){
     const enemy=this.selected;
     const boss=enemy&&(enemy.definition.boss||enemy.isBossEncounter)&&(enemy===this.manual||enemy===this.engaged)

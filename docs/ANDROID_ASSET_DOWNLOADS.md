@@ -3,7 +3,9 @@
 Android releases now keep game code and the startup logo in the APK. The exact
 existing shipping artwork/audio files are ZIP-compressed into immutable data
 packs, without resizing, conversion or editing source assets. The ordinary Vite
-build and Windows package remain self-contained.
+browser build remains self-contained. The Windows launcher now reuses the exact
+manifest and packs from this Android job; Android installation and download
+behavior are unchanged. See `WINDOWS_ASSET_DOWNLOADS.md`.
 
 `prepare-android-downloads.mjs` runs after the web build and before Capacitor
 sync. It uses the existing public shipping inventory, deduplicates identical

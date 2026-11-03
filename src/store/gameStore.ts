@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type {ScreenTransitionState} from '../data/screenTransition';
 import {HOME_PRICE,FURNITURE_BY_ART,emptyHousing,parseHousing,housingFor,withHome,allHomeItems,type PlayerHousing,type HomeItem} from '../data/housing';
 import {PLAYER_HOME_BY_ID} from '../data/playerHomes';
-import type { ContentState, ContentWorldState, NavigationState, QuestObjective, QuestRuntimeState, RegionId } from '../game/types';
+import type { NpcDefinition, ContentState, ContentWorldState, NavigationState, QuestObjective, QuestRuntimeState, RegionId } from '../game/types';
 import {sameNavigation} from '../utils/sameNavigation';
 import { LEIGNERON } from '../data/player';
 import { NPC_BY_ID,EDMUND_ATWOOD_ID } from '../data/npcs';
@@ -21,7 +21,7 @@ import {ADVENTURE_REVISION_FLAG} from '../data/adventure';
 import {ROAD_STORIES_REVISION,ROAD_POLISH_REVISION} from '../data/roadStories';
 import {reactiveStoryDialogue} from '../game/systems/storyDialogue';
 import {ACTIVE_SKILL_BY_ID,DEFAULT_SKILL_SLOTS,type ActiveSkillId} from '../data/activeSkills';
-import {BOSS_WEAPONS,POTIONS,canDropPotion,merchantStock,isBlacksmith,itemName,type PotionId} from '../data/economy';
+import {BOSS_WEAPONS,POTIONS,canDropPotion,merchantStock,isBlacksmith,itemName,potionRecovery,type PotionInventory,type SupplyId,type PotionId} from '../data/economy';
 import {MAX_WEAPON_UPGRADE,MAX_BOSS_MATERIALS,BOSS_WEAPON_IDS,type WeaponUpgradeLedger} from '../data/weaponUpgrades';
 import {AWAKENING_BY_BOSS,AWAKENING_BY_WEAPON,AWAKENING_PROFILES,AWAKENING_HEART_COST,AWAKENING_HEART_DROP_CHANCE,MAX_BOSS_HEARTS,awakeningHeartId} from '../data/awakening';
 import {WEAPON_BY_ID,WEAPONS} from '../data/weapons';
@@ -42,6 +42,8 @@ const LOCAL_TEST_GOLD=1_000_000_000;
 type Panel = 'map' | 'regional-map' | 'inventory' | 'character' | 'pause' | 'travel' | 'journal' | 'codex' | 'harbor' | 'contracts' | 'housing' | 'tower-exit' | 'tower-practice' | null;
 
 export interface DialogueState {
+  /** Room-local actor; deliberately omitted from saves and the global NPC catalog. */
+  localNpc?:NpcDefinition;
   npcId: string;
   lineIndex: number;
   lines?:string[];
@@ -124,14 +126,14 @@ export interface GameState {
   awakenBossWeapon:(npcId:string,weaponId:string)=>void;
   resetAttributes:(npcId:string)=>void;
   enhanceBossWeapon:(npcId:string,weaponId:string)=>void;
-  consumables:Record<PotionId,number>;
+  consumables:PotionInventory;
   vitalRevision:number;
   learnedCombatArts:ActiveSkillId[];
   skillSlots:(ActiveSkillId|null)[];
   buyItem:(npcId:string,itemId:string)=>void;
   equipWeapon:(id:string)=>void;
   equipLocalWeaponForm:(id:string,awakened:boolean)=>void;
-  usePotion:(id:PotionId)=>void;
+  usePotion:(id:SupplyId)=>void;
   learnCombatArt:(id:ActiveSkillId)=>void;
   setSkillSlot:(slot:number,id:ActiveSkillId|null)=>void;
   worldX: number;
@@ -415,10 +417,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const journal=discoverJournalEntry(state.journal,kind,id);return journal===state.journal?state:{journal};
   }),
   buyItem:(npcId,itemId)=>set(state=>{
-    const dialogue=state.dialogue,npc=NPC_BY_ID[npcId];
+    const dialogue=state.dialogue,npc=NPC_BY_ID[npcId]??(dialogue?.localNpc?.id===npcId?dialogue.localNpc:undefined);
     if(dialogue?.npcId!==npcId||!npc||state.cinematic||state.panel||dialogue.choices?.length
       ||dialogue.lineIndex<(dialogue.lines??npc.dialogue).length-1)return {};
-    const offer=merchantStock(npcId).find(o=>o.id===itemId);
+    const offer=merchantStock(npcId,dialogue.localNpc).find(o=>o.id===itemId);
     if(!offer||state.gold<offer.price||state.level<offer.minLevel)return {toast:'You need more gold or experience for that purchase.'};
     if(ARMOR_BY_ID[itemId]){
       if(state.armorInventory.includes(itemId))return {toast:'That armor is already in your bag.'};
@@ -428,8 +430,8 @@ export const useGameStore = create<GameState>((set, get) => ({
       if(state.inventory.includes(itemId))return {toast:'That blade is already in your bag.'};
       return {gold:localPlayCheatsEnabled()?LOCAL_TEST_GOLD:state.gold-offer.price,inventory:[...state.inventory,itemId],journal:discoverJournalEntry(state.journal,'weapons',itemId),toast:`Purchased ${itemName(itemId)}. Equip it in your bag.`};
     }
-    const id=itemId as PotionId;if(!POTIONS[id]||state.consumables[id]>=99)return {toast:'You cannot carry any more of that draught.'};
-    return {gold:localPlayCheatsEnabled()?LOCAL_TEST_GOLD:state.gold-offer.price,consumables:{...state.consumables,[id]:state.consumables[id]+1},toast:`Purchased ${itemName(id)}.`};
+    const id=itemId as SupplyId;if(!POTIONS[id]||(state.consumables[id]??0)>=99)return {toast:'You cannot carry any more of that draught.'};
+    return {gold:localPlayCheatsEnabled()?LOCAL_TEST_GOLD:state.gold-offer.price,consumables:{...state.consumables,[id]:(state.consumables[id]??0)+1},toast:`Purchased ${itemName(id)}.`};
   }),
   resetAttributes:npcId=>set(state=>{
     const dialogue=state.dialogue,lines=dialogue?.lines??NPC_BY_ID[npcId]?.dialogue??[];
@@ -450,7 +452,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   awakenBossWeapon:(npcId,weaponId)=>set(state=>{
     const profile=AWAKENING_BY_WEAPON[weaponId],dialogue=state.dialogue;
     if(!profile||!state.inventory.includes(weaponId)||state.awakenedWeapons.includes(weaponId)
-      ||dialogue?.npcId!==npcId||!isBlacksmith(npcId)||dialogue.questId||dialogue.choices?.length
+      ||dialogue?.npcId!==npcId||!isBlacksmith(npcId,dialogue?.localNpc)||dialogue.questId||dialogue.choices?.length
       ||dialogue.lineIndex<(dialogue.lines??NPC_BY_ID[npcId]?.dialogue??[]).length-1
       ||state.panel||state.cinematic||state.activeSkillStatus.casting||state.hp<=0)return {};
     const hearts=state.bossHearts[profile.bossId]??0;
@@ -461,7 +463,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   }),
   enhanceBossWeapon:(npcId,weaponId)=>set(state=>{
     const dialogue=state.dialogue,lines=dialogue?.lines??NPC_BY_ID[npcId]?.dialogue??[];
-    if(dialogue?.npcId!==npcId||!isBlacksmith(npcId)||!dialogue||dialogue.choices?.length
+    if(dialogue?.npcId!==npcId||!isBlacksmith(npcId,dialogue?.localNpc)||!dialogue||dialogue.choices?.length
       ||dialogue.lineIndex<lines.length-1||state.panel||state.cinematic||state.activeSkillStatus.casting
       ||!BOSS_WEAPON_IDS.has(weaponId)||!state.inventory.includes(weaponId))return {};
     const rank=state.weaponUpgrades[weaponId]??0,materials=state.bossMaterials[weaponId]??0;
@@ -498,10 +500,11 @@ export const useGameStore = create<GameState>((set, get) => ({
       vitalRevision:state.vitalRevision+1,toast:`Removed ${slot} armor.`};
   }),
   usePotion:id=>set(state=>{
-    const p=POTIONS[id];if((state.panel!==null&&state.panel!=='inventory')||state.dialogue||state.cinematic||!p||state.hp<=0||state.activeSkillStatus.casting||state.consumables[id]<=0)return {};
+    const p=POTIONS[id];if((state.panel!==null&&state.panel!=='inventory')||state.dialogue||state.cinematic||!p||state.hp<=0||state.activeSkillStatus.casting||(state.consumables[id]??0)<=0)return {};
     if((p.hp&&state.hp>=state.maxHp)||(p.stamina&&state.stamina>=state.maxStamina))return {toast:'No need to drink that yet.'};
-    return {hp:Math.min(state.maxHp,state.hp+p.hp),stamina:Math.min(state.maxStamina,state.stamina+p.stamina),
-      vitalRevision:state.vitalRevision+1,consumables:{...state.consumables,[id]:state.consumables[id]-1},toast:`Used ${p.name}.`};
+    const recovered=potionRecovery(id,state.maxHp,state.maxStamina);
+    return {hp:Math.min(state.maxHp,state.hp+recovered.hp),stamina:Math.min(state.maxStamina,state.stamina+recovered.stamina),
+      vitalRevision:state.vitalRevision+1,consumables:{...state.consumables,[id]:(state.consumables[id]??0)-1},toast:`Used ${p.name}.`};
   }),
   learnCombatArt:id=>set(state=>{
     const s=ACTIVE_SKILL_BY_ID[id];if(!s?.learnCost||state.panel!=='character'||state.level<s.minLevel||state.skillPoints<s.learnCost||state.learnedCombatArts.includes(id))return {};

@@ -3,6 +3,7 @@ import {CAPITAL_BUILDING_SITES,CAPITAL_SHRINE_COURT} from './highmereComposition
 import type { TerrainKind, Vec2, TownDefinition } from '../game/types';
 import { TOWNS, TOWN_BY_ID } from './towns';
 import { ROAD_ROUTES,roadTouchesRect } from './roadRoutes';
+import {settlementAccessStreets} from './settlementAccessRoads';
 import { spriteBounds, propPlacementBounds, overlaps, rectTouchesStreet, type Rect } from './settlementGeometry';
 import { NPCS } from './npcs';
 import {npcExteriorAnchors,npcStandingReservation} from './npcPositions';
@@ -356,6 +357,7 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   }
   layout.plantings.push(...wards.plantings,...(borough?.plantings??[]));
   layout.streets.push(...approaches(town));
+  layout.streets.push(...settlementAccessStreets(town.id));
   for(const [index,points] of DEFENSE_BY_ID[town.id].approaches.entries())layout.streets.push({id:'defensive-approach:'+index,width:town.id==='highmere'?88:64,
     points:points.map(p=>({x:p.x-town.world.x,y:p.y-town.world.y}))});
   const anchors=NPCS.filter(n=>n.townId===town.id&&!indoorIds.has(n.id)).flatMap(n=>npcExteriorAnchors(n));

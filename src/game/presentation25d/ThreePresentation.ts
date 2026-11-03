@@ -410,7 +410,7 @@ export class ThreePresentation {
       if(elevationMs>0)this.elevation.preload(this.orbit.bounds,this.heightEnabled,elevationMs);
       work.charge('elevation',elevationStart);
       const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
-      this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera);
+      this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera,work);
     }
     if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
   }

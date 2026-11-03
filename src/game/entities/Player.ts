@@ -20,6 +20,8 @@ import {localPlayCheatsEnabled} from '../../utils/localPlayCheats';
 import {screenMovement,viewDirection,worldHeight,onPlane,firstPersonAim} from '../presentation25d/plane';
 import {actorAimDirection,type ActorDirection} from '../../data/directionalEnemyArt';
 import {meleeReach} from '../systems/combatSpacing';
+import {CONTROL_SETTINGS_EVENT,getControlSettings} from '../systems/controlSettings';
+import {preferredPotion} from '../../data/economy';
 
 export class Player extends DepthSortedSprite {
   readonly moveSpeed = 165;
@@ -45,7 +47,7 @@ export class Player extends DepthSortedSprite {
   private verticalReady=false;private verticalDelta=0;private verticalX=0;private verticalY=0;private verticalInterior=false;
   private jumpQueuedUntil=0;
   get presentationElevation(){return this.jumping?Math.max(0,this.jumpY-worldHeight(this.scene,this.x,this.y)):0;}
-  private readonly keys: Record<'up' | 'down' | 'left' | 'right' | 'sprint' | MobileAction, Phaser.Input.Keyboard.Key>;
+  private keys!: Record<'up' | 'down' | 'left' | 'right' | 'sprint' | MobileAction, Phaser.Input.Keyboard.Key>;
   private nextAttackAt = 0;
   private comboStep=0;
   private comboExpiresAt=0;
@@ -163,15 +165,25 @@ export class Player extends DepthSortedSprite {
     this.skills = new PlayerSkillSystem(scene,this);
 
     if (!scene.input.keyboard) throw new Error('Keyboard input is unavailable.');
-    this.keys = scene.input.keyboard.addKeys({
-      up: 'W', down: 'S', left: 'A', right: 'D', sprint: 'SHIFT', dash: 'Q', attack: 'F', jump:'SPACE',interact: 'E',
-      skill1:'ONE',skill2:'TWO',skill3:'THREE',skill4:'FOUR',
-      healPotion:'FIVE',staminaPotion:'SIX',targetLock:'R',
-    }) as typeof this.keys;
-    for (const action of ['dash', 'attack', 'jump','interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion','targetLock'] as const) {
-      this.keys[action].setEmitOnRepeat(false).on('down', () => this.pressed.add(action));
-    }
+    this.bindKeys();window.addEventListener(CONTROL_SETTINGS_EVENT,this.bindKeys);
+    this.once('destroy',()=>{window.removeEventListener(CONTROL_SETTINGS_EVENT,this.bindKeys);this.releaseKeys();});
   }
+  private boundKeySettings:ReturnType<typeof getControlSettings>['keys']|undefined;
+  private releaseKeys(){
+    const keyboard=this.scene?.input.keyboard;if(!keyboard||!this.keys)return;
+    for(const key of Object.values(this.keys))keyboard.removeKey(key,true,true);
+  }
+  private readonly bindKeys=()=>{
+    const keyboard=this.scene.input.keyboard;if(!keyboard)return;
+    const settings=getControlSettings();if(this.boundKeySettings===settings.keys)return;
+    this.releaseKeys();this.pressed.clear();mobileInput.reset();this.boundKeySettings=settings.keys;
+    this.keys=keyboard.addKeys(settings.keys) as typeof this.keys;
+    for(const action of ['dash','attack','jump','interact','skill1','skill2','skill3','skill4','healPotion','staminaPotion','targetLock'] as const)
+      this.keys[action].setEmitOnRepeat(false).on('down',()=>{
+        if(document.activeElement?.closest('input,textarea,select,[contenteditable="true"],.controls-settings'))return;
+        this.pressed.add(action);
+      });
+  };
 
   updatePlayer(time: number, delta: number) {
     const scene = this.scene as WorldScene;
@@ -184,7 +196,7 @@ export class Player extends DepthSortedSprite {
     if(this.unlimitedVitals){this.hp=this.maxHp;this.stamina=this.maxStamina;this.sprintExhausted=false;}
     for(const [action,id] of [['healPotion','healing-potion'],['staminaPotion','stamina-potion']] as const){
       const touch=mobileInput.consume(action),pressed=this.consumeAction(action)||touch;
-      if(pressed){state.setVitals(this.hp,this.stamina);state.usePotion(id);this.syncInventoryVitals();}
+      if(pressed){state.setVitals(this.hp,this.stamina);state.usePotion(preferredPotion(id,state.consumables));this.syncInventoryVitals();}
     }
     const toggleKeyboard=this.consumeAction('targetLock'),toggleTouch=mobileInput.consume('targetLock');
     if((toggleKeyboard||toggleTouch)&&this.hp>0&&scene.combatAllowed)scene.targeting.toggleLock();

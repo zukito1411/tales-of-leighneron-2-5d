@@ -28,7 +28,7 @@ export class NpcRouteQueue {
  }
  cancel(owner:object){const job=this.jobs.get(owner);this.jobs.delete(owner);job?.steps.return([]);}
  advance(work:FrameWorkBudget){
-  const allowance=work.remaining('navigation',.65);if(allowance<=0||!this.jobs.size)return;
+  const allowance=work.remaining('navigation',.35);if(allowance<=0||!this.jobs.size)return;
   const start=performance.now(),deadline=start+allowance;
   try{
    for(let count=0;this.jobs.size&&count<256&&performance.now()<deadline;count++){

@@ -43,8 +43,8 @@ export const TOWER_DOOR={x:TOWN_BY_ID.oakmere.world.x,y:TOWN_BY_ID.oakmere.world
 export const TOWER_APPROACH={x:TOWER_DOOR.x,y:TOWER_DOOR.y+48};
 export const inTowerClearing=(x:number,y:number,padding=0)=>Math.abs(x-TOWER_DOOR.x)<300+padding
  &&y>TOWER_DOOR.y-400-padding&&y<TOWER_DOOR.y+160+padding;
-export const onTowerApproach=(x:number,y:number)=>Math.abs(x-TOWER_DOOR.x)<65
- &&y>=TOWER_DOOR.y+100&&y<=TOWN_BY_ID.oakmere.world.y-1200;
+export const onTowerApproach=(x:number,y:number,padding=0)=>Math.abs(x-TOWER_DOOR.x)<65+padding
+ &&y>=TOWER_DOOR.y+100-padding&&y<=TOWN_BY_ID.oakmere.world.y-1200+padding;
 export const TOWER_CHAMBERS=[
  {bossId:'captain-varr',enemyId:'bandit-captain',name:'Captain Varr',pool:['road-bandit','hedge-goblin','goblin-stone-slinger','gray-wolf']},
  {bossId:'moonlit-warden',enemyId:'moonlit-warden',name:'Moonlit Warden',pool:['gray-wolf','grove-spider','blighted-thornling','marsh-wraith']},

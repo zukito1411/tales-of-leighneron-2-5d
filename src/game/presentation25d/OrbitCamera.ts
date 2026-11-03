@@ -3,6 +3,7 @@ import type Phaser from 'phaser';
 import {mobileInput} from '../input';
 import {getCameraSettings,toggleCameraMode,CAMERA_SETTINGS_EVENT} from './cameraSettings';
 import {VIEW_DISTANCE} from './environment';
+import {CONTROL_SETTINGS_EVENT,getControlSettings,keyLabel} from '../systems/controlSettings';
 
 const RAD=Math.PI/180;
 const MIN_ZOOM=.18,MAX_ZOOM=1.7,MIN_DISTANCE=90;
@@ -33,7 +34,7 @@ export class OrbitCamera {
     this.hint=document.createElement('button');this.hint.type='button';this.hint.textContent='Mouse look · click to capture · R lock · Esc to release';
     Object.assign(this.hint.style,{position:'absolute',left:'50%',top:'12px',transform:'translateX(-50%)',zIndex:'8',padding:'7px 12px',background:'#18201ee6',color:'#f2e6c7',border:'1px solid #8b7954',borderRadius:'5px',fontSize:'12px',cursor:'pointer'});
     this.hint.hidden=true;parent.append(this.hint);this.hint.addEventListener('click',this.capture);
-    this.hint.textContent='Mouse look · click to capture · hold Alt for cursor · R lock · Esc to release';
+    this.updateControlHint();window.addEventListener(CONTROL_SETTINGS_EVENT,this.updateControlHint);
     canvas.addEventListener('pointerdown',this.down);canvas.addEventListener('pointermove',this.touchMove);canvas.addEventListener('pointerup',this.up);canvas.addEventListener('pointercancel',this.up);
     canvas.addEventListener('wheel',this.wheel,{passive:false});canvas.addEventListener('contextmenu',this.contextMenu);
     document.addEventListener('mousemove',this.mouseMove);document.addEventListener('mouseup',this.mouseUp);document.addEventListener('pointerlockchange',this.lockChanged);
@@ -41,6 +42,7 @@ export class OrbitCamera {
     document.addEventListener('visibilitychange',this.visibilityChanged);
     window.addEventListener('blur',this.clearControls);window.addEventListener(CAMERA_SETTINGS_EVENT,this.onSettings);
   }
+  private readonly updateControlHint=()=>{this.hint.textContent='Mouse look · click to capture · hold Alt for cursor · '+keyLabel(getControlSettings().keys.targetLock)+' lock · Esc to release';};
   get locked(){return document.pointerLockElement===this.canvas;}
   suspend(){this.enabled=false;this.clearControls();this.hint.hidden=true;}
   private readonly capture=()=>{
@@ -179,7 +181,7 @@ export class OrbitCamera {
     this.bounds.left=left;this.bounds.right=right;this.bounds.top=top;this.bounds.bottom=bottom;
   }
   destroy(){
-    this.destroyed=true;this.enabled=false;
+    this.destroyed=true;this.enabled=false;window.removeEventListener(CONTROL_SETTINGS_EVENT,this.updateControlHint);
     this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();
     this.canvas.removeEventListener('pointerdown',this.down);this.canvas.removeEventListener('pointermove',this.touchMove);this.canvas.removeEventListener('pointerup',this.up);this.canvas.removeEventListener('pointercancel',this.up);
     this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('contextmenu',this.contextMenu);

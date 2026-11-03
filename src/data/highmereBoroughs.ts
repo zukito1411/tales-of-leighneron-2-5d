@@ -18,11 +18,12 @@ export function highmereBoroughPlan(){
     buildings.push({...p,frame,scale:1,wardId:'capital:'+id,
       plot:{left:p.x-width/2,right:p.x+width/2,top:p.y-950,bottom:p.y+80},
       appearance:{texture:stone?'capital_buildings':'world_buildings',frame},label,
-      purpose:stone?'Civic trade and household services with a public front court':'Inhabited household, rear kitchen garden and shared pedestrian approach'});
+      purpose:stone&&frame===6?'Working stables with stall bays, fodder stores and an open cart aisle':stone?'Civic trade and household services with a public front court':'Inhabited household, rear kitchen garden and shared pedestrian approach'});
   };
   const prop=(id:string,p:Vec2,frame:number,scale:number,solid=false)=>details.push({id:'capital:'+id,...p,texture:'others',frame,scale,solid});
   for(const [i,court] of HIGHMERE_HOUSEHOLD_COURTS.entries()){
-    home('house:'+court.id,court.district+' Hearth '+(i+1),court,court.x>0&&i%4===0?6:0,court.x>0&&i%4===0);
+    const stable=court.x>0&&i%4===0;
+    home('house:'+court.id,court.district+(stable?' Stable ':' Hearth ')+(i+1),court,stable?6:0,stable);
     // Whole silhouettes retain the existing palette; gardens fill the rear
     // setbacks while benches remain out of the public street.
     details.push({id:'capital:'+court.id+':herbs',x:court.x+310,y:court.y-80,texture:'woodland_props',frame:2,scale:.30,solid:false},

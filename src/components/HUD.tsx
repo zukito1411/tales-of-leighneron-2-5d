@@ -1,3 +1,5 @@
+import {useControlSettings} from './useControlSettings';
+import {keyLabel} from '../game/systems/controlSettings';
 import { useState } from 'react';
 import { Capacitor } from '@capacitor/core';
 import { GameIcon } from './GameIcon';
@@ -19,6 +21,7 @@ function barPercent(value: number, max: number) {
 }
 
 export function HUD() {
+  const controls=useControlSettings();
   // Choose once per gameplay mount. Browser chrome, a synthetic mouse event,
   // or an attached pointer must not repeatedly switch the status panel layout.
   const [compactHud] = useState(() => Capacitor.isNativePlatform()
@@ -102,7 +105,7 @@ export function HUD() {
       {!blocked && interaction && <button type="button" className="interaction-hint"
         aria-label={`Interact: ${interaction}`} title={`Interact: ${interaction}`}
         onClick={() => mobileInput.press('interact')}>
-        <kbd>E</kbd><span>{interaction}</span><small>Click or press E</small>
+        <kbd>{keyLabel(controls.keys.interact)}</kbd><span>{interaction}</span><small>Click or press {keyLabel(controls.keys.interact)}</small>
       </button>}
 
       <div className={`hud-action-dock ${menuExpanded ? 'is-expanded' : 'is-collapsed'}`}>

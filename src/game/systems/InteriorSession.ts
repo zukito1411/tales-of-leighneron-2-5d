@@ -3,13 +3,18 @@ import {ForegroundDeadline} from '../../utils/foregroundDeadline';
 import {onPlane,onGround,onFurniture,PRESENTATION_HINT,groundForeshortening,projectedGroundHalfExtents,type PresentationHint} from '../presentation25d/plane';
 import {housingFor,HOME_FLOORS,HOME_ENTRANCE,FURNITURE_BY_ART,furnitureFootprint,homeWeaponMount,type HomeItem} from '../../data/housing';
 import {isPlayerHome,PLAYER_HOME_BY_ID} from '../../data/playerHomes';
+import type {FurnitureHeading} from '../../data/interiorFurnitureLayout';
 import housingArt from '../../data/housingArt.json';
 import {SWORD_TEXTURE} from './EquippedSwordVisual';
 import {losslessImagePath} from '../../utils/losslessImagePath';
-import {INTERIOR_ENTRIES,INTERIOR_RESIDENTS_BY_ENTRY,roomPlan,roomFloorContains,type InteriorEntry,type RoomPlan,type RoomRect} from '../../data/interiors';
+import {worldPointInView} from '../presentation25d/plane';
+import {INTERIOR_ENTRIES,INTERIOR_RESIDENTS_BY_ENTRY,interiorTown,roomPlan,roomFloorContains,type InteriorEntry,type InteriorResident,type InteriorOccupant,type InteriorFurnishingUse,type RoomPlan,type RoomRect} from '../../data/interiors';
 import {NPC_BY_ID} from '../../data/npcs';
+import {settlementTrade} from '../../data/settlementTradeSigns';
+import {interiorIdleLookTarget} from '../../data/interiorFacing';
+import {interiorOccupantAvailable} from '../../data/establishmentInteriors';
 import {useGameStore} from '../../store/gameStore';
-import type {Vec2,NavigationMarker,QuestTarget} from '../types';
+import type {Vec2,NavigationMarker,QuestTarget,NpcDefinition} from '../types';
 import type {WorldScene} from '../scenes/WorldScene';
 import {Npc} from '../entities/Npc';
 import type {Enemy} from '../entities/Enemy';
@@ -18,6 +23,9 @@ import {actorSpriteGridSubjects} from './spriteComponents';
 import {INTERIOR_ART,INTERIOR_FLOORS,interiorFloorIndex,type InteriorArtKey} from '../../data/interiorArt';
 import {resolveQuestTarget,questBearing,activeObjective} from './questNavigation';
 import {INN_REST_COST,innRestAvailable} from '../../data/innRest';
+import {stableFurnishingSpec} from '../../data/stableFurnishings';
+import {seamlessTerrainPixels} from './terrainArt';
+import {STABLE_ENTRANCE} from '../../data/stableEntrance';
 import {MAP_BLACKSMITHS} from '../../data/mapServices';
 import {CAVE_ART_PATH,CAVE_ART_FRAMES,CAVE_FLOOR} from '../../data/caveArt';
 import {TOWER_ENTRY_ID,towerKnown,towerCampaignComplete,towerEntryFloor,TOWER_CHAMBERS,TOWER_DOOR_ART,TOWER_NORTH_DOOR} from '../../data/towerOfMight';
@@ -34,6 +42,7 @@ const SOURCE='interior-source',ATLAS='interior-furniture';
 const TOWER_CHEST_SOURCE='tower-chest-source';
 const TOWER_DOOR_SOURCE='tower-door-source';
 const FLOORS=['interior-floor','interior-floor-secondary'] as const;
+const STABLE_FLOOR='interior-stable-earth';
 const HOME_ATLASES=[0,1,2].map(i=>'home-furniture:'+i);
 
 /** A bounded room overlay in the existing scene. Outdoor physics/streaming
@@ -76,6 +85,17 @@ export class InteriorSession {
   private disposed=false;
   private objects:Phaser.GameObjects.GameObject[]=[];
   private residents:Npc[]=[];
+  private readonly scheduledResidents=new Map<Npc,InteriorResident>();
+  private readonly residentContacts=new WeakMap<Npc,Phaser.GameObjects.Image>();
+  private nextRoutineCheck=0;
+  private routinePhase=-1;
+  private routineChanges:Generator<void>|null=null;
+  private nextIdleFacingAt=0;
+  private idleFacingIndex=0;
+  private readonly ambience=new Map<Npc,{occupant:InteriorOccupant;home:Vec2;nextAt:number;moving:boolean;line:number}>();
+  private readonly residentAccess=new Set<string>();
+  private readonly residentParents=new Map<string,string|null>();
+  private readonly residentWalks=new Map<Npc,{path:Vec2[];index:number;depart:boolean;retryAt:number}>();
   private readonly innBeds:Vec2[]=[];
   private readonly innBedMarkers:NavigationMarker[]=[];
   private nearInnBed=false;
@@ -187,9 +207,10 @@ export class InteriorSession {
   nearest(x:number,y:number,accept?:(entry:InteriorEntry)=>boolean){
     let nearest:InteriorEntry|undefined,distance=95;
     for(const entries of [INTERIOR_ENTRIES,this.scene.dungeonEntries])for(const entry of entries){
-      const d=Math.hypot(entry.door.x-x,entry.door.y-y);
-      if(d<distance&&(!accept||accept(entry))&&this.scene.interiorDoorClear(entry.door.x,entry.door.y)
-        &&this.scene.hasClearPath(x,y,entry.door.x,entry.door.y)){nearest=entry;distance=d;}
+      const approach=entry.doorWidth?{x:Phaser.Math.Clamp(x,entry.door.x-entry.doorWidth/2,entry.door.x+entry.doorWidth/2),y:entry.door.y}:entry.door;
+      const d=Math.hypot(approach.x-x,approach.y-y);
+      if(d<distance&&(!accept||accept(entry))&&this.scene.interiorDoorClear(approach.x,approach.y)
+        &&this.scene.hasClearPath(x,y,approach.x,approach.y)){nearest=entry;distance=d;}
     }
     return nearest;
   }
@@ -254,7 +275,7 @@ export class InteriorSession {
         if(entry.id===TOWER_ENTRY_ID)this.prepareTowerArt();
         else if(entry.profile==='cave')this.prepareCaveArt();
         else{
-          steps=this.prepareArt();
+          steps=this.prepareArt(entry.profile==='stable');
           while(alive()&&!steps.next().done){await this.nextArtworkFrame();}
           if(!alive())return;
         }
@@ -263,7 +284,9 @@ export class InteriorSession {
           if(!texture.has(id))texture.add(id,0,frame.x,frame.y,frame.width,frame.height)!.customData={visibleWidth:frame.visibleWidth,visibleHeight:frame.visibleHeight,furnitureBottom:186};
         }
         if(!alive())return;
-        this.open(entry,anchor,cinematic);settle(true);
+        steps=this.open(entry,anchor,cinematic);
+        while(alive()&&!steps.next().done)await this.nextArtworkFrame();
+        if(alive())settle(true);
       }catch(error){fail(`Could not enter: ${error instanceof Error?error.message:String(error)}`);}
       finally{steps?.return();}
     };
@@ -297,7 +320,7 @@ export class InteriorSession {
     void promise.then(()=>{if(this.loadingPromise===promise)this.loadingPromise=null;});
     return promise;
   }
-  private *prepareArt():Generator<void,void>{
+  private *prepareArt(stable=false):Generator<void,void>{
     const image=this.scene.textures.get(SOURCE).getSourceImage() as HTMLImageElement;
     const canvas=document.createElement('canvas');canvas.width=image.width;canvas.height=image.height;
     const ctx=canvas.getContext('2d',{willReadFrequently:true})!;ctx.drawImage(image,0,0);
@@ -316,12 +339,23 @@ export class InteriorSession {
     }
     atlas.refresh();
     // Inner floor only: excludes the illustrated source-square outline.
-    for(const [index,[x,y,w,h]] of INTERIOR_FLOORS.entries()){
+    if(stable)this.prepareStableFloor();
+    else for(const [index,[x,y,w,h]] of INTERIOR_FLOORS.entries()){
       const floor=this.scene.textures.createCanvas(FLOORS[index],176,176)!;
       floor.getContext().drawImage(image,x,y,w,h,0,0,176,176);floor.refresh();
     }
     this.scene.textures.remove(SOURCE);
     }finally{canvas.width=canvas.height=1;}
+  }
+  private prepareStableFloor(){
+    // Reuse the painted dirt already loaded for the overworld. This bounded
+    // crop/seam preparation happens once per room opening, never per frame.
+    const frame=this.scene.textures.getFrame('terrain',1);
+    const floor=this.scene.textures.createCanvas(STABLE_FLOOR,256,256)!;
+    const ctx=floor.getContext();
+    ctx.drawImage(frame.source.image as CanvasImageSource,frame.cutX,frame.cutY,frame.cutWidth,frame.cutHeight,0,0,256,256);
+    const pixels=ctx.getImageData(0,0,256,256);pixels.data.set(seamlessTerrainPixels(pixels.data,256));ctx.putImageData(pixels,0,0);
+    floor.refresh();
   }
   private prepareTowerArt(){
     // Keep the complete chamber painting as SOURCE until the room closes.
@@ -361,16 +395,23 @@ export class InteriorSession {
     const dimensions=this.scene.textures.getFrame(ATLAS,art).customData as {visibleWidth:number;visibleHeight:number};
     return width*dimensions.visibleHeight/dimensions.visibleWidth;
   }
-  private drawArt(art:InteriorArtKey|'tower-door-closed',x:number,y:number,width:number,depth:number){
+  private drawArt(art:InteriorArtKey|'tower-door-closed',x:number,y:number,width:number,depth:number,use?:InteriorFurnishingUse,rotation:FurnitureHeading=0){
     const image=this.own(this.scene.add.image(this.origin.x+x,this.origin.y+y,ATLAS,art));
     if(art==='rug')onGround(image,.02);else onPlane(image,'upright');
     const dimensions=image.frame.customData as {visibleWidth:number;visibleHeight:number};
-    image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setDepth(depth);
+    image.setOrigin(.5,this.entry?.profile==='cave'&&this.entry.id!==TOWER_ENTRY_ID?1:252/256).setScale(width/dimensions.visibleWidth).setAngle(rotation).setDepth(depth);
     if(art!=='rug'&&art!=='northWall'&&art!=='sideWall'){
-      onFurniture(image,art,this.entry?.kit??'');
+      const stableSpec=stableFurnishingSpec(art==='tower-door-closed'?'doorway':art,use);
+      onFurniture(image,art,this.entry?.kit??'',use==='stable'&&art==='doorway'?STABLE_ENTRANCE.frameDepth:stableSpec?.depth);
+      const shape=(image.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+      if(shape&&use){
+        shape.interiorUse=use;shape.key+=':interior:'+use;
+        if(use==='clothier'&&art==='workstation'&&shape.bounds)shape.bounds.top=Math.max(shape.bounds.top,shape.rise*1.8);
+        if(stableSpec){shape.rise=stableSpec.height/(Math.abs(image.displayWidth)*shape.width);if(shape.bounds)shape.bounds.top=shape.rise*1.1;}
+      }
       this.registerWalkSurface(image);
       this.scene.addInteriorLight(image,art);
-      if(this.entry?.profile!=='cave'&&art!=='doorway')this.addFurnitureContact(image);
+      if(this.entry?.profile!=='cave'&&art!=='doorway'&&use!=='stable-bedding')this.addFurnitureContact(image);
     }
     return image;
   }
@@ -419,7 +460,8 @@ export class InteriorSession {
       }
       for(const [start,end] of sections){
         const north=side==='north',horizontal=north||side==='south',length=end-start;if(length<.5)continue;
-        const nominalWidth=140/this.artHeight('northWall',1);
+        const wallHeight=this.entry?.profile==='stable'?(plan.entranceHeight??STABLE_ENTRANCE.height)/STABLE_ENTRANCE.clearHeightRatio+20:140;
+        const nominalWidth=wallHeight/this.artHeight('northWall',1);
         const count=Math.max(1,Math.ceil(length/(spatial?nominalWidth:north?180:120))),step=length/count;
         const thickness=spatial?(isPlayerHome(this.entry?.id)?12:22):north?40:22;
         // Floor bounds belong to the furnishing editor and navigation. Place
@@ -435,8 +477,8 @@ export class InteriorSession {
             const frame=image.frame,metadata=frame.customData as {visibleWidth:number;visibleHeight:number;furnitureBottom?:number};
             const w=metadata.visibleWidth,h=metadata.visibleHeight,bottom=metadata.furnitureBottom??frame.cutHeight;
             image.setData(PRESENTATION_HINT,{plane:'upright',anchor:{x:image.x,y:image.y},wall:{
-              axis:horizontal?'x':'y',direction:north||side==='east'?1:-1,span:step,height:140,thickness,
-              panel:{kit:this.entry?.kit??'',uv:[(frame.cutWidth-w)/2/frame.cutWidth,(bottom-h)/frame.cutHeight,
+              axis:horizontal?'x':'y',direction:north||side==='east'?1:-1,span:step,height:wallHeight,thickness,
+              panel:{kit:this.entry?.kit??'',style:this.entry?.profile==='stable'?'stable':undefined,uv:[(frame.cutWidth-w)/2/frame.cutWidth,(bottom-h)/frame.cutHeight,
                 (frame.cutWidth+w)/2/frame.cutWidth,bottom/frame.cutHeight]},
             }} satisfies PresentationHint);
             image.setName('interior-wall:'+side);
@@ -450,13 +492,13 @@ export class InteriorSession {
       }
     }
   }
-  private open(entry:InteriorEntry,anchor:Vec2,cinematic=false){
+  private *open(entry:InteriorEntry,anchor:Vec2,cinematic=false):Generator<void,void>{
     const scene=this.scene,plan:RoomPlan=isPlayerHome(entry.id)&&housingFor(useGameStore.getState().housing,entry.id).owned?
       {floors:HOME_FLOORS.map(r=>({...r,material:0})),rooms:[{id:'living',label:'Living room',kind:'living',...HOME_FLOORS[0],material:0},
         {id:'bedroom',label:'Bedroom',kind:'bedroom',...HOME_FLOORS[1],material:0},
         {id:'kitchen',label:'Kitchen',kind:'kitchen',...HOME_FLOORS[2],material:0}],
         objects:[],entrance:HOME_ENTRANCE,residents:[]}:
-      roomPlan(entry.hall,entry.name,entry.profile,entry.kit);this.entry=entry;this.plan=plan;this.loading=false;
+      roomPlan(entry.hall,entry.name,entry.profile,entry.kit,settlementTrade(entry.id),entry);this.entry=entry;this.plan=plan;
     this.origin={x:anchor.x-plan.entrance.x,y:anchor.y-plan.entrance.y};
     this.mapFloors=plan.floors.map(r=>({x:this.origin.x+r.x,y:this.origin.y+r.y,width:r.width,height:r.height}));
     this.mapCircle=plan.roundFloor?{x:this.origin.x+plan.roundFloor.x,y:this.origin.y+plan.roundFloor.y,radius:plan.roundFloor.radius}:undefined;
@@ -485,13 +527,14 @@ export class InteriorSession {
       const spatial=scene.game.registry.get('presentation')==='three-2.5d';
       for(const floor of spatial?interiorFloorSurfaces(plan.floors):plan.floors){
         const image=this.own(scene.add.tileSprite(this.origin.x+floor.x,this.origin.y+floor.y,
-          floor.width,floor.height,FLOORS[interiorFloorIndex(entry.kit,floor.kind)]).setOrigin(0).setDepth(DEPTH-900));
+          floor.width,floor.height,entry.profile==='stable'?STABLE_FLOOR:FLOORS[interiorFloorIndex(entry.kit,floor.kind)]).setOrigin(0).setDepth(DEPTH-900));
         if(spatial)image.setTilePosition(floor.x,floor.y);
       }
     }
+    let preparedFurniture=0;
     for(const object of plan.objects){
       const image=this.drawArt(object.art,object.x,object.y,object.width,
-        object.art==='rug'?DEPTH-800:DEPTH+object.y);
+        object.art==='rug'?DEPTH-800:DEPTH+object.y,object.use,object.rotation);
       if(entry.profile==='inn'&&object.art==='bed'){
         // Stand at the foot of the bed, outside its solid furniture footprint.
         const point={x:this.origin.x+object.x,y:this.origin.y+object.y+42};
@@ -504,6 +547,7 @@ export class InteriorSession {
           else this.scene.notify('Walk to the foot of the bed to sleep.');
         });
       }
+      if(++preparedFurniture%4===0)yield;
     }
     if(plan.roundFloor)this.wallSolids=[];else this.renderWalls();
     if(isPlayerHome(entry.id)&&housingFor(useGameStore.getState().housing,entry.id).owned){
@@ -512,18 +556,18 @@ export class InteriorSession {
     // The open arch is a doorway, never the wardrobe/counter source. Its
     // transparent opening and the vestibule footprint share the same centre.
     const south=entry.id===TOWER_ENTRY_ID?TOWER_SOUTH_DOOR:{x:plan.entrance.x,y:plan.entrance.y+55};
-    const entryWidth=plan.entranceWidth??114,entrySpan=entryWidth/.60;
-    const entryImage=this.drawArt(entry.id===TOWER_ENTRY_ID?'tower-door-closed':'doorway',south.x,south.y,entry.id===TOWER_ENTRY_ID?110:entrySpan,DEPTH+south.y);
+    const stable=entry.profile==='stable',entryWidth=plan.entranceWidth??114,entrySpan=entryWidth/(stable?STABLE_ENTRANCE.clearRatio:.60);
+    const entryImage=this.drawArt(entry.id===TOWER_ENTRY_ID?'tower-door-closed':'doorway',south.x,south.y,entry.id===TOWER_ENTRY_ID?110:entrySpan,DEPTH+south.y,stable?'stable':undefined);
     if(plan.entranceHeight){
       const shape=(entryImage.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
-      if(shape){shape.rise=plan.entranceHeight/(Math.abs(entryImage.displayWidth)*shape.width);shape.key+=':entrance:'+plan.entranceHeight;
+      if(shape){shape.rise=plan.entranceHeight/(Math.abs(entryImage.displayWidth)*shape.width*(stable?STABLE_ENTRANCE.clearHeightRatio:1));shape.key+=':entrance:'+plan.entranceHeight;
         if(shape.bounds)shape.bounds.top=shape.rise*1.05;}
     }
     if(entry.id===TOWER_ENTRY_ID)this.wallSolids.push({x:TOWER_NORTH_DOOR.x-55,y:130,width:110,height:TOWER_NORTH_DOOR.y-170});
     if(entry.id===TOWER_ENTRY_ID)this.wallSolids.push({x:south.x-65,y:south.y-120,width:130,height:150});
     else{
-      const jamb=entrySpan*.48-entryWidth/2;
-      for(const dx of [-entrySpan*.48,entryWidth/2])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:jamb,height:105});
+      const outerHalf=stable?STABLE_ENTRANCE.outerHalf:.48,jamb=entrySpan*outerHalf-entryWidth/2;
+      for(const dx of [-entrySpan*outerHalf,entryWidth/2])this.wallSolids.push({x:plan.entrance.x+dx,y:plan.entrance.y-50,width:jamb,height:105});
     }
     if(entry.profile!=='cave'&&scene.textures.exists('warm-light')){
       const spatial=scene.game.registry.get('presentation')==='three-2.5d';
@@ -542,21 +586,21 @@ export class InteriorSession {
       }
       }
     }
-    for(const resident of INTERIOR_RESIDENTS_BY_ENTRY[entry.id]??[]){
-      const definition=NPC_BY_ID[resident.npcId];if(!definition)continue;
-      const royal=['elarion-king','lady-adria-vale'].includes(definition.id)&&plan.throneResident;
-      const preferred=resident.guardSide&&plan.guardPosts?plan.guardPosts[resident.guardSide]
-        :royal||plan.residents[Math.min(resident.slot,plan.residents.length-1)];
-      const p=this.residentPosition(preferred);
-      const world={x:this.origin.x+p.x,y:this.origin.y+p.y};
-      const npc=new Npc(scene,{...definition,stationary:true},world.x,world.y,world);
-      npc.storyRest();npc.setDepth(DEPTH+p.y);npc.setInteriorLabelDepth(DEPTH-this.origin.y);
-      this.residents.push(npc);this.objects.push(npc);
-      this.own(scene.addInteriorContact(npc));
-      npc.on('pointerdown',()=>{if(this.reachableResident(npc))this.talk(npc);});
+    yield* scene.settlementLife.prepareTown(entry.townId);
+    const scheduled=scene.settlementLife.residents(entry);
+    if((INTERIOR_RESIDENTS_BY_ENTRY[entry.id]?.length??0)||(plan.occupants?.length??0)||scheduled.length)yield* this.prepareResidentAccess();
+    for(const resident of [...(INTERIOR_RESIDENTS_BY_ENTRY[entry.id]??[]),...scheduled]){
+      this.createResident(resident,scheduled.includes(resident));yield;
+    }
+    // Existing story residents always claim their space first. Local patrons
+    // never enter WORLD_CONTENT, NPC_BY_ID or the save's persistent ledger.
+    if(!isPlayerHome(entry.id))for(const [index,occupant] of (plan.occupants??[]).entries()){
+      if(interiorOccupantAvailable(entry.profile,occupant,scene.getWorldHour()))this.createOccupant(occupant,index);
+      yield;
     }
     this.guide=this.own(scene.add.graphics().setDepth(DEPTH+3000));
     this.guideMarker=this.own(scene.add.graphics().setDepth(DEPTH+3000));
+    this.loading=false;
     if(!cinematic)this.own(scene.addInteriorContact(scene.player));
     scene.player.resetInput();scene.player.setDepth(scene.playerRenderDepth(scene.player.y));
     camera.centerOn(scene.player.x,scene.player.y);
@@ -567,7 +611,157 @@ export class InteriorSession {
     if(!this.cinematicContext)this.scene.notify(`${entry.name} — use the south doorway to leave.${entry.profile==='inn'?` Guest beds: ${INN_REST_COST}G until 06:00.`:''}`);
     if(entry.profile==='cave'&&!cinematic)this.scene.beginDungeon(entry.id);
   }
-  private residentPosition(preferred:Vec2):Vec2 {
+  /** One bounded flood over the real swept-foot geometry at room opening.
+   * Occupants must have a reachable interaction approach from the entrance. */
+  private *prepareResidentAccess():Generator<void,void>{
+    this.residentAccess.clear();this.residentParents.clear();const start=this.plan!.entrance,queue=[{x:0,y:0}],seen=new Set(['0:0']);
+    if(!this.playerFeet(this.origin.x+start.x,this.origin.y+start.y))return;
+    this.residentAccess.add('0:0');this.residentParents.set('0:0',null);
+    for(let head=0;head<queue.length&&head<4096;head++){
+      if((head&15)===15)yield;
+      const p=queue[head],from=this.localPoint({x:start.x+p.x*48,y:start.y+p.y*48});
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){
+        const next={x:p.x+dx,y:p.y+dy},key=next.x+':'+next.y;if(seen.has(key))continue;
+        const to=this.localPoint({x:start.x+next.x*48,y:start.y+next.y*48});
+        if(!this.playerFeet(to.x,to.y)){seen.add(key);continue;}
+        // A blocked edge does not make its free endpoint unreachable from a
+        // different side of the same table or shelf.
+        if(this.combatPath(from,to)){seen.add(key);this.residentAccess.add(key);this.residentParents.set(key,p.x+':'+p.y);queue.push(next);}
+      }
+    }
+  }
+  private residentHasAccess(p:Vec2){
+    const start=this.plan!.entrance,cx=Math.round((p.x-start.x)/48),cy=Math.round((p.y-start.y)/48),to=this.localPoint(p);
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const x=cx+dx,y=cy+dy;
+      if(this.residentAccess.has(x+':'+y)&&this.combatPath(this.localPoint({x:start.x+x*48,y:start.y+y*48}),to))return true;
+    }
+    return false;
+  }
+  private createOccupant(occupant:InteriorOccupant,index:number){
+    const scene=this.scene,entry=this.entry!;
+    if(this.residents.length>=(this.plan!.populationLimit??Infinity))return;
+    const p=this.residentPosition(occupant,true);if(!p)return;
+    const world=this.localPoint(p),region=occupant.visualRegion??interiorTown(entry).regionId;
+    const spriteTexture:NpcDefinition['spriteTexture']=region==='narenthil'
+      ?occupant.family==='npc_attendant'||occupant.family==='npc_villager'?'npc_elven_woman_idle':'npc_elven_man_idle':occupant.family;
+    const definition:NpcDefinition={id:'interior-life:'+entry.id+':'+occupant.id,name:occupant.role,title:occupant.role+' · '+entry.name,
+      townId:entry.townId,role:occupant.role,spriteTexture,spriteFrame:0,worldOffset:{x:0,y:0},
+      visualRegion:occupant.visualRegion,ancestry:occupant.ancestry,visitor:Boolean(occupant.visualRegion&&occupant.visualRegion!==interiorTown(entry).regionId),
+      schedule:[],stationary:true,settlementResident:true,showOverheadLabels:false,questIds:[],dialogue:[...occupant.lines],
+      relationshipToLeigneron:{kind:'acquaintance',trust:0,summary:'A local occupant of '+entry.name+'.'}};
+    const npc=new Npc(scene,definition,world.x,world.y,world);
+    this.faceRestingResident(npc,occupant);
+    npc.setDepth(DEPTH+p.y);npc.setInteriorLabelDepth(DEPTH-this.origin.y);
+    this.residents.push(npc);this.objects.push(npc);this.residentContacts.set(npc,this.own(scene.addInteriorContact(npc)));
+    this.ambience.set(npc,{occupant,home:world,nextAt:scene.time.now+3500+index*1300,moving:false,line:0});
+    npc.on('pointerdown',()=>{if(this.reachableResident(npc))this.talk(npc);});return npc;
+  }
+  private createResident(resident:InteriorResident,optional:boolean){
+    const scene=this.scene,entry=this.entry!,plan=this.plan!,definition=NPC_BY_ID[resident.npcId];if(!definition)return;
+    if(optional&&this.residents.length>=(plan.populationLimit??Infinity))return;
+    const royal=['elarion-king','lady-adria-vale'].includes(definition.id)&&plan.throneResident;
+    const preferred=resident.guardSide&&plan.guardPosts?plan.guardPosts[resident.guardSide]
+      :royal||(optional&&plan.visitorPositions?.length?plan.visitorPositions[resident.slot%plan.visitorPositions.length]:undefined)
+        ||plan.residents[Math.min(resident.slot,plan.residents.length-1)]||plan.entrance;
+    const p=this.residentPosition(preferred,optional);if(!p){if(optional)return;throw new Error('No clear interior workplace for '+resident.npcId);}
+    const world=this.localPoint(p),npc=new Npc(scene,{...definition,stationary:true},world.x,world.y,world);
+    this.faceRestingResident(npc);npc.setDepth(DEPTH+p.y);npc.setInteriorLabelDepth(DEPTH-this.origin.y);
+    this.residents.push(npc);this.objects.push(npc);this.residentContacts.set(npc,this.own(scene.addInteriorContact(npc)));
+    if(optional){this.scheduledResidents.set(npc,resident);scene.settlementLife.claimInterior(resident.npcId,entry);}
+    npc.on('pointerdown',()=>{if(this.reachableResident(npc))this.talk(npc);});
+    return npc;
+  }
+  private *refreshRoutines():Generator<void>{
+    const entry=this.entry;if(!entry)return;
+    const desired=this.scene.settlementLife.residents(entry),wanted=new Set(desired.map(r=>r.npcId));
+    for(const [npc,resident] of this.scheduledResidents){
+      if(wanted.has(resident.npcId))continue;
+      // Defer departures while the player is speaking/standing beside them.
+      if(Math.hypot(npc.x-this.scene.player.x,npc.y-this.scene.player.y)<180)continue;
+      if(this.residentWalks.has(npc))continue;
+      const path=npc.canStoryWalk?this.residentDoorPath(npc):null;
+      if(path)this.residentWalks.set(npc,{path,index:0,depart:true,retryAt:0});
+      else if(!worldPointInView(this.scene,npc.x,npc.y,100,120))this.removeRoutineResident(npc);
+      yield;
+    }
+    for(const [npc,state] of this.ambience){
+      if(interiorOccupantAvailable(entry.profile,state.occupant,this.scene.getWorldHour())||this.residentWalks.has(npc)
+        ||Math.hypot(npc.x-this.scene.player.x,npc.y-this.scene.player.y)<180)continue;
+      const path=npc.canStoryWalk?this.residentDoorPath(npc):null;
+      if(path){npc.endStoryMovement();state.moving=false;this.residentWalks.set(npc,{path,index:0,depart:true,retryAt:0});}
+      else if(!worldPointInView(this.scene,npc.x,npc.y,100,120))this.removeRoutineResident(npc);
+      yield;
+    }
+    for(const resident of desired){
+      if(this.residents.some(n=>n.definition.id===resident.npcId))continue;
+      const door=this.localPoint(this.plan!.entrance);
+      // Stagger arrivals into a free doorway; never spawn on the hero or another patron.
+      if(Math.hypot(door.x-this.scene.player.x,door.y-this.scene.player.y)<140
+        ||this.getResidents().some(n=>Math.hypot(n.x-door.x,n.y-door.y)<80))continue;
+      this.arriveResident(this.createResident(resident,true),door);yield;
+    }
+    if(!isPlayerHome(entry.id))for(const [index,occupant] of (this.plan!.occupants??[]).entries()){
+      if(!interiorOccupantAvailable(entry.profile,occupant,this.scene.getWorldHour())
+        ||[...this.ambience.values()].some(s=>s.occupant.id===occupant.id))continue;
+      const door=this.localPoint(this.plan!.entrance);
+      if(Math.hypot(door.x-this.scene.player.x,door.y-this.scene.player.y)<140
+        ||this.getResidents().some(n=>Math.hypot(n.x-door.x,n.y-door.y)<80))continue;
+      this.arriveResident(this.createOccupant(occupant,index),door);yield;
+    }
+  }
+  private arriveResident(npc:Npc|undefined,door:Vec2){
+    if(!npc)return;
+    const path=npc.canStoryWalk?this.residentDoorPath(npc):null;
+    if(path){(npc.body as Phaser.Physics.Arcade.Body).reset(door.x,door.y);
+      this.residentWalks.set(npc,{path:path.reverse(),index:0,depart:false,retryAt:0});}
+    else if(worldPointInView(this.scene,npc.x,npc.y,100,120))this.removeRoutineResident(npc);
+  }
+  /** Reuse the entrance flood's parent tree instead of searching the room
+   * again for every patron. Every edge was checked against swept foot geometry. */
+  private residentDoorPath(npc:Npc):Vec2[]|null {
+    const entrance=this.plan!.entrance,cx=Math.round((npc.x-this.origin.x-entrance.x)/48),cy=Math.round((npc.y-this.origin.y-entrance.y)/48);
+    let key:string|undefined,best=Infinity;
+    for(let dy=-1;dy<=1;dy++)for(let dx=-1;dx<=1;dx++){
+      const candidate=(cx+dx)+':'+(cy+dy);if(!this.residentParents.has(candidate))continue;
+      const p=this.localPoint({x:entrance.x+(cx+dx)*48,y:entrance.y+(cy+dy)*48}),distance=Math.hypot(p.x-npc.x,p.y-npc.y);
+      if(distance<best&&this.combatPath(npc,p)){key=candidate;best=distance;}
+    }
+    if(key===undefined)return null;
+    const path:Vec2[]=[{x:npc.x,y:npc.y}];
+    while(key!==null&&key!==undefined){
+      const [x,y]=key.split(':').map(Number);path.push(this.localPoint({x:entrance.x+x*48,y:entrance.y+y*48}));
+      key=this.residentParents.get(key)??undefined;
+    }
+    return path;
+  }
+  private removeRoutineResident(npc:Npc){
+    this.scheduledResidents.delete(npc);this.residentWalks.delete(npc);this.ambience.delete(npc);
+    const index=this.residents.indexOf(npc);if(index>=0)this.residents.splice(index,1);
+    const object=this.objects.indexOf(npc);if(object>=0)this.objects.splice(object,1);
+    const contact=this.residentContacts.get(npc);if(contact){const index=this.objects.indexOf(contact);if(index>=0)this.objects.splice(index,1);this.residentContacts.delete(npc);}
+    npc.destroy();
+  }
+  private updateResidentWalks(time:number){
+    for(const [npc,walk] of this.residentWalks){
+      if(npc.storyMoving)continue;
+      while(walk.index<walk.path.length&&Math.hypot(npc.x-walk.path[walk.index].x,npc.y-walk.path[walk.index].y)<10)walk.index++;
+      if(walk.index>=walk.path.length){
+        if(walk.depart)this.removeRoutineResident(npc);
+        else {this.residentWalks.delete(npc);this.faceRestingResident(npc);}
+        continue;
+      }
+      if(time<walk.retryAt)continue;walk.retryAt=time+300;
+      const goal=walk.path[walk.index];
+      if(Math.hypot(goal.x-this.scene.player.x,goal.y-this.scene.player.y)<64)continue;
+      if(this.scene.npcPathBlocker(npc,goal,npc)){
+        const detour=npc.pedestrianDetour(goal);
+        if(detour){npc.beginStoryMovement(detour);}continue;
+      }
+      npc.beginStoryMovement(goal);
+    }
+  }
+  private residentPosition(preferred:Vec2,optional=false):Vec2|null {
     const plan=this.plan!;
     const clear=(p:Vec2)=>{
       const person={x:p.x-36,y:p.y-84,width:72,height:84};
@@ -576,21 +770,38 @@ export class InteriorSession {
       const touches=(a:RoomRect,b:RoomRect)=>a.x<b.x+b.width&&a.x+a.width>b.x
         &&a.y<b.y+b.height&&a.y+a.height>b.y;
       const feet={x:p.x-14,y:p.y-24,width:28,height:24};
+      if(optional&&plan.aisles?.some(r=>touches(feet,r)))return false;
       if(this.wallSolids.some(r=>touches(feet,r))||this.passageOverlaps(r=>touches(feet,r))||plan.objects.some(o=>o.solid&&touches(feet,o.solid)))return false;
       // Conservative complete furniture bounds: a resident must not start
       // beneath a foreground counter, bed, shelf or planter. Rugs/stairs are
       // floor artwork. Prefer the authored workplace before looking nearby.
-      if(plan.objects.some(o=>o.art!=='rug'&&o.y>p.y
-        &&touches(person,{x:o.x-o.width/2,y:o.y-this.artHeight(o.art,o.width),width:o.width,height:this.artHeight(o.art,o.width)})))return false;
+      if(plan.objects.some(o=>{
+        if(o.art==='rug'||o.use==='stable-bedding')return false;
+        const front=o.rotation&&o.solid?o.solid.y+o.solid.height:o.y;
+        if(front<=p.y)return false;
+        const h=stableFurnishingSpec(o.art,o.use)?.height??this.artHeight(o.art,o.width);
+        const visual=o.rotation&&o.solid?{x:o.solid.x,y:o.solid.y-h,width:o.solid.width,height:o.solid.height+h}
+          :{x:o.x-o.width/2,y:o.y-h,width:o.width,height:h};
+        return touches(person,visual);
+      }))return false;
       return this.residents.every(n=>Math.abs(n.x-this.origin.x-p.x)>=80
-        ||Math.abs(n.y-this.origin.y-p.y)>=112);
+        ||Math.abs(n.y-this.origin.y-p.y)>=112)&&this.residentHasAccess(p);
     };
     const offsets:Array<[number,number]>=[[0,0]];
     for(const radius of [48,80,112,160,224,288])
       for(const [dx,dy] of [[-1,0],[1,0],[0,1],[0,-1],[-1,1],[1,1],[-1,-1],[1,-1]])offsets.push([dx*radius,dy*radius]);
     const position=offsets.map(([dx,dy])=>({x:preferred.x+dx,y:preferred.y+dy})).find(clear);
-    if(!position)throw new Error('No clear interior workplace for resident');
-    return position;
+    if(position)return position;
+    if(!optional){
+      // Story residents must survive a densely furnished room. Search only
+      // already reachable cells after their authored workplace options fail.
+      const entrance=plan.entrance;
+      const reachable=[...this.residentAccess].map(key=>{
+        const [x,y]=key.split(':').map(Number);return {x:entrance.x+x*48,y:entrance.y+y*48};
+      }).sort((a,b)=>(a.x-preferred.x)**2+(a.y-preferred.y)**2-(b.x-preferred.x)**2-(b.y-preferred.y)**2);
+      return reachable.find(clear)??null;
+    }
+    return null;
   }
   combatFeet(x:number,y:number,radius=12,ignoreResident?:Npc,ignoreResidents=false){
     if(!this.plan)return false;
@@ -707,6 +918,13 @@ export class InteriorSession {
       if(this.validFeet(x,y+dy/steps)&&this.scene.canTraverseGround({x,y},{x,y:y+dy/steps}))y+=dy/steps;
     }
     body.reset(x,y);body.setVelocity(velocity.x,velocity.y);player.setDepth(this.scene.playerRenderDepth(y));
+    if(!this.cinematicContext&&!this.scene.storyCombatActive&&time>=this.nextRoutineCheck){
+      this.nextRoutineCheck=time+500;
+      const phase=Math.floor(this.scene.getWorldHour()*6);
+      if(phase!==this.routinePhase){this.routinePhase=phase;this.routineChanges?.return(undefined);this.routineChanges=this.refreshRoutines();}
+      if(this.routineChanges?.next().done)this.routineChanges=null;
+    }
+    this.updateResidentWalks(time);this.updateAmbience(time,delta);this.updateIdleFacing(time);
     for(const npc of this.getResidents()){
       if(npc.storyMoving){npc.updatePatrol(time,delta);npc.advanceCinematic(delta);}
       npc.setDepth(DEPTH+npc.y-this.origin.y);
@@ -775,7 +993,7 @@ export class InteriorSession {
     };
     const south=this.entry.id===TOWER_ENTRY_ID?TOWER_SOUTH_DOOR:{x:this.plan.entrance.x,y:this.plan.entrance.y+55};
     const nearExit=this.entry.id===TOWER_ENTRY_ID?Math.hypot(p.x-this.origin.x-south.x,p.y-this.origin.y-south.y)<130:this.nearEntrance(p.x,p.y);
-    if(nearExit&&this.clearPath(p,this.localPoint(this.plan.entrance)))consider(this.entry.id===TOWER_ENTRY_ID?'Entry door sealed — use the central portal':'Leave building',this.localPoint(south),140,(this.plan.entranceWidth??114)/2,
+    if(nearExit&&this.clearPath(p,this.localPoint(this.plan.entrance)))consider(this.entry.id===TOWER_ENTRY_ID?'Entry door sealed — use the central portal':'Leave building',this.localPoint(south),this.entry.profile==='stable'?STABLE_ENTRANCE.height:140,(this.plan.entranceWidth??114)/2,
       ()=>{if(this.entry?.id===TOWER_ENTRY_ID)scene.notify('Clear the floor and use the central return portal.');else this.exit();});
     if(scene.storyCombatActive)return best;
     for(const npc of this.residents)if(npc.active&&npc.visible&&this.reachableResident(npc))
@@ -810,7 +1028,61 @@ export class InteriorSession {
     if(this.nearEntrance(player.x,player.y))this.exit();
     else if(!this.scene.talkToCompanion())this.scene.notify('Speak to a resident or return to the south doorway.');
   }
-  private talk(npc:Npc){if(!this.scene.storyCombatActive)useGameStore.getState().startDialogue(npc.definition.id);}
+  private faceRestingResident(npc:Npc,occupant=this.ambience.get(npc)?.occupant){
+    if(!this.plan)return;
+    const position={x:npc.x-this.origin.x,y:npc.y-this.origin.y};
+    const target=interiorIdleLookTarget(this.plan,position,this.wallSolids,occupant?.facing,occupant?.lookAt);
+    npc.faceInteriorPoint(this.localPoint(target));
+  }
+  private updateIdleFacing(time:number){
+    if(time<this.nextIdleFacingAt||!this.residents.length||this.cinematicContext||this.scene.storyCombatActive)return;
+    // One resident per interval; no full crowd/room search on every frame.
+    this.nextIdleFacingAt=time+180;
+    const npc=this.residents[this.idleFacingIndex++%this.residents.length];
+    if(!npc.active||npc.storyMoving||this.residentWalks.has(npc)||this.ambience.get(npc)?.moving)return;
+    const player=this.scene.player;
+    // Floors, furniture and walls must permit an actual interaction approach.
+    // Proximity alone previously made patrons stare at a player through walls.
+    if(Math.hypot(npc.x-player.x,npc.y-player.y)<170&&this.clearPath(npc,player))npc.faceInteriorPoint(player);
+    else this.faceRestingResident(npc);
+  }
+  private updateAmbience(time:number,delta:number){
+    const residents=this.getResidents();
+    for(const [npc,state] of this.ambience){
+      if(!npc.active||this.residentWalks.has(npc))continue;
+      // One server can take short, authored trips. Story actors never inherit
+      // these routines, and no new route search runs in a movement frame.
+      if(state.moving){
+        const body=npc.body as Phaser.Physics.Arcade.Body,dt=Math.min(delta,80)/1000;
+        const ahead={x:npc.x+body.velocity.x*dt,y:npc.y+body.velocity.y*dt};
+        if(residents.some(other=>other!==npc&&Math.hypot(other.x-ahead.x,other.y-ahead.y)<64)
+          ||Math.hypot(this.scene.player.x-ahead.x,this.scene.player.y-ahead.y)<64)npc.endStoryMovement();
+        if(!npc.storyMoving){state.moving=false;state.nextAt=time+6000;this.faceRestingResident(npc);}
+        continue;
+      }
+      if(time<state.nextAt)continue;state.nextAt=time+7000;
+      const preferred=state.occupant.stroll;
+      if(preferred&&npc.canStoryWalk){
+        const destination=Math.hypot(npc.x-state.home.x,npc.y-state.home.y)>40?state.home:this.localPoint(preferred);
+        if(this.combatPath(npc,destination)&&residents.every(other=>other===npc||Math.hypot(other.x-destination.x,other.y-destination.y)>=80)
+          &&Math.hypot(this.scene.player.x-destination.x,this.scene.player.y-destination.y)>=80){
+          npc.beginStoryMovement(destination);state.moving=npc.storyMoving;
+        }
+      }
+    }
+  }
+  private talk(npc:Npc){
+    if(this.loading||this.cinematicContext||this.scene.storyCombatActive)return;
+    npc.faceInteriorPoint(this.scene.player);
+    const ambient=this.ambience.get(npc);
+    if(ambient){
+      npc.endStoryMovement();ambient.moving=false;ambient.nextAt=this.scene.time.now+8000;
+      const store=useGameStore.getState();if(store.panel||store.dialogue||store.cinematic)return;
+      if(/guild clerk/i.test(ambient.occupant.role)&&this.entry){store.openContractBoard(this.entry.townId);return;}
+      const lines=ambient.occupant.lines,line=lines[ambient.line++%lines.length];
+      if(line)useGameStore.setState({dialogue:{npcId:npc.definition.id,localNpc:npc.definition,lineIndex:0,lines:[line]}});
+    }else useGameStore.getState().startDialogue(npc.definition.id);
+  }
   exit(){
     if(!this.entry||this.cinematicContext)return;
     this.scene.cancelStoryEncounter();
@@ -831,6 +1103,10 @@ export class InteriorSession {
     this.innBedMarkers.length=0;
     this.nearInnBed=false;this.nearHomeBed=false;this.nextBedHintAt=0;
     this.mapFloors=[];this.mapCircle=undefined;
+    this.nextIdleFacingAt=0;this.idleFacingIndex=0;
+    this.ambience.clear();this.residentAccess.clear();this.residentParents.clear();this.residentWalks.clear();this.scheduledResidents.clear();
+    this.routineChanges?.return(undefined);this.routineChanges=null;this.routinePhase=-1;this.nextRoutineCheck=0;
+    if(useGameStore.getState().dialogue?.localNpc)useGameStore.setState({dialogue:null});
     for(const object of this.objects){this.scene.tweens.killTweensOf(object);object.destroy();}this.objects=[];this.residents=[];this.guide=null;
     this.stairSurfaces.clear();this.passageContacts.clear();
     this.floorMask?.destroy();this.floorMask=null;this.wallSolids=[];
@@ -886,7 +1162,7 @@ export class InteriorSession {
     this.backdrop?.setPosition(camera.width/2*(1-1/z)-2,camera.height/2*(1-1/z)-2)
       .setDisplaySize(camera.width/z+4,camera.height/z+4);
   }
-  private releaseArt(){for(const key of [SOURCE,TOWER_CHEST_SOURCE,TOWER_DOOR_SOURCE,ATLAS,...FLOORS,...HOME_ATLASES])if(this.scene.textures.exists(key))this.scene.textures.remove(key);}
+  private releaseArt(){for(const key of [SOURCE,TOWER_CHEST_SOURCE,TOWER_DOOR_SOURCE,ATLAS,...FLOORS,STABLE_FLOOR,...HOME_ATLASES])if(this.scene.textures.exists(key))this.scene.textures.remove(key);}
   private refreshHomeFurniture(){
     if(!this.plan)return;
     const retired=new Set(this.homeObjects);for(const object of retired)object.destroy();

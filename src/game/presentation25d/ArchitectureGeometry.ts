@@ -1,3 +1,4 @@
+import {addStableDoor} from './StableDoorGeometry';
 import {AUTHORED_BUILDINGS,architectureEntryDoor,architectureEntryTreads} from './ArchitectureEntry';
 import {addCapitalShopfront,paintCapitalTradeBadge} from './CapitalDetailsGeometry';
 import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
@@ -11,18 +12,19 @@ type P2=readonly [number,number];
  * usable wall height rather than the small original painting's height. */
 function serviceHouseLayout(shape:HouseShape){
   const H=shape.height,base=Math.max(.96,shape.ground??.96);
-  const ground=.5-shape.top-base*H,doorHeight=Math.max(shape.doorHeight??0,H*.30);
-  const eave=Math.max(.5-shape.top-.51*H+(shape.floorLift??0),ground+doorHeight*1.22);
+  const ground=.5-shape.top-base*H,doorHeight=architectureEntryDoor(shape)?.height??Math.max(shape.doorHeight??0,H*.30);
+  const eave=Math.max(.5-shape.top-.51*H+(shape.floorLift??0),ground+doorHeight*(/stable/.test(shape.profile.id)?1.18:1.22));
   const wallHeight=eave-ground,windowHeight=Math.min(wallHeight*.36,doorHeight*.65);
   return {ground,eave,doorHeight,windowHeight,windowBottom:ground+wallHeight*.28,
     signBottom:ground+wallHeight*.72,signHeight:wallHeight*.19};
 }
+const serviceWindowCenters=(shape:HouseShape)=>/stable/.test(shape.profile.id)?[.185,.815]:[.26,.74];
 
 /** Fixtures in the same frame basis as the enclosed service house. */
 export function architectureLightFixtures(shape:HouseShape){
   if(!/smithy|stable/.test(shape.profile.id))return undefined;
   const {width:W}=shape,{windowBottom,windowHeight}=serviceHouseLayout(shape);
-  return [.26,.74].map(x=>({
+  return serviceWindowCenters(shape).map(x=>({
     x:shape.left+x*W-.5,y:windowBottom+windowHeight/2,z:.0252*W,fire:false,
   }));
 }
@@ -89,6 +91,10 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   const door=()=>{
     const entry=architectureEntryDoor(shape);if(!entry)return;
     const {center:cx,front:z,width:w,height:h}=entry,pointed=elf,bottom=ground;
+    if(/stable/.test(id)){
+      addStableDoor(m,X(cx-w/2),X(cx+w/2),bottom,h,z,W*.075,false);
+      return;
+    }
     const x=X(cx),path=arch(pointed),p=(u:number,v:number,out=0):V3=>[x+u*w*W,bottom+v*h,z+out*W];
     m.extrude(path.map(([u,v])=>[x+u*w*W,bottom+v*h] as const),z+.005*W,z-.012*W,woodDoor);
     for(let i=0;i<path.length;i++)beam(p(...path[i],.018),p(...path[(i+1)%path.length],.018),.014,stone);
@@ -293,12 +299,12 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
   }else if(/smithy|stable/.test(id)){
     const smithy=/smithy/.test(id);
     const {eave,windowBottom,windowHeight,signBottom:signY,signHeight}=serviceHouseLayout(shape);
-    // Stables previously carried the source anvil-sign tile and an open bay.
-    // Both service-house variants now have an uninterrupted, closed facade.
+    // The building remains enclosed; stable loading doors have their own
+    // proportions and flanking fittings rather than a house-sized entrance.
     body(.12,.88,-D,0,eave);
     roof(.07,.93,-D-.025*W,.045*W,eave,eave+H*(elf?.30:.31),'x');
     door();
-    for(const x of [.26,.74])window(X(x),windowBottom,.018*W,W*.12,windowHeight);
+    for(const x of serviceWindowCenters(shape))window(X(x),windowBottom,.018*W,W*(smithy?.12:.065),windowHeight);
     sideWindows(.12,.88,eave);
     // A lintel keeps the front legible as a complete wall.
     beam([X(.12),eave-.02*H,.016*W],[X(.88),eave-.02*H,.016*W],.008,trim);
@@ -306,18 +312,19 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(elf)for(const x of [.12,.88])leaf(X(x),eave-.11*H,.025*W,H*.11);
     if(!shape.tradeSign){
     const signTop=signY+signHeight,signZ=.075*W,bracketY=eave-.018*H;
-    beam([X(.16),bracketY,.012*W],[X(.36),bracketY,.012*W],.006,iron);
-    for(const x of [.20,.32]){
+    const signCenter=smithy?.26:.17,signHalf=smithy?.09:.055;
+    beam([X(signCenter-signHalf-.01),bracketY,.012*W],[X(signCenter+signHalf+.01),bracketY,.012*W],.006,iron);
+    for(const x of [signCenter-signHalf*.67,signCenter+signHalf*.67]){
       beam([X(x),bracketY,.012*W],[X(x),bracketY,signZ],.004,iron);
       beam([X(x),signTop,signZ],[X(x),bracketY,signZ],.0025,iron);
     }
-    box(.17,.35,signY,signTop,signZ-.012*W,signZ+.012*W,timber);
+    box(signCenter-signHalf,signCenter+signHalf,signY,signTop,signZ-.012*W,signZ+.012*W,timber);
     const anvil:P2[]=[[-.12,.79],[-.052,.73],[-.040,.48],[-.065,.39],[-.065,.32],[.060,.32],[.060,.40],[.037,.49],[.045,.75],[.078,.78],[.078,1],[-.065,1]];
     const emblem:ModelMaterial={color:pigment(elf?0xd8c88c:0xd6c394)};
     const signPath:P2[]=smithy
       ?anvil.map(([x,y])=>[X(.26)+x*W*.60,signY+(y-.23)*signHeight*1.15])
-      :[...Array.from({length:17},(_,i):P2=>{const a=i/16*Math.PI;return [X(.26)+Math.cos(a)*W*.054,signY+signHeight*(.83-Math.sin(a)*.68)];}),
-        ...Array.from({length:17},(_,i):P2=>{const a=(1-i/16)*Math.PI;return [X(.26)+Math.cos(a)*W*.033,signY+signHeight*(.83-Math.sin(a)*.45)];})];
+      :[...Array.from({length:17},(_,i):P2=>{const a=i/16*Math.PI;return [X(signCenter)+Math.cos(a)*W*.049,signY+signHeight*(.83-Math.sin(a)*.68)];}),
+        ...Array.from({length:17},(_,i):P2=>{const a=(1-i/16)*Math.PI;return [X(signCenter)+Math.cos(a)*W*.029,signY+signHeight*(.83-Math.sin(a)*.45)];})];
     for(const side of [-1,1]){
       const z=signZ+side*.0125*W;m.extrude(signPath,z+.0004*W,z-.0004*W,emblem);
     }
@@ -363,7 +370,19 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     if(!elf||/manor/.test(id))chimney(twoStorey?.78:.75,-D*.70,Y(twoStorey?.14:.16),eave-.05*H);
     if(elf)for(const x of [l,r]){leaf(X(x),eave-.10*H,.025*W,H*.10);planter(x,ground+.045*H,.03*W,.10);}
   }
-  for(const t of architectureEntryTreads(shape))m.box(t.left,t.right,t.bottom,t.top,t.back,t.front,stone);
+  for(const t of architectureEntryTreads(shape)){
+    if(t.frontTop===undefined)m.box(t.left,t.right,t.bottom,t.top,t.back,t.front,stone);
+    else{
+      const {left:l,right:r,bottom:b,top:h,back:z,front:f,frontTop:hf}=t;
+      // Closed wedge, with exactly the same slope as EntranceWalkSurfaces.
+      m.quad([l,hf,f],[r,hf,f],[l,h,z],[r,h,z],stone);
+      m.quad([l,b,z],[r,b,z],[l,b,f],[r,b,f],stone);
+      m.quad([l,b,f],[r,b,f],[l,hf,f],[r,hf,f],stone);
+      m.quad([r,b,z],[l,b,z],[r,h,z],[l,h,z],stone);
+      m.quad([l,b,z],[l,b,f],[l,h,z],[l,hf,f],stone);
+      m.quad([r,b,f],[r,b,z],[r,hf,f],[r,h,z],stone);
+    }
+  }
   addCapitalShopfront(m,shape,emission);
   return m.finish();
 }

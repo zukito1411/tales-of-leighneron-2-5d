@@ -4,6 +4,10 @@ const assets=registerPlugin<{status():Promise<{ready:boolean;bytes:number}>;prep
 /** Blocks application imports until the APK's pinned asset set is complete.
  * No game/store/save modules are initialized by the download screen. */
 export async function prepareNativeAssets(){
+ if(location.protocol==='leighneron:'){
+  if(!window.leighneronDesktopAssets)throw new Error('The Windows file downloader could not start. Reopen the installed game.');
+  const {prepareDesktopAssets}=await import('./desktopAssetDownload');await prepareDesktopAssets(window.leighneronDesktopAssets);return;
+ }
  if(Capacitor.getPlatform()!=='android')return;
  const status=await assets.status();if(status.ready)return;
  const panel=document.createElement('section');panel.style.cssText='position:fixed;inset:0;z-index:20000;background:#17120d;color:#f4dfae;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:28px;text-align:center;font:18px/1.5 Georgia,serif';

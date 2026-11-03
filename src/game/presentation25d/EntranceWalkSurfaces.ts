@@ -27,8 +27,10 @@ export class EntranceWalkSurfaces {
   for(const p of entries){
    if(!p.enabled||!p.owner.active||!p.owner.visible)continue;
    const dx=x-p.x,dy=y-p.y,u=(dx*p.c+dy*p.s)/p.width-.5+p.owner.originX,z=(-dx*p.s+dy*p.c)/p.width;
-   for(const t of p.treads)if(u>=t.left&&u<=t.right&&z>=t.back&&z<=t.front)
-    height=Math.max(height,p.base+(p.owner.originY-.5+t.top)*p.height);
+   for(const t of p.treads)if(u>=t.left&&u<=t.right&&z>=t.back&&z<=t.front){
+    const top=t.frontTop===undefined?t.top:t.top+(t.frontTop-t.top)*(z-t.back)/(t.front-t.back);
+    height=Math.max(height,p.base+(p.owner.originY-.5+top)*p.height);
+   }
   }
   return height;
  }

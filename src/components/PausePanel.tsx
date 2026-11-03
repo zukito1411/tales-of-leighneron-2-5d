@@ -4,6 +4,7 @@ import { GraphicsQualityControl } from './GraphicsQualityControl';
 import { GraphicsEffectsControl } from './GraphicsEffectsControl';
 import {SaveTransferControls} from './SaveTransferControls';
 import {CameraSettingsControl} from './CameraSettingsControl';
+import {ControlsSettingsControl} from './ControlsSettingsControl';
 
 export function PausePanel({onReturnHome,canReturnHome}:{onReturnHome:()=>void;canReturnHome:boolean}) {
   const panel = useGameStore((s) => s.panel);
@@ -21,13 +22,14 @@ export function PausePanel({onReturnHome,canReturnHome}:{onReturnHome:()=>void;c
           <GraphicsQualityControl />
           <GraphicsEffectsControl />
           <CameraSettingsControl />
+          <ControlsSettingsControl/>
           <button type="button" onClick={()=>{useGameStore.getState().hydrate({weatherAudio:!ambience});window.dispatchEvent(new Event('mernondna-weather-audio'));}}>World sounds: {ambience?'on':'off'}</button>
           <button type="button" onClick={() => { const saved = saveGame(); showToast(saved ? 'Game saved and verified locally.' : getSaveFailureReason() ?? 'Saving is unavailable. Check browser storage.'); close(); }}>Save game</button>
           <SaveTransferControls/>
           <button type="button" disabled={!canReturnHome} onClick={onReturnHome}>Return to Home</button>
         </div>
         {recovery&&<p className="menu-note" role="status">{recovery}</p>}
-        <p className="menu-note">WASD moves relative to the camera. Mouse look: click the capture button; Esc releases it. Left click attacks, right click dashes, Space jumps, Shift sprints, wheel zooms. Skills: 1–4. E interacts; M map; J journal; I inventory; C status. Touch: joystick and action buttons; drag the world to orbit and pinch to zoom.</p>
+        <p className="menu-note">Default keys: WASD moves relative to the camera. Customize gameplay keys above. Mouse look: click the capture button; Esc releases it. Left click attacks, right click dashes, Space jumps, Shift sprints, wheel zooms. Skills: 1–4. E interacts; M map; J journal; I inventory; C status. Touch: joystick and action buttons; drag the world to orbit and pinch to zoom.</p>
       </section>
     </div>
   );

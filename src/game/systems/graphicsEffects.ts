@@ -21,7 +21,7 @@ function recommended():GraphicEffects{
    sunRays:true,treeSway:true,waterMotion:true,dynamicShadows:true,
    fireflies:true,lightBloom:true,nightDarkness:true,
    // Combat rendering still independently respects reduced-motion preferences.
-   combatShake:true,depthOfField:true,depthHaze:true,cinematicColor:true,adaptiveResolution:true,
+   combatShake:true,depthOfField:true,depthHaze:true,cinematicColor:true,adaptiveResolution:false,
    // Disable dynamic ground-skirt recoloring by default on every device.
    // The unmodified full-resolution scenery textures still render.
    groundBlend:false};

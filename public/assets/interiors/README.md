@@ -31,6 +31,19 @@ Generated 2026-10-13 with the built-in imagegen tool. **Now integrated through `
   reuse approved existing/regional models; Elarion's existing two hall guards move
   inside without changing their artwork. Marching formations and gate watches are
   not borrowed. Named story actors keep their IDs and assigned buildings.
+- Inns now have a furnished taproom, serving counter, kitchen and two guest
+  chambers. Guilds have meeting tables, records and a workroom; armories have
+  issue/repair areas; warehouses have cargo aisles; stables now admit entry to
+  tack/feed rooms and groomed stall bays. Regional source kits are retained.
+- Local staff and patrons reuse the existing complete NPC poses. They respond
+  through the normal interaction controls; one inn server has a short checked
+  walking route. These occupants exist only while their room is open and do not
+  create outdoor copies, quests or persistent world records. Named residents
+  claim their workplaces first. Optional occupants require a clear, reachable
+  position outside reserved public aisles and foreground furniture.
+- Resident access preparation and actor creation are spread across the room's
+  existing cancellable loading frames. Furniture and decorative occupants are
+  released on exit, failed loads and shutdown.
 - Westgate Inn is eligible: the entrance filter matches the word "gate", not the
   substring in an inn's name. Citadel Archive is an archive, not another castle.
 - Multi-room layouts are implemented on one floor. Stair-based multi-storey travel
@@ -75,7 +88,7 @@ Each sheet is 1536 x 1024 with an approximate six-column/four-row organization. 
 - Use noble materials selectively in Highmere royal/noble rooms; ordinary homes and poorer districts still use modest kits. Elarion's ivory/teal/gold palette supports majestic halls without copying Highmere's royal fleur motif. Dwarven/orcan/maritime/frost/volcanic interiors retain their own silhouettes and motifs.
 - Keep global names, NPC identity, trust, dialogue and quest connections. Place existing named residents according to home/work roles; no simultaneous indoor/outdoor duplicates. Important new residents require full biographies when authored, not disposable filler.
 - Scale furniture to the existing Leigneron/NPC body scale from visible dimensions: beds, counters and doors must not be child-sized or oversized just because their PNG cells differ. Source cell size is not a world-size specification.
-- Source fire/window/lantern highlights are painted into these static illustrations; no animated lighting states, emission masks or NPC routines are implemented. Inspect emission areas when connecting interior lighting.
+- Source fire/window/lantern highlights are painted into these static illustrations. Runtime lighting and local NPC routines are owned by the existing room/presentation systems; the source boards do not supply alternate animation poses.
 - Load only the active interior's prepared assets and release unused source textures. Do not preload all nine boards at boot. Each full source sheet is approximately 6 MiB decoded RGBA before extraction/driver overhead; this is arithmetic, not a performance measurement.
 - Decide interior save/resume and safe return behavior before changing persistence. Do not save local room coordinates as outdoor world coordinates. Keep meaningful story/NPC/item state; geometry and Phaser objects are not save data.
 

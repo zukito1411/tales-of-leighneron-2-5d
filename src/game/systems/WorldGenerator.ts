@@ -257,6 +257,7 @@ export class WorldGenerator {
   }
 
   isRoad(worldX: number, worldY: number, clearance = 0) {
+    if(onTowerApproach(worldX,worldY,clearance))return true;
     if(pathDistance(worldX,worldY,ASHEN_DOCK_ROAD,96+clearance)<48+clearance)return true;
     if(onDragonTrail(worldX,worldY,clearance))return true;
     const layout = settlementAt(worldX,worldY);

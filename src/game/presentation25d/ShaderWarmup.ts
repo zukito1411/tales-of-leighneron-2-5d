@@ -1,8 +1,9 @@
-import {DataTexture,Scene,WebGLRenderTarget,type Camera,type Object3D,type WebGLRenderer} from 'three';
+import {DataTexture,Scene,WebGLRenderTarget,InstancedMesh,Mesh,type Camera,type Object3D,type WebGLRenderer} from 'three';
 import {SpriteBatch,type DistanceAtmosphere} from './SpriteBatch';
 import type {ElevationField} from './ElevationField';
 import {createWallGeometry} from './HouseGeometry';
 import {createCombatEffectGeometry} from './CombatEffectGeometry';
+import type {FrameWorkBudget} from './FrameWorkBudget';
 
 /** A tiny retained set keeps finite shared shader programs resident. It never
  * draws loading artwork or builds another simulation. Materials stay alive
@@ -11,6 +12,7 @@ export class ShaderWarmup {
   private readonly texture=new DataTexture(new Uint8Array([255,255,255,255]),1,1);
   private readonly scene=new Scene();private readonly optionalScene=new Scene();private readonly batches:SpriteBatch[]=[];
   private readonly worldTarget=new WebGLRenderTarget(1,1,{depthBuffer:false,stencilBuffer:false});
+  private optionalWorld=false;
   private disposed=false;private optional:Object3D[]=[];private optionalIndex=0;private optionalBusy=false;private optionalEpoch=0;private optionalObject:Object3D|undefined;private optionalParallel:boolean|undefined;
   readonly ready:Promise<void>;
   constructor(renderer:WebGLRenderer,camera:Camera,elevation:ElevationField,atmosphere:DistanceAtmosphere){
@@ -40,16 +42,21 @@ export class ShaderWarmup {
     finally{renderer.setRenderTarget(previous);}
     await world;
   }
-  queueOptional(objects:readonly Object3D[]){this.optional=objects.slice();this.optionalIndex=0;this.optionalEpoch++;}
-  /** Compile one optional effect after a world frame. The shallow clone shares
-   * its original geometry and material without moving the live effect. */
-  advanceOptional(renderer:WebGLRenderer,camera:Camera){
-    if(this.disposed||this.optionalBusy||this.optionalIndex>=this.optional.length)return;
+  queueOptional(objects:readonly Object3D[]){this.optional=objects.slice();this.optionalIndex=0;this.optionalWorld=false;this.optionalEpoch++;}
+  /** Compile one output variant after a world frame, sharing the live effect
+   * geometry/material without copying its particle buffers or moving it. */
+  advanceOptional(renderer:WebGLRenderer,camera:Camera,work:FrameWorkBudget){
+    if(this.disposed||this.optionalBusy||this.optionalIndex>=this.optional.length||work.remaining('shaders',.3)<.2)return;
     this.optionalParallel??=Boolean(renderer.getContext().getExtension('KHR_parallel_shader_compile'));
     // Leave first-use compilation as the fallback when precompilation may
     // block the game loop on this device.
     if(!this.optionalParallel){this.optionalIndex=this.optional.length;return;}
-    const epoch=this.optionalEpoch,source=this.optional[this.optionalIndex++],object=source.clone(false);
+    const start=performance.now(),epoch=this.optionalEpoch,source=this.optional[this.optionalIndex];
+    const target=this.optionalWorld?this.worldTarget:null;
+    if(this.optionalWorld)this.optionalIndex++;this.optionalWorld=!this.optionalWorld;
+    // Compile the same instancing variant without copying a live particle buffer.
+    const object=source instanceof InstancedMesh?new InstancedMesh(source.geometry,source.material,1)
+      :source instanceof Mesh?new Mesh(source.geometry,source.material):source.clone(false);
     object.visible=true;this.optionalScene.add(object);this.optionalObject=object;this.optionalBusy=true;
     const compileTarget=(target:WebGLRenderTarget|null)=>{
       const previous=renderer.getRenderTarget();let ready:Promise<unknown>;
@@ -58,14 +65,18 @@ export class ShaderWarmup {
       return ready;
     };
     void (async()=>{
-      try{await compileTarget(null);if(!this.disposed&&epoch===this.optionalEpoch)await compileTarget(this.worldTarget);}
+      try{
+        const ready=compileTarget(target);work.charge('shaders',start);await ready;
+        // Both program variants are queued as separate jobs so a resolved
+        // promise cannot introduce another compile outside the frame allowance.
+      }
       catch{/* Optional effects retain their normal first-use compilation fallback. */}
       finally{
-        object.removeFromParent();
+        object.removeFromParent();if(object instanceof InstancedMesh)object.dispose();
         if(epoch===this.optionalEpoch){this.optionalObject=undefined;this.optionalBusy=false;}
       }
     })();
   }
-  restartOptional(){this.optionalEpoch++;this.optionalIndex=0;this.optionalBusy=false;this.optionalObject?.removeFromParent();this.optionalObject=undefined;}
+  restartOptional(){this.optionalEpoch++;this.optionalIndex=0;this.optionalWorld=false;this.optionalBusy=false;this.optionalObject?.removeFromParent();this.optionalObject=undefined;}
   destroy(){this.disposed=true;this.optionalEpoch++;this.optional.length=0;this.optionalIndex=0;this.optionalObject?.removeFromParent();this.optionalObject=undefined;for(const batch of this.batches)batch.destroy();this.batches.length=0;this.worldTarget.dispose();this.texture.dispose();}
 }
