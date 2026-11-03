@@ -71,6 +71,11 @@ export class Npc extends DepthSortedSprite {
   // A temporary side step never consumes the original scheduled waypoint.
   private npcDetour:Vec2|null=null;
   private lastAvoidAttempt=0;
+  private crowdWaitAt:number|null=null;
+  private nextCrowdRouteAt=0;
+  private yieldPoint:Vec2|null=null;
+  private yieldUntil=0;private yieldHoldUntil=0;private yieldCheckAt=0;private nextYieldAt=0;
+  private yieldBlocked=false;
   // Road walkers only move a few pixels between checks. Keep the existing
   // collision/obstacle logic but avoid full-world line-of-sight queries 60x/s.
   private roadCheckAt=0;
@@ -173,7 +178,7 @@ export class Npc extends DepthSortedSprite {
   private cancelStreetRoute(){
     this.routeEpoch++;this.routePending=false;(this.scene as WorldScene).npcRouting.cancel(this);
   }
-  private requestStreetRoute(goal:Vec2,priority=false){
+  private requestStreetRoute(goal:Vec2,priority=false,avoid?:Vec2){
     this.cancelStreetRoute();const epoch=this.routeEpoch,scene=this.scene as WorldScene,town=TOWN_BY_ID[this.definition.townId].world;
     const origin={x:this.x-town.x,y:this.y-town.y},destination={x:goal.x-town.x,y:goal.y-town.y};
     this.routePending=true;
@@ -187,7 +192,7 @@ export class Npc extends DepthSortedSprite {
         this.route=path.map(p=>({x:p.x+town.x,y:p.y+town.y}));
         this.target=this.route.shift()??null;this.routeCheckMs=120;
         if(!this.target&&Math.hypot(this.x-goal.x,this.y-goal.y)>24){this.routineKey='';this.routineRetryAt=scene.time.now+2000;}
-      },priority);
+      },priority,avoid?{x:avoid.x-town.x,y:avoid.y-town.y,radius:58}:undefined);
   }
   beginEscort(goal:Vec2) {this.cancelStreetRoute();this.escortRouteRetryAt=0;this.escortGoal={...goal};this.route=[];this.target=null;this.npcDetour=null;}
   get escorting(){return this.escortGoal!==null;}
@@ -253,6 +258,8 @@ export class Npc extends DepthSortedSprite {
   }
   endStoryMovement(){this.storyGoal=null;this.storyRest();}
   get storyMoving(){return this.storyGoal!==null||this.storyGuard;}
+  get pedestrianYielding(){return this.yieldPoint!==null||this.scene.time.now<this.yieldHoldUntil;}
+  get pedestrianYieldDestination(){return this.yieldPoint;}
   get adventureCompanion(){return this.companionControl;}
   get speechAnchorY(){return this.y+this.labelY;}
   setAdventureCompanion(enabled:boolean){
@@ -358,6 +365,8 @@ export class Npc extends DepthSortedSprite {
     const scene = this.scene as WorldScene;
     const body = this.body as Phaser.Physics.Arcade.Body;
     this.setDepth(scene.playerRenderDepth(this.y));
+    if(this.storyAttack||this.storyGoal||this.storyGuard||this.companionControl||this.escortGoal){this.yieldPoint=null;this.yieldHoldUntil=0;}
+    else if(this.updatePedestrianYield(time))return;
     if(this.storyAttack){body.setVelocity(0,0);return;}
     if(this.storyGoal){
       const dx=this.storyGoal.x-this.x,dy=this.storyGoal.y-this.y,distance=Math.hypot(dx,dy);
@@ -469,14 +478,21 @@ export class Npc extends DepthSortedSprite {
       if(checkRoute || this.stalledMs>1050) {
         const blocker=scene.npcPathBlocker(this,ahead,this);
         const obstructed=!scene.canNpcVisit(this,ahead)||Boolean(blocker)||this.stalledMs>1050;
+        if(obstructed)this.crowdWaitAt??=time;else this.crowdWaitAt=null;
         if(obstructed && (time-this.lastAvoidAttempt>420||this.lastAvoidAttempt===0)) {
           this.lastAvoidAttempt=time;
           this.npcDetour=this.npcDetourWaypoint(scene,blocker);
           this.stalledMs=0;
         }
         if(obstructed && !this.npcDetour) {
-          // Wait if both bypass lanes are obstructed. Never delete the route:
-          // when the pedestrian moves, this NPC resumes the same destination.
+          // A persistent person is not part of the static street graph. Ask
+          // the existing queue for another route with one transient exclusion.
+          if(blocker&&!scene.inInterior&&!this.definition.campId&&!this.definition.formation
+            &&time-(this.crowdWaitAt??time)>=1800&&time>=this.nextCrowdRouteAt){
+            const goal=this.escortGoal??this.route.at(-1)??this.target;
+            this.nextCrowdRouteAt=time+2400;
+            if(goal&&Math.hypot(goal.x-this.x,goal.y-this.y)>90)this.requestStreetRoute(goal,Boolean(this.escortGoal)||this.definition.questIds.length>0,blocker);
+          }
           body.setVelocity(0,0);
           this.playDirection(this.facing.x,this.facing.y,false);
           this.previousPosition={x:this.x,y:this.y};
@@ -534,8 +550,48 @@ export class Npc extends DepthSortedSprite {
     this.setDepth(this.y);
   }
 
-  /** Try a short sidestep to either side of the blockage. The real target
-   * and remaining schedule never change, so movement rejoins the old path. */
+  /** Stable right-of-way prevents two walkers repeatedly asking each other
+   * to switch lanes. Fixed services, sentries and story actors retain control. */
+  private makeWayFor(requester:Npc,destination:Vec2){
+    const scene=this.scene as WorldScene,time=scene.time.now;
+    if(this.yieldPoint||time<this.yieldHoldUntil)return;
+    if(time<this.nextYieldAt||!this.canStoryWalk||this.definition.stationary||this.counterApproach
+      ||this.definition.workplaceId||this.definition.formation||this.definition.campId
+      ||this.storyGoal||this.storyGuard||this.storyAttack||this.escortGoal||this.companionControl
+      ||scene.storyCombatActive||useGameStore.getState().dialogue)return;
+    const travelling=Boolean(this.target||this.routePending||this.roadRoute||this.settlementVisit);
+    if(travelling&&this.definition.id<requester.definition.id)return;
+    this.nextYieldAt=time+1000;
+    const dx=destination.x-requester.x,dy=destination.y-requester.y,length=Math.hypot(dx,dy);
+    if(length<1)return;
+    const fx=dx/length,fy=dy/length;
+    for(const lateral of [72,104])for(const side of [1,-1]){
+      const point={x:this.x-fy*lateral*side,y:this.y+fx*lateral*side};
+      if(!scene.npcCanStandAt(point.x,point.y,this)||!scene.canNpcVisit(this,point)
+        ||!scene.canTraverseGround(this,point)||scene.npcPathBlocker(this,point,this))continue;
+      if(this.routePending){this.cancelStreetRoute();this.routineKey='';this.routineRetryAt=time+600;}
+      this.yieldPoint=point;this.yieldUntil=time+2600;this.yieldCheckAt=0;return;
+    }
+  }
+  private updatePedestrianYield(time:number){
+    if(time<this.yieldHoldUntil){this.storyRest();return true;}
+    const point=this.yieldPoint;if(!point)return false;
+    if(time>=this.yieldUntil){this.yieldPoint=null;return false;}
+    const dx=point.x-this.x,dy=point.y-this.y,distance=Math.hypot(dx,dy);
+    if(distance<8){this.yieldPoint=null;this.yieldHoldUntil=time+650;this.storyRest();return true;}
+    const scene=this.scene as WorldScene;
+    if(time>=this.yieldCheckAt){
+      this.yieldCheckAt=time+120;
+      const ahead={x:this.x+dx/distance*Math.min(24,distance),y:this.y+dy/distance*Math.min(24,distance)};
+      this.yieldBlocked=!scene.canNpcVisit(this,ahead)||!scene.canTraverseGround(this,ahead)||Boolean(scene.npcPathBlocker(this,ahead,this));
+    }
+    if(this.yieldBlocked){this.storyRest();return true;}
+    this.stalledMs=0;this.facing.set(dx/distance,dy/distance);
+    const body=this.body as Phaser.Physics.Arcade.Body,speed=Math.min(60,distance*4);
+    body.setVelocity(this.facing.x*speed,this.facing.y*speed);this.playDirection(dx,dy,true);return true;
+  }
+  /** Try forward, sideways and retreat lanes without consuming the original
+   * waypoint. All feet, swept static paths and pedestrians remain checked. */
   pedestrianDetour(destination:Vec2){
     const scene=this.scene as WorldScene;
     const point=this.npcDetourWaypoint(scene,scene.npcPathBlocker(this,destination,this),destination);
@@ -549,17 +605,17 @@ export class Npc extends DepthSortedSprite {
     const forwardX=dx/length,forwardY=dy/length;
     const obstacleDistance=blocker ? Math.hypot(blocker.x-this.x,blocker.y-this.y) : 38;
     const forward=Math.max(40,Math.min(92,obstacleDistance+36));
+    if(blocker instanceof Npc)blocker.makeWayFor(this,destination);
     const sides=[this.avoidSide,-this.avoidSide];
-    for(const side of sides)for(const lateral of [54,78,104]) {
-      const candidate={x:this.x+forwardX*forward-forwardY*side*lateral,
-        y:this.y+forwardY*forward+forwardX*side*lateral};
+    for(const advance of [forward,0,-80])for(const side of sides)for(const lateral of advance<0?[0,64]:[64,104]) {
+      const candidate={x:this.x+forwardX*advance-forwardY*side*lateral,
+        y:this.y+forwardY*advance+forwardX*side*lateral};
       if(!scene.npcCanStandAt(candidate.x,candidate.y,this))continue;
       if(!scene.canNpcVisit(this,candidate)||!scene.canTraverseGround(this,candidate)||scene.npcPathBlocker(this,candidate,this))continue;
       this.avoidSide=side;
       return candidate;
     }
-    // Reverse preference next time if the object or another pedestrian moves.
-    this.avoidSide=-this.avoidSide;
+    // Both sides were considered; keep the preferred side stable while waiting.
     return null;
   }
 
@@ -585,10 +641,10 @@ export class Npc extends DepthSortedSprite {
         else this.playDirection(this.facing.x,this.facing.y,(this.body as Phaser.Physics.Arcade.Body).velocity.lengthSq()>9);
       }
     }
-    if (!cinematic && !this.companionControl && !this.roadRoute && !this.storyGuard && !this.storyGoal && distance > 1 && distance <= 72 && !this.escorting && !this.definition.formation) {
-      this.target = null;
-      this.returningHome = true;
-      this.nextPatrolAt = Math.max(this.nextPatrolAt, this.scene.time.now + 1500);
+    if (!cinematic && !this.companionControl && !this.roadRoute && !this.storyGuard && !this.storyGoal
+      &&useGameStore.getState().dialogue?.npcId===this.definition.id&&!this.escorting&&!this.definition.formation) {
+      // Talking pauses movement, not the route. Resume the same waypoint
+      // after dialogue rather than stranding a visitor on its final leg.
       (this.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
       this.playDirection(this.facing.x, this.facing.y, false);
     }

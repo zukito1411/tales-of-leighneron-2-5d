@@ -7,6 +7,7 @@ import {SettlementLifeSystem} from '../systems/SettlementLifeSystem';
 import {getControlSettings} from '../systems/controlSettings';
 import {StormHazardSystem} from '../systems/StormHazardSystem';
 import {NpcRouteQueue} from '../systems/NpcRouteQueue';
+import {pedestrianBlocksSegment} from '../systems/pedestrianSpacing';
 import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
 import {meleeReach} from '../systems/combatSpacing';
 import {firstPersonAimScore,FIRST_PERSON_DAMAGE_EVENT,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
@@ -704,17 +705,19 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
 
   /** Nearest person in an NPC's intended segment; used for local crowd avoidance. */
-  npcPathBlocker(from:Vec2,to:Vec2,exclude?:Npc):Vec2|null {
+  npcPathBlocker(from:Vec2,to:Vec2,exclude?:Npc):Npc|Player|null {
     const dx=to.x-from.x,dy=to.y-from.y,len2=dx*dx+dy*dy;
     if(len2<1)return null;
-    let best=Infinity,point:Vec2|null=null;
+    let best=Infinity,point:Npc|Player|null=null;
     // Build the crowd index once per simulation frame. Road routines ask this
     // several times per actor, so repeated full NPC scans become quadratic in
-    // dense settlements. The exact projection and spacing rules below remain
-    // unchanged; the grid only removes actors outside the segment bounds.
+    // dense settlements. The grid only removes actors outside the segment
+    // bounds; the shared spacing probe also permits escaping existing overlaps.
     const interiorResidents=this.inInterior?this.interiors.getResidents():undefined;
     if(!interiorResidents)this.prepareNpcCrowdIndex();
-    const includeRoadLife=Boolean(exclude?.definition.id.startsWith('road-life:'));
+    // All pedestrians see one another, including travelling adventurers.
+    // Callers without an NPC owner keep their previous combat-spacing policy.
+    const includeRoadLife=exclude!==undefined;
     // A character farther than 43 px outside this segment's rectangle cannot
     // collide with it. Cull them before doing projection or square roots.
     const left=Math.min(from.x,to.x)-43,right=Math.max(from.x,to.x)+43;
@@ -724,13 +727,9 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       if(other===exclude||!other.active||order<0)return;
       if(other instanceof Npc&&!includeRoadLife&&other.definition.id.startsWith('road-life:'))return;
       if(other.x<left||other.x>right||other.y<top||other.y>bottom)return;
-      const vx=other.x-from.x,vy=other.y-from.y;
-      const fraction=Math.max(0,Math.min(1,(vx*dx+vy*dy)/len2));
-      const projectedX=from.x+dx*fraction,projectedY=from.y+dy*fraction;
-      const sideGap=Math.hypot(other.x-projectedX,other.y-projectedY);
-      const ahead=Math.hypot(vx,vy);
-      if(ahead<8||sideGap>=43||fraction<=0)return;
-      if(ahead<best||ahead===best&&order<bestOrder){best=ahead;bestOrder=order;point={x:other.x,y:other.y};}
+      if(!pedestrianBlocksSegment(from,to,other))return;
+      const ahead=(other.x-from.x)**2+(other.y-from.y)**2;
+      if(ahead<best||ahead===best&&order<bestOrder){best=ahead;bestOrder=order;point=other;}
     };
     // Include adjacent buckets so a body that moved a few pixels earlier in
     // this same frame is still considered; exact current coordinates are
@@ -774,11 +773,15 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   }
   npcCanStandAt(x:number,y:number,exclude?:Npc,regional=false):boolean {
     if(this.inInterior)return this.interiors.combatFeet(x,y,18,exclude)
+      &&this.interiors.getResidents().every(n=>n===exclude||!n.pedestrianYieldDestination
+        ||Math.hypot(n.pedestrianYieldDestination.x-x,n.pedestrianYieldDestination.y-y)>=64)
       &&Math.hypot(this.player.x-x,this.player.y-y)>=52;
     return this.worldGenerator.isWalkable(x,y)&&!this.exteriorPlacement.blocksNpc({x,y},undefined,true,exclude?.definition.workplaceId)
       &&!this.isBlockedByBuilding(x,y)
       &&!this.isNpcObscured(x,y,regional||Boolean(exclude?.usesRegionalPresentation))
-      &&this.npcs.every(n=>!n.active||n===exclude||(npcMayPatrol(n.definition)?Math.hypot(n.x-x,n.y-y)>=64:npcPersonalSpace(n,{x,y})))
+      &&this.npcs.every(n=>!n.active||n===exclude||((!n.pedestrianYieldDestination
+        ||Math.hypot(n.pedestrianYieldDestination.x-x,n.pedestrianYieldDestination.y-y)>=64)
+        &&(npcMayPatrol(n.definition)?Math.hypot(n.x-x,n.y-y)>=64:npcPersonalSpace(n,{x,y}))))
       &&(!this.player?.active||Math.hypot(this.player.x-x,this.player.y-y)>=52);
   }
 

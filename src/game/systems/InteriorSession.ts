@@ -744,7 +744,7 @@ export class InteriorSession {
   }
   private updateResidentWalks(time:number){
     for(const [npc,walk] of this.residentWalks){
-      if(npc.storyMoving)continue;
+      if(npc.storyMoving||npc.pedestrianYielding)continue;
       while(walk.index<walk.path.length&&Math.hypot(npc.x-walk.path[walk.index].x,npc.y-walk.path[walk.index].y)<10)walk.index++;
       if(walk.index>=walk.path.length){
         if(walk.depart)this.removeRoutineResident(npc);
@@ -926,7 +926,7 @@ export class InteriorSession {
     }
     this.updateResidentWalks(time);this.updateAmbience(time,delta);this.updateIdleFacing(time);
     for(const npc of this.getResidents()){
-      if(npc.storyMoving){npc.updatePatrol(time,delta);npc.advanceCinematic(delta);}
+      if(npc.storyMoving||npc.pedestrianYielding){npc.updatePatrol(time,delta);npc.advanceCinematic(delta);}
       npc.setDepth(DEPTH+npc.y-this.origin.y);
     }
     const firstPerson=isFirstPersonView(this.scene);
@@ -1039,7 +1039,7 @@ export class InteriorSession {
     // One resident per interval; no full crowd/room search on every frame.
     this.nextIdleFacingAt=time+180;
     const npc=this.residents[this.idleFacingIndex++%this.residents.length];
-    if(!npc.active||npc.storyMoving||this.residentWalks.has(npc)||this.ambience.get(npc)?.moving)return;
+    if(!npc.active||npc.storyMoving||npc.pedestrianYielding||this.residentWalks.has(npc)||this.ambience.get(npc)?.moving)return;
     const player=this.scene.player;
     // Floors, furniture and walls must permit an actual interaction approach.
     // Proximity alone previously made patrons stare at a player through walls.
@@ -1049,7 +1049,7 @@ export class InteriorSession {
   private updateAmbience(time:number,delta:number){
     const residents=this.getResidents();
     for(const [npc,state] of this.ambience){
-      if(!npc.active||this.residentWalks.has(npc))continue;
+      if(!npc.active||npc.pedestrianYielding||this.residentWalks.has(npc))continue;
       // One server can take short, authored trips. Story actors never inherit
       // these routines, and no new route search runs in a movement frame.
       if(state.moving){
