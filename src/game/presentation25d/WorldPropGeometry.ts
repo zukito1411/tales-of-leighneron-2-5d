@@ -81,7 +81,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   if(woodPatch)patch=woodPatch;
   if(fitting||style==='cloth-counter'||style==='flower-pot'||style==='arms-rack'){
     const worldWidth=Math.max(1,fitting?fittingWidth:Math.abs(actor.displayWidth)*width*modelScale);
-    rise=(art==='goddess-shrine'?TELEPORT_SHRINE.rise*worldWidth:style==='windmill'?HERO_BODY_HEIGHT*5.2:style==='pasture-fence'?HERO_BODY_HEIGHT*.72:style==='pasture-straw'?HERO_BODY_HEIGHT*.045:style==='pasture-trough'?HERO_BODY_HEIGHT*.46:style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
+    rise=(art==='goddess-shrine'?TELEPORT_SHRINE.rise*worldWidth:style==='windmill'?HERO_BODY_HEIGHT*6:style==='pasture-fence'?HERO_BODY_HEIGHT*.72:style==='pasture-straw'?HERO_BODY_HEIGHT*.045:style==='pasture-trough'?HERO_BODY_HEIGHT*.46:style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
   }
   const shape:FurnitureShape={streetStyle:style,art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
     fire:!(texture==='native_quest_landmarks'&&index===1),canopy:!(texture==='native_quest_landmarks'&&index===0),
@@ -94,7 +94,15 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
     shape.footX=shape.footY=shape.heading=shape.paintOffset=0;
     shape.bounds={left:style==='windmill'?-.95:-.52,right:style==='windmill'?.95:.52,bottom:0,top:style==='windmill'?Math.max(rise*1.25,rise*.71+.94):rise*1.25,
       back:-fitting.depth-.03,front:style==='windmill'?.12:.03};
-    if(art==='goddess-shrine'){shape.pose=0;shape.key='goddess-shrine-v1:0';}
+    if(art==='goddess-shrine'){
+      // Measured opaque paint from the original moon-stone sprite, frame 11
+      // (260 x 278 source pixels). Remap through the loader's retained crop;
+      // never sample adjacent atlas frames or replace the paint with flat RGB.
+      const crop=(l:number,t:number,r:number,b:number):Patch=>remap([l/260,t/278,r/260,b/278]);
+      shape.shrinePaint={body:crop(76,110,88,122),light:crop(115,56,127,68),
+        shade:crop(182,109,196,125),gold:crop(57,181,65,191),moon:crop(75,78,174,174)};
+      shape.pose=0;shape.key='goddess-shrine-v1:0';
+    }
     if(style==='hay-bales')shape.interiorUse='stable-hay';
     else if(style==='pasture-straw')shape.interiorUse='stable-bedding';
     else if(style==='pasture-trough')shape.interiorUse='stable';

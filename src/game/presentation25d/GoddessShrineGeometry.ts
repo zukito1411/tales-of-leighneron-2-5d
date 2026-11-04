@@ -1,4 +1,4 @@
-import {ModelMesh,atlasMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
+import {ModelMesh,paintedMaterial,pigment,type ModelMaterial,type V3} from './ModelMesh';
 import type {FurnitureShape} from './FurnitureGeometry';
 
 /** Complete stone sculpture, in the existing instanced model pipeline.
@@ -6,12 +6,16 @@ import type {FurnitureShape} from './FurnitureGeometry';
  * their volume from behind and at eye level. Built once per attunement state. */
 export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false){
  const m=new ModelMesh(shape,emission),z=-shape.depth/2;
- // One cool limestone sculpture, rather than separate skin, brown hair and
- // yellow clothing. The surrounding architecture supplies the plinth texture.
- const stone=atlasMaterial('architecture',8,.24,.28),ivory:ModelMaterial={color:pigment(0xd1d6d9)};
- const fold:ModelMaterial={color:pigment(0xc3cacf)},hair:ModelMaterial={color:pigment(0xcbd1d5)};
- const gold:ModelMaterial={color:pigment(0x9d9278)},cut:ModelMaterial={color:pigment(0xbac3c9)};
- const glow:ModelMaterial={color:pigment(0xe8eef5),emission:pigment(0xd9e8f2)};
+ // Tile actual painted stone, light edges, shaded carving and amber ornament
+ // from this actor's source sprite on every modeled side. Preserve its grain
+ // and warm contrast rather than inventing a blue-gray marble palette.
+ const paint=shape.shrinePaint;
+ const stone=paintedMaterial(paint?.body??shape.patch,.30,.30);
+ const ivory=paintedMaterial(paint?.light??shape.patch,.28,.28);
+ const fold=paintedMaterial(paint?.body??shape.patch,.28,.28),hair=stone;
+ const gold=paintedMaterial(paint?.gold??shape.patch,.16,.20);
+ const cut=paintedMaterial(paint?.shade??shape.patch,.20,.20);
+ const glow:ModelMaterial={color:pigment(0xe8b45c),emission:pigment(0xe8b45c)};
  const attuned=shape.pose===1;
  // Keep the emission model tiny: only the unlocked crown and inlaid seal.
  if(attuned){
@@ -30,6 +34,9 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  m.cylinder(0,z,.055,.14,.40,.39,stone,24);
  m.cylinder(0,z,.14,.245,.305,.29,stone,24);
  m.ring(0,z,.13,.15,.405,.38,gold,24);
+ // The source's carved crescent belongs to the pedestal as an inset seal;
+ // only the emblem is mapped, never a flat picture of the entire statue.
+ if(paint)m.cutout([-.055,.15,z+.292],[.055,.15,z+.292],[-.055,.24,z+.292],[.055,.24,z+.292],paint.moon);
  // Carved votive panels encircle the pedestal, rather than a flat front decal.
  for(let i=0;i<8;i++){
   const a=i*Math.PI/4,x=Math.sin(a)*.303,zz=z+Math.cos(a)*.303;
@@ -151,15 +158,15 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  // Curved harp neck and pillar, a carved soundbox and ten separate strings.
  const harpZ=z+.16;
  loft([{x:.12,y:.55,z:harpZ,rx:.045,rz:.045},{x:.07,y:.69,z:harpZ,rx:.041,rz:.036},
-  {x:.025,y:.86,z:harpZ,rx:.030,rz:.027},{x:.005,y:1.12,z:harpZ,rx:.018,rz:.020}],ivory,12);
+  {x:.025,y:.86,z:harpZ,rx:.030,rz:.027},{x:.005,y:1.12,z:harpZ,rx:.018,rz:.020}],gold,12);
  loft([{x:.12,y:.55,z:harpZ,rx:.025,rz:.025},{x:.34,y:.63,z:harpZ,rx:.023,rz:.023},
   {x:.36,y:1.21,z:harpZ,rx:.019,rz:.020},{x:.30,y:1.28,z:harpZ,rx:.023,rz:.022},
-  {x:.15,y:1.22,z:harpZ,rx:.020,rz:.020},{x:.005,y:1.12,z:harpZ,rx:.022,rz:.022}],ivory,12);
+  {x:.15,y:1.22,z:harpZ,rx:.020,rz:.020},{x:.005,y:1.12,z:harpZ,rx:.022,rz:.022}],gold,12);
  for(let i=0;i<10;i++){
   const t=(i+1)/11,x=.025+.30*t;
   m.beam([x,.61+.30*(1-t),harpZ+.009],[x,1.14+.12*Math.sin(t*Math.PI),harpZ+.009],.002,ivory,4);
  }
  // Resting circlet remains stone until attunement adds the luminous halo.
- m.ring(0,z,1.503,1.516,.077,.069,ivory,20);
+ m.ring(0,z,1.503,1.516,.077,.069,gold,20);
  return m.finish();
 }

@@ -37,6 +37,7 @@ export interface FurnitureShape {
   footX?:number;footY?:number;heading?:number;modelScale?:number;lift?:number;quarterTurnUV?:boolean;
   paintOffset?:number;ornamentX?:number;
   fixedGround?:number;pose?:number;stonePatch?:Patch;roofPatch?:Patch;
+  shrinePaint?:{body:Patch;light:Patch;shade:Patch;gold:Patch;moon:Patch};
   fire?:boolean;canopy?:boolean;
   sourceRegion?:readonly [number,number,number,number];
   bounds?:{left:number;right:number;bottom:number;top:number;back:number;front:number};

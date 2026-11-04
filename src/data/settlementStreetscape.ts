@@ -1,3 +1,7 @@
+import {SETTLEMENT_GARDEN_SITES} from './settlementGardenSites';
+import {royalWardOverlaps} from './highmerePlan';
+import {architectureProfile} from './architecture';
+import {capitalPropStyle} from './highmereStreetStyle';
 import {settlementEnvelope} from './settlementPlanning';
 import {registerSettlementPasture} from './settlementPastures';
 import {streetStair} from './settlementStairs';
@@ -8,7 +12,7 @@ import {NPCS} from './npcs';
 import {npcExteriorAnchors,npcStandingReservation} from './npcPositions';
 import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {artFrameSize} from './art';
-import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,segmentTouchesRect,type Rect} from './settlementGeometry';
+import {propPlacementBounds,overlaps,rectTouchesStreet,segmentTouchesRect,type Rect} from './settlementGeometry';
 import {worldSpriteProfile} from './worldSpriteGeometry';
 import {insideDefense} from './settlementDefenses';
 import {fortificationBlocksPoint} from './fortifications';
@@ -34,8 +38,18 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
   const dining=outdoorFittingBounds(d.id,d.world.x,d.world.y,artFrameSize(texture,d.frame).width*scale,d.rotation??0);
   if(dining)return dining;
   const ground=propPlacementBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center','wallSegment' in d?d.wallSegment:undefined,d.rotation??0);
-  return isTreeArt(texture,d.frame)?union(ground,spriteBounds(texture,d.frame,scale,d.world.x,d.world.y)):ground;
+  if(!isTreeArt(texture,d.frame))return ground;
+  // A billboard's painted height is vertical, not a strip of land north of
+  // its feet. Reserve its crown radially, in every camera direction.
+  const radius=artFrameSize(texture,d.frame).width*scale*.58;
+  return union(ground,{left:d.world.x-radius,right:d.world.x+radius,top:d.world.y-radius,bottom:d.world.y+radius});
  };
+ const tallObjects=new StaticBoundsIndex(content.flatMap(d=>{
+  if(!('frame' in d))return [];
+  const texture=d.texture??'world_objects';
+  if(!architectureProfile(texture,d.frame)&&!isTreeArt(texture,d.frame))return [];
+  const bounds=boundsOf(d);return bounds?[{bounds}]:[];
+ }));
  const occupied=new StaticBoundsIndex(content.flatMap(d=>{const bounds=boundsOf(d);return bounds?[{bounds}]:[];}));
  const reserved:Array<{bounds:Rect}>=[];
  for(const d of content){
@@ -59,7 +73,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
  for(const layout of layouts){
   const town=TOWN_BY_ID[layout.townId],origin=town.world;
   const summary:StreetscapeSummary={townId:town.id,added:0,omitted:0,byKind:{}};SETTLEMENT_STREETSCAPES.push(summary);
-  const limit=town.id==='highmere'?240:town.kind==='capital'||town.kind==='stronghold'?90:54;
+  const limit=town.id==='highmere'?280:town.id==='oakmere'?96:town.kind==='capital'||town.kind==='stronghold'?90:54;
   const cold=town.regionId==='nardorous'||town.regionId==='frostlands',dry=town.regionId==='rindass',ash=town.regionId==='darkav';
   const local=(r:Rect):Rect=>({left:r.left-origin.x,right:r.right-origin.x,top:r.top-origin.y,bottom:r.bottom-origin.y});
   const beds=layout.parcels.filter(p=>p.terrain==='farmland'||p.terrain==='water'||/shrine|life-tree|citadel-door|citadel-processional/.test(p.id))
@@ -68,7 +82,10 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    id:'detail:'+town.id+':streetlife:'+kind+':beautify:'+id,kind:'prop',world:{x:origin.x+p.x,y:origin.y+p.y},texture,frame,
    scale:width/artFrameSize(texture,frame).width,solid,placement:'fixed',...(rotation?{rotation}:{})});
   const fits=(d:PropContentDefinition)=>{
-   const r=boundsOf(d)!,l=local(r),tree=isTreeArt(d.texture!,d.frame),margin=tree?42:20;
+   const mill=capitalPropStyle(d.id)==='windmill',painted=boundsOf(d)!;
+   if(mill&&tallObjects.any(pad(painted,40),o=>overlaps(painted,o.bounds,40)))return false;
+   const r=mill?outdoorFittingBounds(d.id,d.world.x,d.world.y,artFrameSize(d.texture!,d.frame).width*d.scale,d.rotation??0,true)!:painted;
+   const l=local(r),tree=isTreeArt(d.texture!,d.frame),margin=tree?42:20;
    if(![r.left,r.right].every(x=>[r.top,r.bottom].every(y=>insideDefense(town.id,x,y,-90))))return false;
    if(beds.some(b=>overlaps(l,b,16))||layout.streets.some(st=>rectTouchesStreet(l,st,tree?44:28)))return false;
    if(occupied.any(pad(r,margin),o=>overlaps(r,o.bounds,margin))||people.any(pad(r,52),o=>overlaps(r,o.bounds,52)))return false;
@@ -93,6 +110,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
   // the mill's sail envelope, before any small decorative dressing is fitted.
   const fitsCourt=(r:Rect)=>{
    const l=local(r);
+   if(town.id==='highmere'&&royalWardOverlaps(l,80))return false;
    if(beds.some(b=>overlaps(l,b,36))||layout.streets.some(st=>rectTouchesStreet(l,st,52)))return false;
    if(occupied.any(pad(r,64),o=>overlaps(r,o.bounds,64))||people.any(pad(r,100),o=>overlaps(r,o.bounds,100)))return false;
    let low=Infinity,high=-Infinity;
@@ -211,8 +229,10 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    if(!cold)millSearch:for(const width of [300,240])for(const [candidate,p] of candidates.entries()){
     if(mills>=(town.id==='highmere'?3:2))break millSearch;
     const wx=origin.x+p.x,wy=origin.y+p.y;
-    const court=outdoorFittingBounds('detail:'+town.id+':streetlife:windmill:survey',wx,wy,width)!;
-    if(publicCourts.some(r=>overlaps(local(court),r,48))||!fitsCourt(court))continue;
+    const millId='detail:'+town.id+':streetlife:windmill:survey';
+    const court=outdoorFittingBounds(millId,wx,wy,width)!;
+    const tower=outdoorFittingBounds(millId,wx,wy,width,0,true)!;
+    if(publicCourts.some(r=>overlaps(local(tower),r,48))||!fitsCourt(tower))continue;
     if(admit([make('mill:'+candidate,'windmill',p,'native_civic_bare',9,width)])){
      occupied.add({bounds:court});mills++;
      // Fit visible stock beside the mill, outside the complete sail envelope.
@@ -226,6 +246,8 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
      admit([make('mill:'+candidate+':barrel','barrels',{x:p.x+width*.96+90,y:p.y+160},'native_civic_bare',8,62)]);
     }
    }
+
+
   }
 
   const greenery=(id:string,p:Vec2,formal=false)=>{
@@ -234,6 +256,43 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    if(ash)return admit([make(id,'basalt-border',p,'climate_props',8,66)]);
    return admit([make(id,formal?'flower-pot':'flowers',p,'woodland_props',1,formal?52:78,formal)]);
   };
+  // Admit a coherent courtyard before isolated household props exhaust the
+  // allowance. Streets/doors and actual people still reserve first. Small
+  // gardens may dress a noble/temple green, but never the centre of a plaza,
+  // training yard, crop field, sacred court or royal processional route.
+  const gardenCentres=layout.parcels.filter(p=>/plaza|square|market|training|barrack|quay/.test(p.id)).map(p=>{
+   const full=/training|barrack|quay/.test(p.id),k=full?.5:.26;
+   return {left:p.x-p.width*k,right:p.x+p.width*k,top:p.y-p.height*k,bottom:p.y+p.height*k};
+  });
+  const gardenSites=SETTLEMENT_GARDEN_SITES[town.id]??[];
+  for(const {id,x,y,compact} of gardenSites){
+   if(summary.added+(compact?4:7)>limit)break;
+   const p={x,y};
+   const court=compact?{left:p.x-155,right:p.x+155,top:p.y-90,bottom:p.y+120}
+    :{left:p.x-240,right:p.x+240,top:p.y-190,bottom:p.y+150};
+   if(gardenCentres.some(r=>overlaps(court,r,35))||beds.some(r=>overlaps(court,r,25)))continue;
+   if(town.id==='highmere'&&royalWardOverlaps(court,100))continue;
+   const tag='garden:'+id+(compact?':small':''),group:PropContentDefinition[]=[];
+   if(compact){
+    for(const side of [-1,1])group.push(make(tag+':plant:'+side,cold?'winter-stone':dry?'sage-border':ash?'basalt-border':'flowers',
+     {x:p.x+side*105,y:p.y-25},cold||ash?'climate_props':dry?'desert_props':'woodland_props',cold?3:ash?8:dry?2:3,72,cold||ash));
+    group.push(make(tag+':seat','bench',{x:p.x,y:p.y+25},'native_civic_bare',7,108));
+    group.push(make(tag+':bed','flowers',{x:p.x,y:p.y+115},cold?'climate_props':dry?'desert_props':ash?'climate_props':'woodland_props',cold?3:dry?2:ash?8:1,72,false));
+   }else{
+    if(!cold&&!dry&&!ash)for(const side of [-1,1]){
+     group.push(make(tag+':tree:'+side,'tree',{x:p.x+side*160,y:p.y-80},'woodland_props',5,132));
+     group.push(make(tag+':flowers:'+side,'flowers',{x:p.x+side*160,y:p.y+75},'woodland_props',1,90,false));
+    }else for(const side of [-1,1])group.push(make(tag+':border:'+side,cold?'winter-stone':ash?'basalt-border':'sage-border',
+     {x:p.x+side*155,y:p.y-60},cold||ash?'climate_props':'desert_props',cold?3:ash?8:2,75,!dry));
+    group.push(make(tag+':seat-west','bench',{x:p.x-150,y:p.y+150},'native_civic_bare',7,108));
+    group.push(make(tag+':seat-east','bench',{x:p.x+150,y:p.y+150},'native_civic_bare',7,108));
+    group.push(make(tag+':water','well',{x:p.x,y:p.y+10},'native_civic_bare',6,98));
+   }
+   if(!admit(group))continue;
+   const r={left:origin.x+court.left,right:origin.x+court.right,top:origin.y+court.top,bottom:origin.y+court.bottom};
+   occupied.add({bounds:r});
+  }
+
   // Dress the side courts according to what each establishment actually does.
   for(const [i,building] of buildings.filter(d=>d.id.startsWith('town:'+town.id+':')).entries()){
    if(summary.added>=limit)break;
@@ -303,19 +362,19 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
     if(n===1)admit([make('green:'+parcel.id+':'+side,'garden-fence',{x:p.x,y:p.y+130},cold?'climate_props':'world_assets',cold?4:3,130)]);
    }
   }
-  // Finish genuinely vacant pockets with a few coherent sitting gardens.
-  // Reuse the already surveyed candidates; no second grid or runtime planner.
-  // Open lawns remain between groups, and every item keeps the same vetoes.
-  let gardens=0;
-  for(let i=0;i<candidates.length&&gardens<(town.id==='highmere'?10:5)&&summary.added<limit;i+=3){
-   const p=candidates[i],world={x:origin.x+p.x,y:origin.y+p.y};
-   if(publicCourts.some(r=>overlaps({left:p.x-150,right:p.x+150,top:p.y-180,bottom:p.y+80},r,40)))continue;
-   const reservedGarden={left:world.x-170,right:world.x+170,top:world.y-170,bottom:world.y+170};
-   if(people.any(reservedGarden,o=>overlaps(reservedGarden,o.bounds,20)))continue;
-   if(!admit([make('pocket:'+i,'bench',p,'native_civic_bare',7,108)]))continue;
-   greenery('pocket:'+i+':left',{x:p.x-110,y:p.y-20},!dry&&!ash&&!cold);
-   greenery('pocket:'+i+':right',{x:p.x+110,y:p.y-20},!dry&&!ash&&!cold);
-   people.add({bounds:reservedGarden});gardens++;
+  if(!gardenSites.length){
+   let pockets=0;
+   for(let i=0;i<candidates.length&&pockets<5&&summary.added<limit;i+=3){
+    const p=candidates[i],world={x:origin.x+p.x,y:origin.y+p.y};
+    if(publicCourts.some(r=>overlaps({left:p.x-150,right:p.x+150,top:p.y-180,bottom:p.y+80},r,40)))continue;
+    const r={left:world.x-170,right:world.x+170,top:world.y-170,bottom:world.y+170};
+    if(people.any(r,o=>overlaps(r,o.bounds,20))||!admit([make('pocket:'+i,'bench',p,'native_civic_bare',7,108)]))continue;
+    greenery('pocket:'+i+':left',{x:p.x-110,y:p.y-20},!dry&&!ash&&!cold);
+    greenery('pocket:'+i+':right',{x:p.x+110,y:p.y-20},!dry&&!ash&&!cold);
+    people.add({bounds:r});pockets++;
+   }
   }
+
+
  }
 }
