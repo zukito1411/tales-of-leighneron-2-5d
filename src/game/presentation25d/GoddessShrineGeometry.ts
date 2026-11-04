@@ -36,7 +36,9 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  m.ring(0,z,.13,.15,.405,.38,gold,24);
  // The source's carved crescent belongs to the pedestal as an inset seal;
  // only the emblem is mapped, never a flat picture of the entire statue.
- if(paint)m.cutout([-.055,.15,z+.292],[.055,.15,z+.292],[-.055,.24,z+.292],[.055,.24,z+.292],paint.moon);
+ // This surveyed crop is opaque stone, including the carving. Keep it a
+ // normal textured surface so the whole sculpture retains opaque batching.
+ if(paint)m.quad([-.055,.15,z+.292],[.055,.15,z+.292],[-.055,.24,z+.292],[.055,.24,z+.292],paintedMaterial(paint.moon,.11,.09));
  // Carved votive panels encircle the pedestal, rather than a flat front decal.
  for(let i=0;i<8;i++){
   const a=i*Math.PI/4,x=Math.sin(a)*.303,zz=z+Math.cos(a)*.303;
