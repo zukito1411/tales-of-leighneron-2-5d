@@ -9,7 +9,7 @@ import {getControlSettings} from '../systems/controlSettings';
 import {StormHazardSystem} from '../systems/StormHazardSystem';
 import {NpcRouteQueue} from '../systems/NpcRouteQueue';
 import {pedestrianBlocksSegment} from '../systems/pedestrianSpacing';
-import {groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
+import {PRESENTATION_HINT,type PresentationHint,groundWorldView,onCombatEffect,onWorldLabel,isFirstPersonView} from '../presentation25d/plane';
 import {meleeReach} from '../systems/combatSpacing';
 import {firstPersonAimScore,FIRST_PERSON_DAMAGE_EVENT,type FirstPersonInteraction} from '../presentation25d/FirstPersonAim';
 import {marketWorkstation} from '../../data/marketWorkstations';
@@ -55,7 +55,7 @@ import {worldRectTouchesStreet} from '../../data/settlements';
 import {REGION_BY_ID} from '../../data/regions';
 import {nearestRespawnTown,respawnArrivalCandidates} from '../systems/respawnLocation';
 import { ROAD_ROUTES } from '../../data/roadRoutes';
-import { TOWN_SHRINE_BY_ID } from '../../data/townShrines';
+import { TELEPORT_SHRINE,TOWN_SHRINES,TOWN_SHRINE_BY_ID } from '../../data/townShrines';
 import { PORT_BY_ID,PORTS,onPortDeck } from '../../data/ports';
 import { WORLD_CONTENT, CONTENT_BY_ID, ELARION_LIFE_TREE_ID, ELARION_LIFE_TREE_POSITION, initialContentState } from '../../data/content';
 import {enhancedWeapon} from '../../data/weaponUpgrades';
@@ -195,6 +195,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private interiors!:InteriorSession;
   private dungeons!:DungeonSystem;
   private storyEncounters!:StoryEncounterSystem;
+  private shrineUnlocks:readonly string[]|undefined;
   private firstPersonHintAt=-Infinity;
   private firstPersonHintLabel:string|null=null;
   private firstPersonHintRoom:string|null=null;
@@ -207,7 +208,10 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   get presentationCameraControl():PresentationCameraControl|undefined{
     if(this.cinematicDirector?.active)return this.cinematicDirector.presentationCameraControl;
     const owner=this.passage?.active?this.passage:this.arrivalView??this.restSession;
-    if(!owner)return undefined;this.transitionCameraControl.owner=owner;return this.transitionCameraControl;
+    if(!owner)return undefined;
+    this.transitionCameraControl.owner=owner;
+    this.transitionCameraControl.view=this.passage?.active&&this.passage.usesPlayerCamera?'player':'scripted';
+    return this.transitionCameraControl;
   }
   get presentationFocus(){
     return this.player?.active&&this.player.visible&&(!this.cinematicDirector?.active||this.cinematicDirector.usesPlayerCamera)
@@ -218,7 +222,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       ?this.player:undefined;
   }
   get presentationPlayer(){
-    return this.player?.active&&this.player.visible&&(!this.cinematicDirector?.active||this.cinematicDirector.usesPlayerCamera)&&!this.passage?.active&&!this.arrivalView&&!this.restSession?this.player:undefined;
+    return this.player?.active&&this.player.visible&&(!this.cinematicDirector?.active||this.cinematicDirector.usesPlayerCamera)&&(!this.passage?.active||this.passage.usesPlayerCamera)&&!this.arrivalView&&!this.restSession?this.player:undefined;
   }
   private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
   get presentationLockedTarget(){
@@ -1227,6 +1231,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       return; // No combat or movement runs during the transition frame.
     }
     const feedbackState=useGameStore.getState();
+    if(this.shrineUnlocks!==feedbackState.unlockedTownShrines){
+      this.shrineUnlocks=feedbackState.unlockedTownShrines;
+      for(const shrine of TOWN_SHRINES){
+        const entry=this.interactables.get(shrine.contentId);
+        if(entry?.actor.active)this.setShrineAttunement(entry.actor,this.shrineUnlocks.includes(shrine.townId)
+          ||this.contentManager.getState(shrine.contentId)?.used===true);
+      }
+    }
     this.screenTransition.update(delta,!this.focused||Boolean(feedbackState.panel));
     if(this.restSession){this.updateRestTransition(time);return;}
     if(this.arrivalView){this.updateArrivalView(delta);return;}
@@ -1560,22 +1572,24 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     }
   }
 
-  // LEIGHNERON_ELARION_SHRINE_APPROACH_V1
-  // The elven shrine uses a taller, wider sprite than common wayfarer shrines.
-  // The visible door is above the actor's ground anchor. Resolve a reachable
-  // forecourt target once and reuse it for the prompt and actual interaction.
-  private nearbyElarionShrine(x:number,y:number):
+  /** All settlement statues use the same clear southern forecourt, prompt
+   * and actual interaction. Saved attunement never depends on a texture tint. */
+  private nearbyTownShrine(x:number,y:number):
     {definition:InteractableContentDefinition;actor:ContentActor}|undefined {
-    const shrine=TOWN_SHRINE_BY_ID.elarion;
-    const entry=this.interactables.get(shrine.contentId);
-    if(!entry || !entry.actor.active || entry.definition.townShrineId!=='elarion')return;
-    const front={x:entry.actor.x,y:entry.actor.y+64};
-    if(Phaser.Math.Distance.Between(x,y,front.x,front.y)>116)return;
-    // Exclude the shrine's own foundation. Also accept the base sight line
-    // already used by older saves/layouts, without walking through walls.
-    if(!this.hasClearPath(x,y,front.x,front.y,entry.actor)
-       && !this.hasClearPath(x,y,entry.actor.x,entry.actor.y,entry.actor))return;
-    return entry;
+    let nearest:{definition:InteractableContentDefinition;actor:ContentActor}|undefined,distance=116;
+    for(const shrine of TOWN_SHRINES){
+      const entry=this.interactables.get(shrine.contentId);
+      if(!entry||!entry.actor.active||!entry.actor.visible)continue;
+      const front={x:entry.actor.x,y:entry.actor.y+64},d=Math.hypot(x-front.x,y-front.y);
+      if(d>=distance||!this.hasClearPath(x,y,front.x,front.y,entry.actor))continue;
+      nearest=entry;distance=d;
+    }
+    return nearest;
+  }
+  private setShrineAttunement(actor:ContentActor,attuned:boolean){
+    const shape=(actor.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+    if(shape?.art==='goddess-shrine'){shape.pose=attuned?1:0;shape.key='goddess-shrine-v1:'+shape.pose;}
+    actor.setTint(0xffffff);
   }
 
   private firstPersonInteractionAllowed(){
@@ -1617,13 +1631,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       if(!Number.isFinite(score))continue;
       if(this.npcTalkDistance(npc,p.x,p.y)<Infinity)consider(`Talk to ${npc.definition.name}`,npc.x,npc.y,Math.min(110,npc.displayHeight*npc.originY),24,()=>s.startDialogue(npc.definition.id),score);
     }
-    const shrine=this.nearbyElarionShrine(p.x,p.y);
+    const shrine=this.nearbyTownShrine(p.x,p.y);
     for(const entry of this.interactables.values()){
       const {actor,definition}=entry;if(!actor.active||!actor.visible)continue;
       const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;
       const special=entry===shrine;
       if(!special&&Math.hypot(point.x-p.x,point.y-p.y)>=72)continue;
-      const x=special?actor.x:point.x,y=special?actor.y+64:point.y,height=special?110:75,width=special?40:32;
+      const x=special?actor.x:point.x,y=special?actor.y-TELEPORT_SHRINE.width*TELEPORT_SHRINE.depth/2:point.y,
+        height=special?TELEPORT_SHRINE.width*TELEPORT_SHRINE.rise:75,width=special?TELEPORT_SHRINE.width/2:32;
       const score=firstPersonAimScore(this,x,y,height,width);
       if(!Number.isFinite(score)||!special&&!this.hasClearPath(p.x,p.y,point.x,point.y,actor))continue;
       consider(definition.name,x,y,height,width,()=>this.useInteractable(definition,actor),score);
@@ -1647,8 +1662,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     if(this.interactWithStory())return;
     const building=this.interiors.nearest(x,y);
     if(building){this.interiors.enter(building);return;}
-    const elarionShrine=this.nearbyElarionShrine(x,y);
-    if(elarionShrine){this.useInteractable(elarionShrine.definition,elarionShrine.actor);return;}
+    const townShrine=this.nearbyTownShrine(x,y);
+    if(townShrine){this.useInteractable(townShrine.definition,townShrine.actor);return;}
     let nearest: Npc | null = null;
     let nearestDistance = 72;
     for (const npc of this.npcs) {
@@ -2352,8 +2367,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     let interaction: string | null = null, distance = 72;
     const building=firstPerson?undefined:this.interiors.nearest(this.player.x,this.player.y);
     if(building){const home=PLAYER_HOME_BY_ID[building.id];interaction=home?housingFor(store.housing,home.id).owned?`Enter ${home.homeName}`:`Home for sale · Speak with ${home.agentName}`:`Enter ${building.name}`;distance=0;}
-    const elarionShrine=firstPerson?undefined:this.nearbyElarionShrine(this.player.x,this.player.y);
-    if(elarionShrine){interaction=elarionShrine.definition.name;distance=0;}
+    const townShrine=firstPerson?undefined:this.nearbyTownShrine(this.player.x,this.player.y);
+    if(townShrine){interaction=townShrine.definition.name;distance=0;}
     for (const npc of this.npcs) {
       npc.updatePresentation(this.player.x,this.player.y,this.questTarget?.contentId === `npc:${npc.definition.id}`,this.wasBlocked);
       // Road-life actors deliberately have no interaction handler. Don't run
@@ -2491,12 +2506,13 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     const footprint = propFoundation(texture,definition.frame,definition.scale??.6);
     this.presentWorldSprite(actor, texture, definition.frame, definition.scale ?? .6, solid, footprint,
       definition.rotation??0,definition.anchor??'bottom');
-    if (state.used) actor.setTint(definition.id==='clue:cibar-pump'&&useGameStore.getState().storyFlags['cibar-irrigation-repaired']?0xc9f2ed:definition.townShrineId ? 0xc9e7eb : 0x99907b);
+    if(definition.townShrineId)this.setShrineAttunement(actor,state.used===true||useGameStore.getState().unlockedTownShrines.includes(definition.townShrineId));
+    else if (state.used) actor.setTint(definition.id==='clue:cibar-pump'&&useGameStore.getState().storyFlags['cibar-irrigation-repaired']?0xc9f2ed:0x99907b);
     if(definition.id==='clue:varkhul-ward'&&useGameStore.getState().storyFlags['wards-rewoven'])actor.setTint(0xffefc5);
     actor.on('pointerdown', () => {
-      if(definition.townShrineId==='elarion'){
-        const elarionShrine=this.nearbyElarionShrine(this.player.x,this.player.y);
-        if(elarionShrine){this.useInteractable(elarionShrine.definition,elarionShrine.actor);return;}
+      if(definition.townShrineId){
+        const townShrine=this.nearbyTownShrine(this.player.x,this.player.y);
+        if(townShrine){this.useInteractable(townShrine.definition,townShrine.actor);return;}
       }
       const point=definition.portId?PORT_BY_ID[definition.portId].landing:actor;
       if (!useGameStore.getState().panel && !useGameStore.getState().dialogue
@@ -2565,7 +2581,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       }
       try {
         this.contentManager.patchState(definition.id,{used:true});
-        if(actor.active)actor.setTint(0xc9e7eb);
+        if(actor.active)this.setShrineAttunement(actor,true);
         useGameStore.getState().setContentWorld(this.contentManager.snapshot());
         saveGame();
       }catch(error){
@@ -2772,7 +2788,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   shutdown() {
     if(this.shuttingDown)return;
     this.shuttingDown=true;
-    this.presentationTerrain.clear();
+    this.presentationTerrain.clear();this.shrineUnlocks=undefined;
     // A partially created system (or an already destroyed sprite) must not
     // prevent other systems from releasing their listeners and resources.
     const release=(name:string,cleanup:()=>void)=>{

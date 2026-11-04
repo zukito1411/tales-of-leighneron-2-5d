@@ -1,3 +1,4 @@
+import {TELEPORT_SHRINE} from '../../data/townShrines';
 import {elarionCascade} from '../../data/elarionHighlands';
 import {worldHeight} from './plane';
 import {streetStair} from '../../data/settlementStairs';
@@ -61,6 +62,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   if(art==='campfire')rise=HERO_BODY_HEIGHT*.7/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   if(texture==='flower_fence')rise=HERO_BODY_HEIGHT*.95/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   if(art==='cargo'||art==='crate'||art==='barrels'||art==='wagon'||art==='ledger')rise*=.78;
+  else if(art==='bench')rise=HERO_BODY_HEIGHT*.72/Math.max(1,Math.abs(actor.displayWidth)*width*modelScale);
   else if(art==='keepsake')rise=.04;
   const raw=materials[(texture+':'+index) as keyof typeof materials];
   let patch:readonly [number,number,number,number]=raw?[raw[0],raw[1],raw[2],raw[3]]:[.4,.55,.48,.63];
@@ -79,7 +81,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   if(woodPatch)patch=woodPatch;
   if(fitting||style==='cloth-counter'||style==='flower-pot'||style==='arms-rack'){
     const worldWidth=Math.max(1,fitting?fittingWidth:Math.abs(actor.displayWidth)*width*modelScale);
-    rise=(style==='windmill'?HERO_BODY_HEIGHT*5.2:style==='pasture-fence'?HERO_BODY_HEIGHT*.72:style==='pasture-straw'?HERO_BODY_HEIGHT*.045:style==='pasture-trough'?HERO_BODY_HEIGHT*.46:style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
+    rise=(art==='goddess-shrine'?TELEPORT_SHRINE.rise*worldWidth:style==='windmill'?HERO_BODY_HEIGHT*5.2:style==='pasture-fence'?HERO_BODY_HEIGHT*.72:style==='pasture-straw'?HERO_BODY_HEIGHT*.045:style==='pasture-trough'?HERO_BODY_HEIGHT*.46:style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
   }
   const shape:FurnitureShape={streetStyle:style,art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
     fire:!(texture==='native_quest_landmarks'&&index===1),canopy:!(texture==='native_quest_landmarks'&&index===0),
@@ -92,6 +94,7 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
     shape.footX=shape.footY=shape.heading=shape.paintOffset=0;
     shape.bounds={left:style==='windmill'?-.95:-.52,right:style==='windmill'?.95:.52,bottom:0,top:style==='windmill'?Math.max(rise*1.25,rise*.71+.94):rise*1.25,
       back:-fitting.depth-.03,front:style==='windmill'?.12:.03};
+    if(art==='goddess-shrine'){shape.pose=0;shape.key='goddess-shrine-v1:0';}
     if(style==='hay-bales')shape.interiorUse='stable-hay';
     else if(style==='pasture-straw')shape.interiorUse='stable-bedding';
     else if(style==='pasture-trough')shape.interiorUse='stable';

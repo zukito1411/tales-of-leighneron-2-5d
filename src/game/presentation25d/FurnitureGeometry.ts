@@ -1,3 +1,4 @@
+import {createGoddessShrineGeometry} from './GoddessShrineGeometry';
 import {createRuralFitting} from './RuralGeometry';
 import type {CapitalPropStyle} from '../../data/highmereStreetStyle';
 import {addCapitalMarketStock,addCapitalCanopy,createStreetFitting} from './CapitalDetailsGeometry';
@@ -21,7 +22,7 @@ import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 import {propPassageFootprints} from '../../data/worldPropGroundPlan';
 
-export type PropArt='windmill'|'waterfall'|'campfire'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
+export type PropArt='goddess-shrine'|'windmill'|'waterfall'|'campfire'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
@@ -90,6 +91,7 @@ export function furnitureShape(art:HomeFurnitureArt|'doorway'|'openChest'|'tower
 /** Furniture is assembled from closed, detailed mesh parts. Only naturally
  * thin cloth and foliage use cutouts; complete object paintings are not faces. */
 export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
+  if(shape.art==='goddess-shrine')return createGoddessShrineGeometry(shape,emission);
   if(shape.art==='life-tree')return createLifeTreeGeometry(shape,emission);
   if(shape.art==='fountain'||shape.art==='signature'&&/elven/.test(shape.kit))return createFountainGeometry(shape,emission);
   if(shape.art==='coastal-boat')return createCoastalBoatGeometry(shape,emission);

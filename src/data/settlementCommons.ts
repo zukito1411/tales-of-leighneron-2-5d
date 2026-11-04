@@ -1,3 +1,4 @@
+import {outdoorBenchScale} from './outdoorBench';
 import type {ContentDefinition,Vec2,WorldPropTexture} from '../game/types';
 import {worldRectTouchesStreet,type SettlementLayout,type Street} from './settlements';
 import {TOWN_BY_ID} from './towns';
@@ -121,7 +122,7 @@ export function addSettlementCommons(layouts:SettlementLayout[],content:ContentD
         {id:'rest-seat',x:190,y:235,texture:'native_civic_bare',frame:7,height:38},
       ];
       furnishings.push({id:'notice',x:-105,y:245,texture:'native_civic_bare',frame:11,height:58,notice:true});
-      const templates=furnishings.map(f=>{const scale=f.height/artFrameSize(f.texture,f.frame).height;
+      const templates=furnishings.map(f=>{const scale=outdoorBenchScale(f.id,f.texture,f.frame,f.height/artFrameSize(f.texture,f.frame).height);
         return {f,scale,bounds:propPlacementBounds(f.texture,f.frame,scale,f.x,f.y)};});
       const local:Rect={left:-270,right:270,top:-240,bottom:350};
       const preferred={x:town.world.x+plan.preferred.x,y:town.world.y+plan.preferred.y};

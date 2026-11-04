@@ -8,10 +8,11 @@ export interface EntryTread {left:number;right:number;back:number;front:number;b
  * No inferred collision box or separately guessed staircase is involved. */
 export function architectureEntryDoor(shape:HouseShape):EntryDoor|undefined{
  const id=shape.profile.id,W=shape.width,H=shape.height,elf=id.startsWith('elven-');
- if(!AUTHORED_BUILDINGS.has(id)||shape.profile.tiers||shape.segment||shape.profile.board||/gate|chapel|shrine/.test(id))return;
+ if(!AUTHORED_BUILDINGS.has(id)||shape.profile.tiers||shape.segment||shape.profile.board||/gate|shrine/.test(id))return;
  let center=.50,front=.014*W,width=.22,height=H*(/guildhall/.test(id)?.30:.25);
  if(id==='castle'||id==='elven-palace'){front=.030*W;width=.15;height=H*.25;}
  else if(/stable/.test(id)){front=.015*W;width=STABLE_ENTRANCE.facadeWidth;height=H*STABLE_ENTRANCE.facadeHeight;}
+ else if(/chapel/.test(id)){front=.035*W;width=.24;height=H*.30;}
  else if(/smithy/.test(id)){front=.015*W;width=.23;height=Math.max(shape.doorHeight??0,H*.30);}
  else if(/inn|manor|estate/.test(id)){center=.52;front=.065*W;width=.22;height=H*.24;}
  else if(/cottage/.test(id)){center=elf?.50:.58;front=.015*W;width=elf?.24:.23;height=H*.34;}

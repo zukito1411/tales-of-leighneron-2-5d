@@ -1,3 +1,4 @@
+import {TOWN_SHRINE_CONTENT_IDS,TELEPORT_SHRINE} from './townShrines';
 import {polygonGroundBands} from './worldSpriteGeometry';
 import {elarionCascade} from './elarionHighlands';
 import {capitalPropStyle} from './highmereStreetStyle';
@@ -5,6 +6,7 @@ import {diningFurniture} from './interiorFurnitureLayout';
 import type {Rect} from './settlementGeometry';
 
 export function outdoorFitting(id:string){
+ if(TOWN_SHRINE_CONTENT_IDS.has(id))return {art:'goddess-shrine' as const,depth:TELEPORT_SHRINE.depth};
  const style=capitalPropStyle(id);
  if(style==='pasture-fence')return {art:'fence' as const,depth:.06};
  if(style==='pasture-straw')return {art:'crate' as const,depth:.7};
@@ -27,8 +29,14 @@ export function outdoorFittingBounds(id:string,x:number,y:number,width:number,ro
   const cx=x-cy*s,cz=y+cy*c,r=width*.335;
   return {left:cx-r,right:cx+r,top:cz-r,bottom:cz+r};
  }
+ if(!physical&&fitting.art==='windmill'){
+  const c=Math.cos(rotation),s=Math.sin(rotation),back=-width*1.03,front=width*.04;
+  const cx=x-(back+front)*s/2,cy=y+(back+front)*c/2;
+  const hx=Math.abs(c)*width*.96+Math.abs(s)*(front-back)/2,hy=Math.abs(s)*width*.96+Math.abs(c)*(front-back)/2;
+  return {left:cx-hx,right:cx+hx,top:cy-hy,bottom:cy+hy};
+ }
  const fence=capitalPropStyle(id)==='pasture-fence';
- const half=width*(physical?fence?.48:.46:.5);
+ const half=width*(physical?fitting.art==='goddess-shrine'?.49:fence?.48:.46:.5);
  const c=Math.cos(rotation),s=Math.sin(rotation),back=-width*fitting.depth*(physical&&fence?.7:1),front=physical?fence?-width*fitting.depth*.3:-width*.01:0;
  const cx=x-(back+front)/2*s,cy=y+(back+front)/2*c;
  const hx=Math.abs(c)*half+Math.abs(s)*(front-back)/2,hy=Math.abs(s)*half+Math.abs(c)*(front-back)/2;

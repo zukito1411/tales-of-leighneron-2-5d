@@ -389,3 +389,31 @@
 }
 
 .map-panel .regional-world-plane .regional-service:is(:hover,:focus-visible) {z-index:20;outline:2px solid currentColor;outline-offset:2px;}
+
+/* Shared minimap badges and actor/quest shapes; labels remain accessible. */
+.map-panel .regional-world-plane .regional-service {
+ min-width:18px;min-height:18px;padding:0;border:0;border-radius:50%;
+ background:transparent;box-shadow:none;
+}
+.map-panel .regional-world-plane canvas.regional-service-icon {
+ display:block !important;width:18px !important;height:18px !important;
+ min-width:18px;max-width:none !important;max-height:none !important;aspect-ratio:1;
+}
+.map-panel .regional-world-plane .regional-service small {
+ position:absolute;top:20px;left:50%;transform:translateX(-50%);
+ padding:1px 3px;background:#211b13df;border-radius:3px;
+}
+.map-panel .regional-world-plane .regional-poi {
+ width:5px;height:5px;padding:0;border:1px solid #211d17;border-radius:50%;background:#eee0b9;
+}
+.map-panel .regional-world-plane .regional-local-building {width:4px;height:4px;border-radius:0;}
+.map-panel .regional-world-plane .regional-local-npc {background:#9ad6ca;}
+.map-panel .regional-world-plane .regional-local-enemy,
+.map-panel .regional-world-plane .regional-local-boss {background:#df735f;}
+.map-panel .regional-world-plane .regional-local-boss {width:8px;height:8px;}
+.map-panel .regional-world-plane .regional-player,
+.map-panel .regional-world-plane .regional-quest {
+ width:12px;height:14px;padding:0;border:0;border-radius:0;
+ clip-path:polygon(50% 0,92% 86%,50% 64%,8% 86%);background:#fff7dc;
+}
+.map-panel .regional-world-plane .regional-quest {background:#ffdb79;}

@@ -32,6 +32,6 @@ export const LIVESTOCK_SITES:readonly LivestockSite[]=[
 /** Resolve only after content admission; no speculative livestock enclosure can
  * spawn animals if its fences/hay could not fit the final settlement survey. */
 export function outdoorLivestockSites():readonly LivestockSite[]{
- return [...LIVESTOCK_SITES,...SETTLEMENT_PASTURES.map(p=>({id:p.id,x:p.x,y:p.y,radius:165,
-  species:['cow','goat'] as const,population:3,bounds:pastureBounds(p)}))];
+ return [...LIVESTOCK_SITES,...SETTLEMENT_PASTURES.map(p=>({id:p.id,x:p.x,y:p.y,radius:Math.min(165,p.width/2-65,p.height/2-60),
+  species:['cow','goat'] as const,population:p.width<560?2:3,bounds:pastureBounds(p)}))];
 }

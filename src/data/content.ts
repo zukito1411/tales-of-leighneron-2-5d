@@ -1,3 +1,4 @@
+import {outdoorBenchScale} from './outdoorBench';
 import {addElarionLandscape} from './elarionLandscapeContent';
 import {CAPITAL_STAIR_CONTENT} from './settlementStairs';
 import {addSettlementStreetscape} from './settlementStreetscape';
@@ -309,6 +310,11 @@ for (const plot of FARM_PLOTS) {
 for(const definition of WORLD_CONTENT){
   if(!('frame' in definition))continue;
   const texture=definition.texture??'world_objects';if(texture==='royal_walls')continue;
+  const benchScale=outdoorBenchScale(definition.id,texture,definition.frame,definition.scale??.6);
+  if(benchScale<(definition.scale??.6)){
+    definition.scale=benchScale;
+    if('footprint' in definition)definition.footprint=propFoundation(texture,definition.frame,benchScale);
+  }
   const size=artFrameSize(texture,definition.frame),scale=Math.max(definition.scale??1,
     architectureMinimumScale(texture,definition.frame,size.width,size.height));
   if(scale<=(definition.scale??1))continue;
@@ -338,9 +344,10 @@ function fixedSettlementPlacement(d:ContentDefinition){
     ||isTreeArt(d.texture??'',d.frame)&&d.id.startsWith('detail:');
 }
 function layoutDetailContent(town:TownDefinition,detail:WardDetail):PropContentDefinition {
+  const scale=outdoorBenchScale(detail.id,detail.texture,detail.frame,detail.scale);
   return {id:`detail:${town.id}:${detail.id}`,kind:'prop',world:{x:town.world.x+detail.x,y:town.world.y+detail.y},
-    texture:detail.texture,frame:detail.frame,scale:detail.scale,solid:detail.solid,placement:detail.placement,
-    footprint:propFoundation(detail.texture,detail.frame,detail.scale),...(detail.label?{label:detail.label}:{})};
+    texture:detail.texture,frame:detail.frame,scale,solid:detail.solid,placement:detail.placement,
+    footprint:propFoundation(detail.texture,detail.frame,scale),...(detail.label?{label:detail.label}:{})};
 }
 const deferredCourtDetails=new Map<string,{detail:WardDetail;town:TownDefinition}>();
 const fittedDetailBounds:Rect[]=[];

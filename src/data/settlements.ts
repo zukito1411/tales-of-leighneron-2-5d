@@ -365,15 +365,14 @@ function prepareLayout(layout:SettlementLayout,requestedGrowth=BUILDING_PRESENTA
   if(town.id==='highmere')reserved.push(CAPITAL_SHRINE_COURT);
   const accessReservations:Rect[]=anchors.map(p=>({left:p.x-32,right:p.x+32,top:p.y-32,bottom:p.y+16}));
   const boardReserve=civicBoardReserve(town.id);if(boardReserve){reserved.push(boardReserve);accessReservations.push(boardReserve);}
-  const elvenShrine=shrine.townId==='elarion';
   if(town.id==='elarion'){
     const grove=ELARION_LIFE_TREE_CLEARING;
     reserved.push(grove);
     layout.parcels.push(parcel('life-tree-grove','Tree of Life lawn beside the Whitebough approach','grass',
       ELARION_LIFE_TREE_LOCAL.x,ELARION_LIFE_TREE_LOCAL.y,grove.right-grove.left,grove.bottom-grove.top));
   }
-  reserved.push(spriteBounds(elvenShrine?'elven_villas':'world_buildings',elvenShrine?4:3,
-    shrine.scale,shrine.world.x-town.world.x,shrine.world.y-town.world.y));
+  reserved.push({left:shrine.court.left-town.world.x,right:shrine.court.right-town.world.x,
+    top:shrine.court.top-town.world.y,bottom:shrine.court.bottom-town.world.y});
   for(const p of layout.parcels.filter(p=>p.terrain==='farmland' || p.terrain==='water')) reserved.push({left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2});
   // Reserve actual tower/gate bodies before placing houses, not only the
   // centerline of the curtain. Corner towers extend beyond the court boundary.

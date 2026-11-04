@@ -1,3 +1,4 @@
+import {outdoorBenchScale} from './outdoorBench';
 import {outdoorFittingBounds,outdoorDiningLayout} from './outdoorFurniture';
 import {artFrameSize} from './art';
 import {TOWN_BY_ID} from './towns';
@@ -56,7 +57,7 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
  };
  const add=(id:string,kind:string,p:Vec2,texture:WorldPropTexture,frame:number,width:number,rotation=0)=>{
   if(CAPITAL_DRESSING.added>=180)return false;
-  const scale=width/artFrameSize(texture,frame).width;
+  const scale=outdoorBenchScale('detail:highmere:streetlife:'+kind+':'+id,texture,frame,width/artFrameSize(texture,frame).width);
   const d:PropContentDefinition={id:'detail:highmere:streetlife:'+kind+':'+id,kind:'prop',world:world(p),texture,frame,scale,
     solid:kind!=='flowers',placement:'fixed',...(rotation?{rotation}:{})};
   if(!fits(d)){CAPITAL_DRESSING.omitted++;return false;}

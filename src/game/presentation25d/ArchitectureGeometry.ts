@@ -290,7 +290,12 @@ export function createAuthoredArchitecture(shape:HouseShape,emission=false){
     }
   }else if(/chapel|shrine/.test(id)){
     const eave=Y(elf?.61:.62);body(.24,.76,-D*.83,0,eave,false);gable(.22,.78,-D*.87,.025*W,eave,Y(elf?.15:.23));
-    window(X(.50),ground+.13*H,.035*W,W*.24,H*.38,1,0,true);
+    if(/chapel/.test(id)){
+      door();
+      // Clerestory glazing belongs above the entrance, not in its place.
+      const doorTop=ground+(architectureEntryDoor(shape)?.height??H*.30);
+      window(X(.50),doorTop+.045*H,.035*W,W*.13,Math.max(.045*H,eave-doorTop-.075*H),1,0,true);
+    }else window(X(.50),ground+.13*H,.035*W,W*.24,H*.38,1,0,true);
     for(const x of [.25,.75]){box(x-.042,x+.042,ground,eave,-D*.84,.065*W,stone);box(x-.054,x+.054,ground,ground+.085*H,-.06*W,.10*W,stone);}
 
     sideWindows(.24,.76,eave,0,-D*.83);

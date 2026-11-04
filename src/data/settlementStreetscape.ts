@@ -18,7 +18,7 @@ import {isTreeArt} from './treeArt';
 
 const pad=(r:Rect,n:number):Rect=>({left:r.left-n,right:r.right+n,top:r.top-n,bottom:r.bottom+n});
 const union=(a:Rect,b:Rect):Rect=>({left:Math.min(a.left,b.left),right:Math.max(a.right,b.right),top:Math.min(a.top,b.top),bottom:Math.max(a.bottom,b.bottom)});
-export interface StreetscapeSummary {townId:string;added:number;omitted:number}
+export interface StreetscapeSummary {townId:string;added:number;omitted:number;byKind:Record<string,number>}
 export const SETTLEMENT_STREETSCAPES:StreetscapeSummary[]=[];
 /** Fit small, purposeful compositions into the FINAL survey. Stable IDs and
  * admitted story/service objects never move. No work from this pass runs per frame. */
@@ -55,7 +55,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
  const people=new StaticBoundsIndex(reserved),chunkCounts=new Map<string,number>();
  for(const layout of layouts){
   const town=TOWN_BY_ID[layout.townId],origin=town.world;
-  const summary:StreetscapeSummary={townId:town.id,added:0,omitted:0};SETTLEMENT_STREETSCAPES.push(summary);
+  const summary:StreetscapeSummary={townId:town.id,added:0,omitted:0,byKind:{}};SETTLEMENT_STREETSCAPES.push(summary);
   const limit=town.id==='highmere'?240:town.kind==='capital'||town.kind==='stronghold'?90:54;
   const cold=town.regionId==='nardorous'||town.regionId==='frostlands',dry=town.regionId==='rindass',ash=town.regionId==='darkav';
   const local=(r:Rect):Rect=>({left:r.left-origin.x,right:r.right-origin.x,top:r.top-origin.y,bottom:r.bottom-origin.y});
@@ -82,6 +82,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    for(const d of group){const key=Math.floor(d.world.x/1536)+':'+Math.floor(d.world.y/1536);additions.set(key,(additions.get(key)??0)+1);}
    if([...additions].some(([key,count])=>(chunkCounts.get(key)??0)+count>16)||!group.every(fits)){summary.omitted+=group.length;return false;}
    for(const d of group){content.push(d);occupied.add({bounds:boundsOf(d)!});summary.added++;
+    const kind=d.id.split(':streetlife:')[1]?.split(':')[0]??'other';summary.byKind[kind]=(summary.byKind[kind]??0)+1;
     const key=Math.floor(d.world.x/1536)+':'+Math.floor(d.world.y/1536);chunkCounts.set(key,(chunkCounts.get(key)??0)+1);}
    return true;
   };
@@ -132,48 +133,67 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
   // Bounded survey of genuinely unused lower-ward land. Historic buildings,
   // protected squares and scheduled/quest actors have already reserved first.
   const bounds=settlementEnvelope(town);
-  for(let y=Math.max(350,bounds.top+400);y<bounds.bottom-380;y+=320)
-   for(let x=bounds.left+420;x<bounds.right-380;x+=400)candidates.push({x,y});
+  // Include the actual side yards; a single coarse grid misses narrow but
+  // usable pockets between aligned houses and the curved capital curtain.
+  for(const b of buildings)if(b.id.startsWith('town:'+town.id+':')){
+   const r=local(boundsOf(b)!),cy=(r.top+r.bottom)/2;
+   for(const side of [-1,1])for(const dy of [-160,0,160])
+    candidates.push({x:(side<0?r.left:r.right)+side*300,y:cy+dy});
+  }
+  for(let y=Math.max(350,bounds.top+300);y<bounds.bottom-240;y+=240)
+   for(let x=bounds.left+260;x<bounds.right-240;x+=240)candidates.push({x,y});
+  // Exact midpoints of parallel neighborhood roads catch usable bays that a
+  // regular grid can skip entirely (notably the capital's southern ward).
+  const rows=[...new Set(layout.streets.flatMap(st=>st.points.slice(1).flatMap((b,i)=>
+   Math.abs(b.y-st.points[i].y)<1&&Math.abs(b.x-st.points[i].x)>400&&b.y>=350&&b.y<bounds.bottom-160?[b.y]:[])))].sort((a,b)=>a-b);
+  for(let i=1;i<rows.length;i++)if(rows[i]-rows[i-1]>=380&&rows[i]-rows[i-1]<=1400){
+   const y=(rows[i]+rows[i-1])/2;
+   for(let x=bounds.left+260;x<bounds.right-240;x+=160)candidates.push({x,y});
+  }
   if(!ash){
    let pastures=0,mills=0;
-   for(const [candidate,p] of candidates.entries()){
-    if(pastures>=(town.id==='highmere'?3:town.kind==='village'?1:2))break;
-    const width=720,depth=560,wx=origin.x+p.x,wy=origin.y+p.y;
-    const court={left:wx-width/2-36,right:wx+width/2+36,top:wy-depth/2-36,bottom:wy+depth/2+170};
+   // Try the roomy enclosure first, then complete smaller enclosures. Never
+   // drop individual rails or squeeze an animal into an unadmitted yard.
+   pastureSearch:for(const [width,depth] of [[720,560],[560,420],[440,340],[380,300],[320,260]])for(const [candidate,p] of candidates.entries()){
+    if(pastures>=(town.id==='highmere'?3:town.kind==='village'?1:2))break pastureSearch;
+    const wx=origin.x+p.x,wy=origin.y+p.y;
+    const court={left:wx-width/2-32,right:wx+width/2+32,top:wy-depth/2-32,bottom:wy+depth/2+32};
     if(publicCourts.some(r=>overlaps(local(court),r,48))||!fitsCourt(court))continue;
     const approach=accessible(p,p.y+depth/2);if(!approach)continue;
     const id='pasture:'+candidate,rail=(tag:string,x:number,y:number,length:number,rotation=0)=>{
      const w=length/.96;
      return make(id+':'+tag,'pasture-fence',{x:x-Math.sin(rotation)*w*.03,y:y+Math.cos(rotation)*w*.03},'world_assets',3,w,true,rotation);
     };
-    const gap=190,wing=(width-gap)/2,top=p.y-depth/2,bottom=p.y+depth/2;
+    const gap=width>=560?190:160,wing=(width-gap)/2,top=p.y-depth/2,bottom=p.y+depth/2;
+    const hay=Math.min(104,width*.15),straw=Math.min(100,width*.18);
     const group=[rail('north',p.x,top,width),
      rail('west',p.x-width/2,p.y,depth,Math.PI/2),
      rail('east',p.x+width/2,p.y,depth,Math.PI/2),
      rail('south-west',p.x-(gap+wing)/2,bottom,wing),
      rail('south-east',p.x+(gap+wing)/2,bottom,wing),
-     make(id+':hay-west','hay-bales',{x:p.x-245,y:p.y-130},'native_civic_bare',9,104),
-     make(id+':hay-east','hay-bales',{x:p.x+235,y:p.y+170},'native_civic_bare',9,104),
-     make(id+':straw-west','pasture-straw',{x:p.x-195,y:p.y+135},'native_civic_bare',9,110,false),
-     make(id+':straw-east','pasture-straw',{x:p.x+100,y:p.y-115},'native_civic_bare',9,95,false),
-     make(id+':water','pasture-trough',{x:p.x+235,y:p.y-130},'native_civic_bare',8,72)];
+     make(id+':hay-west','hay-bales',{x:p.x-width*.29,y:p.y-depth*.16},'native_civic_bare',9,hay),
+     make(id+':hay-east','hay-bales',{x:p.x+width*.29,y:p.y+depth*.26},'native_civic_bare',9,hay),
+     make(id+':straw-west','pasture-straw',{x:p.x-width*.20,y:p.y+depth*.24},'native_civic_bare',9,straw,false),
+     make(id+':straw-east','pasture-straw',{x:p.x+width*.14,y:p.y-depth*.20},'native_civic_bare',9,straw,false),
+     make(id+':water','pasture-trough',{x:p.x+width*.30,y:p.y-depth*.20},'native_civic_bare',8,Math.min(72,width*.13))];
     if(!admit(group))continue;
     occupied.add({bounds:court});people.add({bounds:approach});pastures++;
     registerSettlementPasture({id:'pasture:'+town.id+':'+candidate,townId:town.id,x:wx,y:wy,width,height:depth,
      terrain:dry||cold?'dirt':'grass'});
    }
-   // A clear sail sweep belongs to the mill, even though only its tower has a
-   // physical body. Never put a mill into a courtyard that could not fit it.
-   if(!cold)for(const [candidate,p] of candidates.entries()){
-    if(mills>=(town.id==='highmere'?2:1))break;
+   // The tower and full sail span are reserved. The painted source's height
+   // is not extra land north of this upright structure.
+   if(!cold)millSearch:for(const width of [300,240])for(const [candidate,p] of candidates.entries()){
+    if(mills>=(town.id==='highmere'?2:1))break millSearch;
     const wx=origin.x+p.x,wy=origin.y+p.y;
-    const court={left:wx-355,right:wx+355,top:wy-395,bottom:wy+185};
+    const court=outdoorFittingBounds('detail:'+town.id+':streetlife:windmill:survey',wx,wy,width)!;
     if(publicCourts.some(r=>overlaps(local(court),r,48))||!fitsCourt(court))continue;
-    if(admit([make('mill:'+candidate,'windmill',p,'native_civic_bare',9,320)])){
+    if(admit([make('mill:'+candidate,'windmill',p,'native_civic_bare',9,width)])){
      occupied.add({bounds:court});mills++;
     }
    }
   }
+
   const greenery=(id:string,p:Vec2,formal=false)=>{
    if(cold)return admit([make(id,'winter-stone',p,'climate_props',3,68)]);
    if(dry)return admit([make(id,'sage-border',p,'desert_props',2,66,false)]);
@@ -195,7 +215,14 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
     admit(group);
     admit([make('lot:'+building.id,'barrels',{x:x-side*(Math.abs(r.right-x)+90),y:y+95},'native_civic_bare',8,62)]);
    }else if(!formal&&!/guard|watch|barrack|smith|guild|citadel|castle/.test(role)){
-    if(i%3===0)admit([make('lot:'+building.id,'laundry-line',front,'native_civic_bare',12,230)]);
+    if(i%3===0||!summary.byKind['laundry-line']){
+     // A 230-unit line needs its half-span outside the facade, plus clearance.
+     // Search the two side yards in order, without moving the house or street.
+     laundry:for(const side of [1,-1])for(const dy of [100,-80,230,-220]){
+      const p={x:side<0?r.left-175:r.right+175,y:y+dy};
+      if(admit([make('lot:'+building.id,'laundry-line',p,'native_civic_bare',12,230)]))break laundry;
+     }
+    }
     else if(i%3===1)admit([make('lot:'+building.id,'barrels',front,'native_civic_bare',8,62)]);
     else admit([make('lot:'+building.id,'household-crates',front,'native_civic_bare',9,72)]);
    }

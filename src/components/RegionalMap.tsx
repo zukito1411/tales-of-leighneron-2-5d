@@ -1,3 +1,4 @@
+import {MapServiceBadge} from './MapServiceBadge';
 import {memo,useEffect,useMemo,useRef} from 'react';
 import {useGameStore} from '../store/gameStore';
 import {TOWNS} from '../data/towns';
@@ -77,31 +78,33 @@ export function RegionalMap({select,center,zoom=1}:{
    }}>
     {tiles.map(tile=><RegionalTile key={tile.tx+':'+tile.ty} tx={tile.tx} ty={tile.ty} cache={cache}/>)}
     {homes.map(home=><span key={home.id} className="regional-service regional-home-pin"
-      aria-label={home.homeName} title={home.homeName} style={worldPosition(home.door.x,home.door.y)}>⌂</span>)}
+      aria-label={home.homeName} title={home.homeName} style={worldPosition(home.door.x,home.door.y)}><MapServiceBadge service="home"/></span>)}
     {TOWNS.map(town=><button key={town.id} type="button" className="regional-settlement"
       style={worldPosition(town.world.x,town.world.y)}
       aria-label={'Select '+town.name+' for teleport'} title={town.name}
       onClick={event=>select(town.id,event.currentTarget)}><i aria-hidden="true"/></button>)}
-    {markers.filter(marker=>!marker.service&&(marker.kind==='boss'||marker.kind==='landmark'))
-      .map(marker=><span key={marker.id} title={marker.label} className="regional-poi"
-        style={worldPosition(marker.x,marker.y)}>◇</span>)}
+    {markers.filter(marker=>!marker.service&&marker.kind!=='town'
+      &&Math.abs(marker.x-center.x)<=halfX&&Math.abs(marker.y-center.y)<=halfY)
+      .map(marker=><span key={marker.id} title={marker.label}
+        className={'regional-poi regional-local-'+marker.kind}
+        style={worldPosition(marker.x,marker.y)}/>)}
     {services.map(marker=>{
        if(!marker.service||marker.service==='home')return null;
        const style=MAP_SERVICE_STYLE[marker.service];
        return <span key={'service:'+marker.id} className="regional-service"
          tabIndex={0} title={style.name+': '+marker.label} aria-label={style.name+': '+marker.label}
          style={{...worldPosition(marker.x,marker.y),color:style.color}}>
-         <b aria-hidden="true">{style.symbol}</b><small>{marker.label}</small>
+         <MapServiceBadge service={marker.service}/><small>{marker.label}</small>
        </span>;
       })}
     {navigation.target&&(()=>{
       const destination=navigation.target.worldLocation??navigation.target;
       return <span className="regional-quest" title={navigation.target.label}
-        style={worldPosition(destination.x,destination.y)}>◆</span>;
+        style={{...worldPosition(destination.x,destination.y),transform:'translate(-50%,-50%) rotate('+Math.atan2(destination.x-x,-(destination.y-y))+'rad)'}}/>;
     })()}
     <span className="regional-player" style={{
       ...worldPosition(x,y),transform:'translate(-50%,-50%) rotate('+navigation.heading+'rad)',
-    }}>▲</span>
+    }}/>
    </div>
    <span className="regional-north" aria-label="North is up">N ↑</span>
  </div>;

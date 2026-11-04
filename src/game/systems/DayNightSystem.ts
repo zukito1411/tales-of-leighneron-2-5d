@@ -127,7 +127,13 @@ export class DayNightSystem {
     }
     const ownedEmissions:Phaser.GameObjects.Sprite[]=[];
     const volumeTree=key==='elarion_tree'&&this.scene.game.registry.get('presentation')==='three-2.5d';
-    if(this.scene.textures.exists(key+':emission')) {
+    if(spatial&&shape?.art==='goddess-shrine'){
+      const halo=this.scene.add.sprite(actor.x,actor.y,key,frame).setOrigin(actor.originX,actor.originY)
+        .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.006)
+        .setBlendMode(Phaser.BlendModes.ADD).setData('emissionOwner',actor).setData('emissionType','shrine-halo')
+        .setVisible(false).setName('shrine-halo:'+actor.name);
+      onPlane(halo,'upright',actor);this.emissions.add(halo);ownedEmissions.push(halo);
+    }else if(this.scene.textures.exists(key+':emission')) {
       if(!tree&&this.scene.textures.exists(key+':rune-glow')){
         const runeGlow=this.scene.add.sprite(actor.x,actor.y,key+':rune-glow',frame).setOrigin(actor.originX,actor.originY)
           .setScale(actor.scaleX,actor.scaleY).setRotation(actor.rotation).setDepth(actor.depth+.004)
@@ -199,7 +205,15 @@ export class DayNightSystem {
       // Lit windows belong to the structure's draw order. Painting their
       // pixels above every actor makes a foreground character merge into it.
       const type=emission.getData('emissionType');
-      if(type==='tree-runes'||type==='tree-rune-glow'){
+      if(type==='shrine-halo'){
+        const shape=(owner.getData(PRESENTATION_HINT) as PresentationHint|undefined)?.furniture;
+        const visible=owner.active&&owner.visible&&shape?.pose===1;
+        if(visible){
+          if(emission.x!==owner.x||emission.y!==owner.y)emission.setPosition(owner.x,owner.y);
+          if(emission.alpha!==.75)emission.setAlpha(.75);
+        }
+        if(emission.visible!==visible)emission.setVisible(visible);
+      }else if(type==='tree-runes'||type==='tree-rune-glow'){
         const pulse=(Math.sin(this.elapsed*.002+owner.x*.013+owner.y*.019)+1)/2;
         const runeGlow=type==='tree-rune-glow';
         const depth=runeGlow?1_000_002:1_000_003;

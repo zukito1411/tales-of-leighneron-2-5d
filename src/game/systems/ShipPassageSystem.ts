@@ -19,6 +19,7 @@ export class ShipPassageSystem {
   private disposed=false;
   constructor(private readonly scene:WorldScene,private readonly world:WorldGenerator,private readonly fleet:WorldTrafficSystem){}
   get active(){return this.voyage!==null;}
+  get usesPlayerCamera(){return this.voyage?.phase==='settling'||this.voyage?.phase==='revealing';}
   get safePosition(){return this.voyage?.landing??this.voyage?.from.landing;}
   begin(fromId:string,toId:string){
     const from=PORT_BY_ID[fromId],to=PORT_BY_ID[toId],store=useGameStore.getState();
