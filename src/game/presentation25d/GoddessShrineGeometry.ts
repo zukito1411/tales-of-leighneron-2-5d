@@ -38,7 +38,12 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  // only the emblem is mapped, never a flat picture of the entire statue.
  // This surveyed crop is opaque stone, including the carving. Keep it a
  // normal textured surface so the whole sculpture retains opaque batching.
- if(paint)m.quad([-.055,.15,z+.292],[.055,.15,z+.292],[-.055,.24,z+.292],[.055,.24,z+.292],paintedMaterial(paint.moon,.11,.09));
+ if(paint){
+  // A shallow closed mounting clears the curved plinth at the whole seal,
+  // instead of burying its lower half inside the cylinder's larger radius.
+  m.extrude([[-.061,.145],[.061,.145],[.065,.15],[.065,.24],[.061,.245],[-.061,.245],[-.065,.24],[-.065,.15]],z+.311,z+.287,stone);
+  m.quad([-.055,.15,z+.312],[.055,.15,z+.312],[-.055,.24,z+.312],[.055,.24,z+.312],paintedMaterial(paint.moon,.11,.09));
+ }
  // Carved votive panels encircle the pedestal, rather than a flat front decal.
  for(let i=0;i<8;i++){
   const a=i*Math.PI/4,x=Math.sin(a)*.303,zz=z+Math.cos(a)*.303;
