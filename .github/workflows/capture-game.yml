@@ -5,12 +5,14 @@ on:
     paths: ['.github/workflows/capture-game.yml','scripts/review-windmills-shrine.mjs','src/game/presentation25d/**','tests/windmillMotion.test.ts']
 permissions:
   contents: read
+concurrency:
+  group: windmill-review-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   game-review:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      BASELINE_ROOT: ${{ runner.temp }}/leighneron-windmill-baseline
       GAME_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
@@ -28,6 +30,7 @@ jobs:
           npm exec --no -- vitest run tests/windmillMotion.test.ts
       - name: Inspect the previous real game with identical camera and viewport
         run: |
+          BASELINE_ROOT="$RUNNER_TEMP/leighneron-windmill-baseline"
           git fetch --depth=1 origin fe28d9b7e557e51143225597cb1254333747b6b1
           git worktree add --detach "$BASELINE_ROOT" fe28d9b7e557e51143225597cb1254333747b6b1
           ln -s "$GITHUB_WORKSPACE/node_modules" "$BASELINE_ROOT/node_modules"
