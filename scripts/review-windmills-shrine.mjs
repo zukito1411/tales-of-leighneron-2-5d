@@ -18,7 +18,11 @@ try{
  await page.evaluate(async()=>{const {ThreePresentation}=await import('/src/game/presentation25d/ThreePresentation.ts');const original=ThreePresentation.prototype.draw;ThreePresentation.prototype.draw=function(...args){window.__windReview=this;return original.apply(this,args);};});
  await page.getByRole('button',{name:'Start New Game',exact:true}).click();
  await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:240000});
- const skip=page.getByRole('button',{name:/Skip scene/});if(await skip.isVisible())await skip.click();
+ // World readiness precedes the opening scene's first DOM commit. Await its
+ // actual skip control instead of racing an optional visibility snapshot.
+ const skip=page.getByRole('button',{name:/Skip scene/});await skip.waitFor({state:'visible',timeout:90000});
+ await page.evaluate(async()=>{const {useGameStore}=await import('/src/store/gameStore.ts');useGameStore.getState().hydrate({pendingCinematic:null,cinematicQueue:[]});});
+ await skip.click();
  await page.waitForFunction(()=>!window.__mernondnaGame.scene.getScene('world').cinematicDirector.active);
  await page.evaluate(async()=>{const {useGameStore}=await import('/src/store/gameStore.ts');useGameStore.setState({day:3,minuteOfDay:720});const s=window.__mernondnaGame.scene.getScene('world');s.dayNight.minuteOfDay=720;});
  console.log(label,'world ready');
