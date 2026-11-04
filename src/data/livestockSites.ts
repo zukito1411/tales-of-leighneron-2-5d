@@ -33,5 +33,18 @@ export const LIVESTOCK_SITES:readonly LivestockSite[]=[
  * spawn animals if its fences/hay could not fit the final settlement survey. */
 export function outdoorLivestockSites():readonly LivestockSite[]{
  return [...LIVESTOCK_SITES,...SETTLEMENT_PASTURES.map(p=>({id:p.id,x:p.x,y:p.y,radius:Math.min(165,p.width/2-65,p.height/2-60),
-  species:['cow','goat'] as const,population:p.width<560?2:3,bounds:pastureBounds(p)}))];
+  species:['cow','goat'] as const,population:p.width<380?2:p.width<560?4:6,bounds:pastureBounds(p)}))];
+}
+
+const MEADOW_HERD:readonly LivestockSpecies[]=['cow','cow','goat'];
+const WOODLAND_FLOCK:readonly LivestockSpecies[]=['chicken'];
+const HILL_HERD:readonly LivestockSpecies[]=['goat'];
+/** Feral/free-ranging groups use suitable dry land, never volcanic ground,
+ * beaches, snowfields or water. Exact feet and routes are checked by the host.
+ * No full-world spawn list or persistent animal simulation is created. */
+export function roamingLivestockSpecies(region:string,biome:string,terrain:string,variant:number):readonly LivestockSpecies[]|undefined {
+ if(region==='darkav'||region==='dead-sea'||!['grass','forest','dirt'].includes(terrain))return;
+ if(biome==='highland'||biome==='dryland')return HILL_HERD;
+ if(biome==='forest')return variant%3===0?HILL_HERD:WOODLAND_FLOCK;
+ if(biome==='meadow')return variant%3===0?WOODLAND_FLOCK:MEADOW_HERD;
 }

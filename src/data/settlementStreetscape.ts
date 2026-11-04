@@ -8,7 +8,7 @@ import {NPCS} from './npcs';
 import {npcExteriorAnchors,npcStandingReservation} from './npcPositions';
 import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {artFrameSize} from './art';
-import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,type Rect} from './settlementGeometry';
+import {spriteBounds,propPlacementBounds,overlaps,rectTouchesStreet,segmentTouchesRect,type Rect} from './settlementGeometry';
 import {worldSpriteProfile} from './worldSpriteGeometry';
 import {insideDefense} from './settlementDefenses';
 import {fortificationBlocksPoint} from './fortifications';
@@ -53,6 +53,9 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
  for(const d of buildings){const half=Math.max(120,artFrameSize(d.texture??'world_objects',d.frame).width*d.scale*.30);
   reserved.push({bounds:{left:d.world.x-half,right:d.world.x+half,top:d.world.y-12,bottom:d.world.y+240}});}
  const people=new StaticBoundsIndex(reserved),chunkCounts=new Map<string,number>();
+ // A complete farm court uses ten small props. The old sixteen-prop ceiling
+ // left no room for its neighboring working yard in the same streamed chunk.
+ const chunkLimit=24;
  for(const layout of layouts){
   const town=TOWN_BY_ID[layout.townId],origin=town.world;
   const summary:StreetscapeSummary={townId:town.id,added:0,omitted:0,byKind:{}};SETTLEMENT_STREETSCAPES.push(summary);
@@ -71,7 +74,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    if(occupied.any(pad(r,margin),o=>overlaps(r,o.bounds,margin))||people.any(pad(r,52),o=>overlaps(r,o.bounds,52)))return false;
    if(fortificationBlocksPoint(d.world.x,d.world.y,tree?64:34))return false;
    const chunk=Math.floor(d.world.x/1536)+':'+Math.floor(d.world.y/1536);
-   if((chunkCounts.get(chunk)??0)>=16)return false;
+   if((chunkCounts.get(chunk)??0)>=chunkLimit)return false;
    for(const x of [r.left,(r.left+r.right)/2,r.right])for(const y of [r.top,r.bottom])if(!walkable(x,y))return false;
    return true;
   };
@@ -80,7 +83,7 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    // Admission is atomic for a composition, including opposing dining chairs.
    const additions=new Map<string,number>();
    for(const d of group){const key=Math.floor(d.world.x/1536)+':'+Math.floor(d.world.y/1536);additions.set(key,(additions.get(key)??0)+1);}
-   if([...additions].some(([key,count])=>(chunkCounts.get(key)??0)+count>16)||!group.every(fits)){summary.omitted+=group.length;return false;}
+   if([...additions].some(([key,count])=>(chunkCounts.get(key)??0)+count>chunkLimit)||!group.every(fits)){summary.omitted+=group.length;return false;}
    for(const d of group){content.push(d);occupied.add({bounds:boundsOf(d)!});summary.added++;
     const kind=d.id.split(':streetlife:')[1]?.split(':')[0]??'other';summary.byKind[kind]=(summary.byKind[kind]??0)+1;
     const key=Math.floor(d.world.x/1536)+':'+Math.floor(d.world.y/1536);chunkCounts.set(key,(chunkCounts.get(key)??0)+1);}
@@ -104,21 +107,40 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
   };
   const publicCourts=layout.parcels.filter(p=>/noble|royal|temple|citadel|market|plaza|square|training|barrack|quay|shrine|life-tree|ancient-grove/.test(p.id))
    .map(p=>({left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
-  const accessible=(p:Vec2,bottom:number):Rect|undefined=>{
-   const from={x:origin.x+p.x,y:origin.y+bottom+45};let best:Rect|undefined,distance=950;
+  const accessible=(p:Vec2,width:number,depth:number):Rect[]|undefined=>{
+   const bottom=p.y+depth/2,from={x:origin.x+p.x,y:origin.y+bottom+60};
+   const enclosure={left:origin.x+p.x-width/2-12,right:origin.x+p.x+width/2+12,
+    top:origin.y+p.y-depth/2-12,bottom:origin.y+bottom+12};
+   let best:Rect[]|undefined,distance=1400;
    for(const street of layout.streets)for(let i=1;i<street.points.length;i++){
     const a=street.points[i-1],b=street.points[i],dx=b.x-a.x,dy=b.y-a.y,len=dx*dx+dy*dy;
-    const t=len?Math.max(0,Math.min(1,((p.x-a.x)*dx+(bottom+45-a.y)*dy)/len)):0;
-    const to={x:origin.x+a.x+dx*t,y:origin.y+a.y+dy*t},length=Math.hypot(to.x-from.x,to.y-from.y);
-    if(to.y<from.y-12||length>distance)continue;
-    const corridor={left:Math.min(from.x,to.x)-48,right:Math.max(from.x,to.x)+48,top:Math.min(from.y,to.y)-30,bottom:Math.max(from.y,to.y)+48};
-    if(occupied.any(corridor,o=>overlaps(corridor,o.bounds,12))||people.any(corridor,o=>overlaps(corridor,o.bounds,28)))continue;
-    let clear=true;const steps=Math.max(1,Math.ceil(length/48));
-    for(let n=0;n<=steps&&clear;n++)for(const side of [-42,0,42]){
-     const x=from.x+(to.x-from.x)*n/steps+side,y=from.y+(to.y-from.y)*n/steps;
-     if(!walkable(x,y)||fortificationBlocksPoint(x,y,42)){clear=false;break;}
+    const t=len?Math.max(0,Math.min(1,((p.x-a.x)*dx+(bottom+60-a.y)*dy)/len)):0;
+    const to={x:origin.x+a.x+dx*t,y:origin.y+a.y+dy*t};
+    if(Math.hypot(to.x-from.x,to.y-from.y)>distance)continue;
+    // A street beside/north of the pen is valid when a checked route wraps
+    // around its fence. The former south-only connector rejected such land.
+    const paths:Vec2[][]=[[from,to]];
+    for(const side of [-1,1]){
+     const x=origin.x+p.x+side*(width/2+100);
+     paths.push([from,{x,y:from.y},{x,y:to.y},to]);
     }
-    if(clear){distance=length;best=corridor;}
+    for(const points of paths){
+     const corridors:Rect[]=[];let clear=true,length=0;
+     for(let n=1;n<points.length&&clear;n++){
+      const a=points[n-1],b=points[n],run=Math.hypot(b.x-a.x,b.y-a.y);length+=run;
+      if(length>distance||segmentTouchesRect(a,b,enclosure)){clear=false;break;}
+      const corridor={left:Math.min(a.x,b.x)-48,right:Math.max(a.x,b.x)+48,
+       top:Math.min(a.y,b.y)-30,bottom:Math.max(a.y,b.y)+48};
+      if(occupied.any(corridor,o=>overlaps(corridor,o.bounds,12))||people.any(corridor,o=>overlaps(corridor,o.bounds,28))){clear=false;break;}
+      const steps=Math.max(1,Math.ceil(run/48));
+      for(let step=0;step<=steps&&clear;step++)for(const side of [-42,0,42]){
+       const x=a.x+(b.x-a.x)*step/steps+side,y=a.y+(b.y-a.y)*step/steps;
+       if(!walkable(x,y)||!insideDefense(town.id,x,y,-60)||fortificationBlocksPoint(x,y,42)){clear=false;break;}
+      }
+      corridors.push(corridor);
+     }
+     if(clear){distance=length;best=corridors;}
+    }
    }
    return best;
   };
@@ -140,8 +162,11 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    for(const side of [-1,1])for(const dy of [-160,0,160])
     candidates.push({x:(side<0?r.left:r.right)+side*300,y:cy+dy});
   }
-  for(let y=Math.max(350,bounds.top+300);y<bounds.bottom-240;y+=240)
-   for(let x=bounds.left+260;x<bounds.right-240;x+=240)candidates.push({x,y});
+  // North/east/west wards can contain legitimate unused land too. Sacred,
+  // royal, market and training courts still veto proposals through their full
+  // reservations; existing structures and NPC approaches never move.
+  for(let y=bounds.top+300;y<bounds.bottom-240;y+=320)
+   for(let x=bounds.left+260;x<bounds.right-240;x+=320)candidates.push({x,y});
   // Exact midpoints of parallel neighborhood roads catch usable bays that a
   // regular grid can skip entirely (notably the capital's southern ward).
   const rows=[...new Set(layout.streets.flatMap(st=>st.points.slice(1).flatMap((b,i)=>
@@ -155,11 +180,11 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    // Try the roomy enclosure first, then complete smaller enclosures. Never
    // drop individual rails or squeeze an animal into an unadmitted yard.
    pastureSearch:for(const [width,depth] of [[720,560],[560,420],[440,340],[380,300],[320,260]])for(const [candidate,p] of candidates.entries()){
-    if(pastures>=(town.id==='highmere'?3:town.kind==='village'?1:2))break pastureSearch;
+    if(pastures>=(town.id==='highmere'?5:town.kind==='village'?2:3))break pastureSearch;
     const wx=origin.x+p.x,wy=origin.y+p.y;
     const court={left:wx-width/2-32,right:wx+width/2+32,top:wy-depth/2-32,bottom:wy+depth/2+32};
     if(publicCourts.some(r=>overlaps(local(court),r,48))||!fitsCourt(court))continue;
-    const approach=accessible(p,p.y+depth/2);if(!approach)continue;
+    const approach=accessible(p,width,depth);if(!approach)continue;
     const id='pasture:'+candidate,rail=(tag:string,x:number,y:number,length:number,rotation=0)=>{
      const w=length/.96;
      return make(id+':'+tag,'pasture-fence',{x:x-Math.sin(rotation)*w*.03,y:y+Math.cos(rotation)*w*.03},'world_assets',3,w,true,rotation);
@@ -177,19 +202,28 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
      make(id+':straw-east','pasture-straw',{x:p.x+width*.14,y:p.y-depth*.20},'native_civic_bare',9,straw,false),
      make(id+':water','pasture-trough',{x:p.x+width*.30,y:p.y-depth*.20},'native_civic_bare',8,Math.min(72,width*.13))];
     if(!admit(group))continue;
-    occupied.add({bounds:court});people.add({bounds:approach});pastures++;
+    occupied.add({bounds:court});for(const bounds of approach)people.add({bounds});pastures++;
     registerSettlementPasture({id:'pasture:'+town.id+':'+candidate,townId:town.id,x:wx,y:wy,width,height:depth,
      terrain:dry||cold?'dirt':'grass'});
    }
    // The tower and full sail span are reserved. The painted source's height
    // is not extra land north of this upright structure.
    if(!cold)millSearch:for(const width of [300,240])for(const [candidate,p] of candidates.entries()){
-    if(mills>=(town.id==='highmere'?2:1))break millSearch;
+    if(mills>=(town.id==='highmere'?3:2))break millSearch;
     const wx=origin.x+p.x,wy=origin.y+p.y;
     const court=outdoorFittingBounds('detail:'+town.id+':streetlife:windmill:survey',wx,wy,width)!;
     if(publicCourts.some(r=>overlaps(local(court),r,48))||!fitsCourt(court))continue;
     if(admit([make('mill:'+candidate,'windmill',p,'native_civic_bare',9,width)])){
      occupied.add({bounds:court});mills++;
+     // Fit visible stock beside the mill, outside the complete sail envelope.
+     // Each small fitting may be omitted independently; a water tub failing
+     // admission must not discard every sack and bale in the working yard.
+     for(const side of [-1,1]){
+      const x=p.x+side*(width*.96+95),y=p.y-45;
+      admit([make('mill:'+candidate+':hay:'+side,'hay-bales',{x,y},'native_civic_bare',9,108)]);
+      admit([make('mill:'+candidate+':straw:'+side,'pasture-straw',{x:x+side*25,y:y+100},'native_civic_bare',9,92,false)]);
+     }
+     admit([make('mill:'+candidate+':barrel','barrels',{x:p.x+width*.96+90,y:p.y+160},'native_civic_bare',8,62)]);
     }
    }
   }
@@ -208,8 +242,15 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
    const front={x:side<0?r.left-100:r.right+100,y:y+140};
    const formal=/noble|villa|manor|temple|chapel|archive|royal|council/.test(role);
    if(/stable|barn|granary|fodder/.test(role)){
-    admit([make('lot:'+building.id,'hay-bales',front,'native_civic_bare',9,110)]);
-    admit([make('lot:'+building.id+':cart','wagon',{x:front.x,y:front.y+195},'native_story_bare',4,132)]);
+    let stock=0;
+    for(const yardSide of [side,-side])for(const dy of [110,-70,265]){
+     const p={x:yardSide<0?r.left-100:r.right+100,y:y+dy};
+     if(stock<2&&admit([make('lot:'+building.id+':hay:'+stock,'hay-bales',p,'native_civic_bare',9,110)])){
+      admit([make('lot:'+building.id+':straw:'+stock,'pasture-straw',{x:p.x+yardSide*20,y:p.y+100},'native_civic_bare',9,90,false)]);stock++;
+     }
+    }
+    admit([make('lot:'+building.id+':cart','wagon',{x:front.x,y:front.y+310},'native_story_bare',4,132)]);
+    admit([make('lot:'+building.id+':water','pasture-trough',{x:front.x,y:front.y+445},'native_civic_bare',8,65)]);
    }else if(/inn|tavern|bakery|restaurant/.test(role)){
     const group=outdoorDiningLayout(front.x,front.y).map((f,j)=>make('lot:'+building.id+':dining:'+j,f.art==='table'?'cafe-table':'cafe-chair',f,'native_civic_bare',f.art==='table'?9:7,f.width,true,f.rotation));
     admit(group);
@@ -261,6 +302,20 @@ export function addSettlementStreetscape(layouts:readonly SettlementLayout[],con
     greenery('green:'+parcel.id+':'+side+':'+n,p,parcel.terrain==='stone');
     if(n===1)admit([make('green:'+parcel.id+':'+side,'garden-fence',{x:p.x,y:p.y+130},cold?'climate_props':'world_assets',cold?4:3,130)]);
    }
+  }
+  // Finish genuinely vacant pockets with a few coherent sitting gardens.
+  // Reuse the already surveyed candidates; no second grid or runtime planner.
+  // Open lawns remain between groups, and every item keeps the same vetoes.
+  let gardens=0;
+  for(let i=0;i<candidates.length&&gardens<(town.id==='highmere'?10:5)&&summary.added<limit;i+=3){
+   const p=candidates[i],world={x:origin.x+p.x,y:origin.y+p.y};
+   if(publicCourts.some(r=>overlaps({left:p.x-150,right:p.x+150,top:p.y-180,bottom:p.y+80},r,40)))continue;
+   const reservedGarden={left:world.x-170,right:world.x+170,top:world.y-170,bottom:world.y+170};
+   if(people.any(reservedGarden,o=>overlaps(reservedGarden,o.bounds,20)))continue;
+   if(!admit([make('pocket:'+i,'bench',p,'native_civic_bare',7,108)]))continue;
+   greenery('pocket:'+i+':left',{x:p.x-110,y:p.y-20},!dry&&!ash&&!cold);
+   greenery('pocket:'+i+':right',{x:p.x+110,y:p.y-20},!dry&&!ash&&!cold);
+   people.add({bounds:reservedGarden});gardens++;
   }
  }
 }

@@ -2844,15 +2844,28 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private livestockRouteClear(from:Vec2,to:Vec2,radius:number){
     if(this.inInterior||this.storyCombatActive||this.cinematicDirector?.active||this.passage?.active)return false;
     const distance=Math.hypot(to.x-from.x,to.y-from.y),steps=Math.max(1,Math.ceil(distance/16));
-    if(distance>300||this.exteriorPlacement.blocksEnemyPath(from,to,radius))return false;
+    if(distance>300||this.exteriorPlacement.blocksEnemyPath(from,to,radius)
+      ||this.worldSprites.blocksPath(from,to,radius*2,radius*2))return false;
+    const dx=to.x-from.x,dy=to.y-from.y,length2=dx*dx+dy*dy;
+    const closeToSegment=(actor:Vec2,clearance:number)=>{
+      const t=length2?Math.max(0,Math.min(1,((actor.x-from.x)*dx+(actor.y-from.y)*dy)/length2)):0;
+      return (actor.x-from.x-dx*t)**2+(actor.y-from.y-dy*t)**2<clearance*clearance;
+    };
+    // Reuse the pedestrian grid and test each enemy once for the whole swept
+    // segment, rather than scanning both actor lists at every terrain sample.
+    this.prepareNpcCrowdIndex();
+    const margin=radius+128,size=192;
+    for(let cy=Math.floor((Math.min(from.y,to.y)-margin)/size);cy<=Math.floor((Math.max(from.y,to.y)+margin)/size);cy++)
+      for(let cx=Math.floor((Math.min(from.x,to.x)-margin)/size);cx<=Math.floor((Math.max(from.x,to.x)+margin)/size);cx++)
+        for(const npc of this.npcCrowdGrid.get(cx+':'+cy)??[])
+          if(npc.active&&closeToSegment(npc,radius+80))return false;
+    if(this.getCombatEnemies().some(e=>e.isAlive&&closeToSegment(e,radius+130)))return false;
     for(let i=0;i<=steps;i++){
       const x=from.x+(to.x-from.x)*i/steps,y=from.y+(to.y-from.y)*i/steps;
       if(this.exteriorPlacement.blocksEnemy({x,y},radius,true)||this.worldGenerator.isRoad(x,y,radius+28))return false;
       for(const dx of [-radius,0,radius])for(const dy of [-radius,0,radius]){
         if(!this.worldGenerator.isWalkable(x+dx,y+dy)||!['grass','forest','dirt','stone','sand','snow'].includes(this.worldGenerator.getTerrainAt(x+dx,y+dy)))return false;
       }
-      if(this.npcs.some(n=>n.active&&Math.hypot(n.x-x,n.y-y)<radius+80)
-        ||this.getCombatEnemies().some(e=>e.isAlive&&Math.hypot(e.x-x,e.y-y)<radius+130))return false;
     }
     return true;
   }

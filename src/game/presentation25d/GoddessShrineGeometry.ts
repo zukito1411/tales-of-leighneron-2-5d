@@ -6,10 +6,12 @@ import type {FurnitureShape} from './FurnitureGeometry';
  * their volume from behind and at eye level. Built once per attunement state. */
 export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false){
  const m=new ModelMesh(shape,emission),z=-shape.depth/2;
- const stone=atlasMaterial('architecture',8,.18,.22),ivory:ModelMaterial={color:pigment(0xd9d6be)};
- const fold:ModelMaterial={color:pigment(0xb3b4a4)},hair:ModelMaterial={color:pigment(0xb8b6a1)};
- const gold:ModelMaterial={color:pigment(0xbc9753)},cut:ModelMaterial={color:pigment(0x83897e)};
- const glow:ModelMaterial={color:pigment(0xffe9a2),emission:pigment(0xffd889)};
+ // One cool limestone sculpture, rather than separate skin, brown hair and
+ // yellow clothing. The surrounding architecture supplies the plinth texture.
+ const stone=atlasMaterial('architecture',8,.24,.28),ivory:ModelMaterial={color:pigment(0xd1d6d9)};
+ const fold:ModelMaterial={color:pigment(0xc3cacf)},hair:ModelMaterial={color:pigment(0xcbd1d5)};
+ const gold:ModelMaterial={color:pigment(0x9d9278)},cut:ModelMaterial={color:pigment(0xbac3c9)};
+ const glow:ModelMaterial={color:pigment(0xe8eef5),emission:pigment(0xd9e8f2)};
  const attuned=shape.pose===1;
  // Keep the emission model tiny: only the unlocked crown and inlaid seal.
  if(attuned){
@@ -39,10 +41,21 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
    const a=i/sides*Math.PI*2,k=1+(r.fold??0)*Math.cos(a*8);
    return [r.x+Math.sin(a)*r.rx*k,r.y,r.z+Math.cos(a)*r.rz*k];
   };
+  // Smooth only the continuous sculpted surfaces. The old per-face normals
+  // made cheeks, hair and sleeves read as sharp lumps in oblique lighting.
+  const normal=(row:number,i:number):V3=>{
+   const r=rings[row],a=point(r,i-.1),b=point(r,i+.1);
+   const lower=point(rings[Math.max(0,row-1)],i),upper=point(rings[Math.min(rings.length-1,row+1)],i);
+   const tx=b[0]-a[0],ty=b[1]-a[1],tz=b[2]-a[2],ux=upper[0]-lower[0],uy=upper[1]-lower[1],uz=upper[2]-lower[2];
+   let nx=ty*uz-tz*uy,ny=tz*ux-tx*uz,nz=tx*uy-ty*ux;
+   const p=point(r,i);if(nx*(p[0]-r.x)+nz*(p[2]-r.z)<0){nx=-nx;ny=-ny;nz=-nz;}
+   const length=Math.hypot(nx,ny,nz)||1;return [nx/length,ny/length,nz/length];
+  };
   for(let row=1;row<rings.length;row++)for(let i=0;i<sides;i++){
-   const a=rings[row-1],b=rings[row];
-   if(b.y>=a.y)m.quad(point(a,i),point(a,i+1),point(b,i),point(b,i+1),mat);
-   else m.quad(point(a,i+1),point(a,i),point(b,i+1),point(b,i),mat);
+   const a=rings[row-1],b=rings[row],left=b.y>=a.y?i:i+1,right=b.y>=a.y?i+1:i;
+   const aa=point(a,left),ab=point(a,right),ba=point(b,left),bb=point(b,right);
+   const na=normal(row-1,left),nb=normal(row-1,right),nc=normal(row,left),nd=normal(row,right);
+   m.triangle(aa,ab,ba,mat,undefined,[na,nb,nc]);m.triangle(ab,bb,ba,mat,undefined,[nb,nd,nc]);
   }
   for(const [r,top] of [[rings[0],rings[0].y>rings[rings.length-1].y],[rings[rings.length-1],rings[rings.length-1].y>=rings[0].y]] as const)for(let i=0;i<sides;i++){
    const center:V3=[r.x,r.y,r.z];
@@ -77,22 +90,35 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
    {x:-.012+Math.sin(a)*.166,y:.50,z:z+Math.cos(a)*.127,rx:.015,rz:.010},
    {x:Math.sin(a)*.208,y:.26,z:z+Math.cos(a)*.153,rx:.011,rz:.008}],i%2?ivory:fold,8);
  }
- oval(0,1.435,z,.073,.102,.065,ivory);
- // Hair frames the face and flows over the back of the shoulders.
- oval(0,1.468,z-.026,.081,.092,.068,hair);
- for(const side of [-1,1])for(let i=0;i<3;i++)loft([
-  {x:side*(.047+i*.01),y:1.49,z:z+.006-i*.026,rx:.017,rz:.015},
-  {x:side*(.075+i*.005),y:1.39,z:z-.013-i*.022,rx:.019,rz:.017},
-  {x:side*(.06+i*.012),y:1.285,z:z-.035-i*.02,rx:.014,rz:.012},
- ],hair,10);
- // A quiet carved face, with brow, nose, eyelids and lips in actual relief.
- oval(0,1.43,z+.045,.055,.072,.032,ivory);
- m.extrude([[-.011,1.451],[.008,1.451],[.013,1.410],[-.013,1.410]],z+.089,z+.067,ivory);
- for(const side of [-1,1]){
-  oval(side*.026,1.449,z+.073,.019,.008,.006,fold);
-  oval(side*.026,1.445,z+.077,.015,.003,.003,cut);
+ // A single continuous head profile replaces the overlapping head/face balls.
+ // The draped veil surrounds the sides and rear, leaving an open face.
+ loft([{x:0,y:1.335,z,rx:.031,rz:.035},{x:0,y:1.365,z:z+.006,rx:.047,rz:.049},
+  {x:0,y:1.405,z:z+.005,rx:.069,rz:.061},{x:0,y:1.45,z,rx:.079,rz:.066},
+  {x:0,y:1.495,z:z-.006,rx:.069,rz:.059},{x:0,y:1.53,z:z-.009,rx:.041,rz:.037},
+  {x:0,y:1.541,z:z-.009,rx:.002,rz:.002}],ivory,24);
+ const veil=[{y:1.29,rx:.112,rz:.084},{y:1.37,rx:.102,rz:.082},{y:1.47,rx:.091,rz:.078},
+  {y:1.535,rx:.064,rz:.058},{y:1.553,rx:.002,rz:.002}];
+ for(let row=1;row<veil.length;row++)for(let i=0;i<20;i++){
+  const point=(r:typeof veil[number],t:number):V3=>{
+   const a=.70+t*(Math.PI*2-1.40);return [Math.sin(a)*r.rx,r.y,z-.011+Math.cos(a)*r.rz];
+  };
+  const a=point(veil[row-1],i/20),b=point(veil[row-1],(i+1)/20),c=point(veil[row],i/20),d=point(veil[row],(i+1)/20);
+  const inset=(p:V3):V3=>[p[0]*.96,p[1]-.002,z-.011+(p[2]-z+.011)*.96];
+  const aa=inset(a),bb=inset(b),cc=inset(c),dd=inset(d);
+  m.quad(a,b,c,d,hair);m.quad(bb,aa,dd,cc,hair);
+  if(i===0)m.quad(aa,a,cc,c,hair);
+  if(i===19)m.quad(b,bb,d,dd,hair);
+  if(row===1)m.quad(b,a,bb,aa,hair);
+  if(row===veil.length-1)m.quad(c,d,cc,dd,hair);
  }
- oval(0,1.395,z+.075,.018,.004,.004,fold);
+ // Shallow closed eyelids and a small nose, carved in the same stone. No
+ // dark eyeballs, painted lips or protruding facial pieces resembling skin.
+ loft([{x:0,y:1.410,z:z+.061,rx:.010,rz:.007},{x:0,y:1.421,z:z+.064,rx:.012,rz:.011},
+  {x:0,y:1.452,z:z+.058,rx:.005,rz:.004}],ivory,12);
+ for(const side of [-1,1]){
+  m.beam([side*.015,1.445,z+.064],[side*.042,1.447,z+.057],.0018,cut,6);
+ }
+ m.beam([-.012,1.390,z+.055],[.012,1.390,z+.055],.0013,cut,6);
  // Sleeves and hands follow the harp-playing pose as solid tapered surfaces.
  for(const rings of [
   [{x:-.12,y:1.25,z,rx:.046,rz:.043},{x:-.18,y:1.12,z:z+.025,rx:.045,rz:.043},
@@ -102,9 +128,9 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  ] as const)loft(rings,ivory,14);
  oval(.035,1.04,z+.185,.039,.025,.025,ivory);
  oval(.265,1.055,z+.192,.035,.024,.023,ivory);
- for(let i=0;i<4;i++){
-  oval(.045+i*.010,1.022,z+.202,.006,.020-i*.002,.007,ivory);
-  oval(.25+i*.010,1.036,z+.209,.006,.018-i*.002,.007,ivory);
+ for(let i=0;i<3;i++){
+  m.beam([.025+i*.009,1.028,z+.208],[.030+i*.009,1.047,z+.208],.0015,fold,4);
+  m.beam([.250+i*.009,1.044,z+.215],[.254+i*.009,1.059,z+.213],.0015,fold,4);
  }
  // Swept angel wings: thick roots, overlapping tapered flight feathers and
  // smaller coverts on both faces. Their feet stay within the pedestal survey.
@@ -125,15 +151,15 @@ export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false)
  // Curved harp neck and pillar, a carved soundbox and ten separate strings.
  const harpZ=z+.16;
  loft([{x:.12,y:.55,z:harpZ,rx:.045,rz:.045},{x:.07,y:.69,z:harpZ,rx:.041,rz:.036},
-  {x:.025,y:.86,z:harpZ,rx:.030,rz:.027},{x:.005,y:1.12,z:harpZ,rx:.018,rz:.020}],gold,12);
+  {x:.025,y:.86,z:harpZ,rx:.030,rz:.027},{x:.005,y:1.12,z:harpZ,rx:.018,rz:.020}],ivory,12);
  loft([{x:.12,y:.55,z:harpZ,rx:.025,rz:.025},{x:.34,y:.63,z:harpZ,rx:.023,rz:.023},
   {x:.36,y:1.21,z:harpZ,rx:.019,rz:.020},{x:.30,y:1.28,z:harpZ,rx:.023,rz:.022},
-  {x:.15,y:1.22,z:harpZ,rx:.020,rz:.020},{x:.005,y:1.12,z:harpZ,rx:.022,rz:.022}],gold,12);
+  {x:.15,y:1.22,z:harpZ,rx:.020,rz:.020},{x:.005,y:1.12,z:harpZ,rx:.022,rz:.022}],ivory,12);
  for(let i=0;i<10;i++){
   const t=(i+1)/11,x=.025+.30*t;
   m.beam([x,.61+.30*(1-t),harpZ+.009],[x,1.14+.12*Math.sin(t*Math.PI),harpZ+.009],.002,ivory,4);
  }
  // Resting circlet remains stone until attunement adds the luminous halo.
- m.ring(0,z,1.501,1.518,.071,.061,gold,20);
+ m.ring(0,z,1.503,1.516,.077,.069,ivory,20);
  return m.finish();
 }
