@@ -95,7 +95,7 @@ export class ForegroundOcclusion {
   }
 
   private *prepareSteps(geometry:BufferGeometry):Generator<void,TriangleBlocks,void> {
-    const positions=geometry.getAttribute('position'),surface=geometry.getAttribute('surfaceRect');
+    const positions=geometry.getAttribute('position'),surface=geometry.getAttribute('surfaceRect'),motion=geometry.getAttribute('cutoutPivot');
     const index=geometry.index,count=Math.floor((index?.count??positions.count)/3);
     const triangles=new Uint32Array(count);let used=0;
     for(let triangle=0;triangle<count;triangle++){
@@ -105,6 +105,9 @@ export class ForegroundOcclusion {
       // walls. The opaque modeled surfaces behind them decide visibility.
       if(surface){const w=surface.getW(vertex),z=surface.getZ(vertex);
         if(w===0&&z===0||w< -18.5&&w> -19.5)continue;}
+      // A rotating sail is not a stationary wall. The opaque tower still
+      // controls cutaway, without rebuilding ray blocks as its fan turns.
+      if(motion&&motion.getW(vertex)<0)continue;
       triangles[used++]=triangle*3;
     }
     const bounds=new Float64Array(Math.ceil(used/BLOCK_SIZE)*6);

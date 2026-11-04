@@ -51,6 +51,12 @@ export class ModelMesh {
     return [Math.max(.005,(mat[2]-mat[0])*this.unit),Math.max(.005,(mat[3]-mat[1])*this.region.height/this.region.width*this.unit)];
   }
   constructor(private readonly region:Region,private readonly emission=false,private readonly unit=1){}
+  /** Negative W marks a rigid XY rotor; positive W remains painted fire.
+   * Reuses the existing four-float attribute without another vertex buffer. */
+  rotor(pivot:V3,build:()=>void){
+    const previous=this.cutoutPivot;this.cutoutPivot=[...pivot,-1];
+    try{build();}finally{this.cutoutPivot=previous;}
+  }
   triangle(a:V3,b:V3,c:V3,mat:ModelMaterial,uv?:readonly (readonly [number,number])[],smooth?:readonly V3[],artUV?:readonly (readonly [number,number])[]){
     if(this.emission&&this.cutoutPivot[3]<=0&&(!('emission' in mat)||!mat.emission))return;
     const r=this.region;

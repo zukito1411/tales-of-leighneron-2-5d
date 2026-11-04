@@ -1,29 +1,44 @@
-name: Capture updated game
+name: Windmill and shrine real-game review
 on:
   push:
-    branches: ['capture/**']
-    paths: ['.github/workflows/capture-game.yml','scripts/capture-updated-game.mjs']
+    branches: ['capture/windmills-*']
+    paths: ['.github/workflows/capture-game.yml','scripts/review-windmills-shrine.mjs','src/game/presentation25d/**','tests/windmillMotion.test.ts']
 permissions:
   contents: read
 jobs:
-  screenshots:
+  game-review:
     runs-on: ubuntu-latest
     timeout-minutes: 18
     env:
-      GAME_COMMIT: 99e861d0f32d3988603077d754d407f278425de8
+      BASELINE_ROOT: ${{ runner.temp }}/leighneron-windmill-baseline
+      GAME_COMMIT: ${{ github.sha }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: npm
       - run: npm ci
-      - name: Capture real game in a mobile browser viewport
-        run: node scripts/capture-updated-game.mjs
-      - uses: actions/upload-artifact@v4
+      - name: Compiler and targeted motion checks
+        run: |
+          npm run test:types
+          npm exec --no -- tsc -p tsconfig.node.json --noEmit
+          npm exec --no -- vitest run tests/windmillMotion.test.ts
+      - name: Inspect the previous real game with identical camera and viewport
+        run: |
+          git fetch --depth=1 origin fe28d9b7e557e51143225597cb1254333747b6b1
+          git worktree add --detach "$BASELINE_ROOT" fe28d9b7e557e51143225597cb1254333747b6b1
+          ln -s "$GITHUB_WORKSPACE/node_modules" "$BASELINE_ROOT/node_modules"
+          GAME_COMMIT=fe28d9b7e557e51143225597cb1254333747b6b1 REVIEW_LABEL=baseline REVIEW_ROOT="$BASELINE_ROOT" node scripts/review-windmills-shrine.mjs
+      - name: Run the updated game, capture materials and compare weather rotation
+        run: REVIEW_LABEL=updated node scripts/review-windmills-shrine.mjs
+      - name: Keep screenshots and runtime measurements
         if: always()
+        uses: actions/upload-artifact@v4
         with:
-          name: Leighneron-painted-material-game-screenshots
-          path: game-captures/
-          retention-days: 3
+          name: Windmill-and-shrine-game-review
+          path: test-results/windmill-review/
+          retention-days: 7
           if-no-files-found: warn

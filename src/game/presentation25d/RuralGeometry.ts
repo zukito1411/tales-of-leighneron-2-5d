@@ -1,5 +1,6 @@
 import {ModelMesh,atlasMaterial,regionalWood,metal,pigment,type ModelMaterial} from './ModelMesh';
 import type {FurnitureShape} from './FurnitureGeometry';
+import {WINDMILL_HUB_FRACTION} from './WindmillMotion';
 
 /** Cached meshes reuse the painted structural materials and existing batches.
  * No particle systems, lights, per-frame CPU animation or new texture loads. */
@@ -20,8 +21,9 @@ export function createRuralFitting(m:ModelMesh,shape:FurnitureShape,emission:boo
   m.box(-.10,.10,H*.24,H*.26,z+.28,z+.30,wood);
   m.box(.045,.063,H*.10,H*.12,z+.30,z+.31,metal);
   for(const x of [-.14,.14])m.box(x-.035,x+.035,H*.44,H*.51,z+.22,z+.25,dark);
-  const hub=H*.71,front=z+.36;
+  const hub=H*WINDMILL_HUB_FRACTION,front=z+.36;
   m.beam([0,hub,z+.16],[0,hub,front+.03],.043,metal,12);
+  m.rotor([0,hub,front],()=>{
   for(let blade=0;blade<4;blade++){
    const a=Math.PI/4+blade*Math.PI/2,c=Math.cos(a),s=Math.sin(a);
    const p=(u:number,v:number,depth=front):readonly [number,number,number]=>[u*c-v*s,hub+u*s+v*c,depth];
@@ -32,6 +34,7 @@ export function createRuralFitting(m:ModelMesh,shape:FurnitureShape,emission:boo
    m.quad(p(.83,.025,front-.007),p(.25,.025,front-.007),p(.83,.15,front-.007),p(.25,.15,front-.007),linen);
   }
   m.beam([0,hub,front-.02],[0,hub,front+.06],.065,wood,12);
+  });
  }else{
   const rock=atlasMaterial('nature',8,.45,.5),moss=atlasMaterial('nature',12,.35,.4);
   const stream:ModelMaterial={color:pigment(0x7faeb8),pattern:9};

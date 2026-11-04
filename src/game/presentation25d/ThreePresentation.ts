@@ -1,4 +1,5 @@
 import {GpuVolcano} from './GpuVolcano';
+import {WindmillMotion} from './WindmillMotion';
 import {CINDERPEAK,type VolcanoPulse} from '../../data/cinderpeak';
 import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
 import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
@@ -147,7 +148,9 @@ export class ThreePresentation {
   private readonly gpuNight:GpuNightMask;
   private readonly gpuWater:GpuWater;
   private readonly volcano:GpuVolcano;
-  private readonly atmosphere={billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},tradeAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
+  private readonly windmillMotion=new WindmillMotion();
+  private windmillFrame=-1;
+  private readonly atmosphere={windmillAngle:{value:0},billboardPitch:{value:new Vector2(1,0)},architectureAtlas:{value:null as Texture|null},furnishingsAtlas:{value:null as Texture|null},buildingDetailsAtlas:{value:null as Texture|null},natureAtlas:{value:null as Texture|null},tradeAtlas:{value:null as Texture|null},visualTime:{value:0},fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},
     structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color()},structureKey:{value:new Color()}};
   private readonly overlayAtmosphere={worldDepth:{value:null as Texture|null},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},
     fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()}};
@@ -342,6 +345,11 @@ export class ThreePresentation {
       return;
     }
     const state=useGameStore.getState(),minute=(presentation.presentationLighting?.getHour()??state.minuteOfDay/60)*60,night=nightStrength(minute),weather=presentation.presentationWeather;
+    if(this.windmillFrame!==this.game.loop.frame){
+      this.windmillFrame=this.game.loop.frame;
+      if(!this.interior&&!document.hidden)this.atmosphere.windmillAngle.value=this.windmillMotion.update(
+        this.game.loop.delta,weather?.windStrength??.18,weather?.presentation.kind==='storm'?weather.presentation.strength:0);
+    }
     this.firstPersonWeapon.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled!==true,width,height,this.game.loop.delta,this.orbit.yaw,this.orbit.pitch,night);
     if(presentation.presentationFocus&&!this.interior)this.sky.update(this.orbit.camera,minute,night,weather?.presentation);
     const light=this.atmosphere,cover=this.interior?0:weather?.cloudCover??0;

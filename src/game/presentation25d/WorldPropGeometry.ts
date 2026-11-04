@@ -1,4 +1,5 @@
 import {TELEPORT_SHRINE} from '../../data/townShrines';
+import {WINDMILL_HUB_FRACTION} from './WindmillMotion';
 import {elarionCascade} from '../../data/elarionHighlands';
 import {worldHeight} from './plane';
 import {streetStair} from '../../data/settlementStairs';
@@ -92,15 +93,15 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   if(fitting){
     shape.depth=fitting.depth;shape.modelScale=fittingWidth/(Math.abs(actor.displayWidth)*width);
     shape.footX=shape.footY=shape.heading=shape.paintOffset=0;
-    shape.bounds={left:style==='windmill'?-.95:-.52,right:style==='windmill'?.95:.52,bottom:0,top:style==='windmill'?Math.max(rise*1.25,rise*.71+.94):rise*1.25,
+    shape.bounds={left:style==='windmill'?-.95:-.52,right:style==='windmill'?.95:.52,bottom:0,top:style==='windmill'?Math.max(rise*1.25,rise*WINDMILL_HUB_FRACTION+.94):rise*1.25,
       back:-fitting.depth-.03,front:style==='windmill'?.12:.03};
     if(art==='goddess-shrine'){
       // Measured opaque paint from the original moon-stone sprite, frame 11
       // (260 x 278 source pixels). Remap through the loader's retained crop;
       // never sample adjacent atlas frames or replace the paint with flat RGB.
       const crop=(l:number,t:number,r:number,b:number):Patch=>remap([l/260,t/278,r/260,b/278]);
-      shape.shrinePaint={body:crop(76,110,88,122),light:crop(115,56,127,68),
-        shade:crop(182,109,196,125),gold:crop(57,181,65,191),moon:crop(75,78,174,174)};
+      shape.shrinePaint={body:crop(112,176,161,215),light:crop(104,40,158,62),
+        shade:crop(181,111,196,150),gold:crop(57,181,65,191),moon:crop(75,78,174,174)};
       shape.pose=0;shape.key='goddess-shrine-v1:0';
     }
     if(style==='hay-bales')shape.interiorUse='stable-hay';

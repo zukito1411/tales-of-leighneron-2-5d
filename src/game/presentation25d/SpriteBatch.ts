@@ -10,6 +10,7 @@ import type Phaser from 'phaser';
 export interface DistanceAtmosphere {
   fogFocus:{value:import('three').Vector2};fogColor:{value:import('three').Color};fogRange:{value:import('three').Vector2};
   visualTime?:{value:number};
+  windmillAngle?:{value:number};
   billboardPitch?:{value:Vector2};
   architectureAtlas?:{value:Texture|null};furnishingsAtlas?:{value:Texture|null};buildingDetailsAtlas?:{value:Texture|null};
   natureAtlas?:{value:Texture|null};tradeAtlas?:{value:Texture|null};
@@ -67,6 +68,7 @@ varying float energyOpacity;
 attribute vec4 surfaceRect;
 attribute vec4 cutoutPivot;
 uniform float visualTime;
+uniform float windmillAngle;
 varying float paintedFire;
 attribute vec2 surfaceUV;
 varying vec4 materialRect;
@@ -92,6 +94,15 @@ void main(){
   repeatUV=uv*tileRepeat.xy+tileRepeat.zw;frameRect=atlasRect;
   tint=mix(mix(instanceTintBL,instanceTintBR,uv.x),mix(instanceTint,instanceTintTR,uv.x),uv.y);
   vec3 presentedPosition=position;
+  vec3 presentedNormal=normal;
+#ifdef STRUCTURE_SURFACES
+  if(cutoutPivot.w<-.5){
+    float c=cos(windmillAngle),s=sin(windmillAngle);
+    mat2 turn=mat2(c,s,-s,c);
+    presentedPosition.xy=cutoutPivot.xy+turn*(position.xy-cutoutPivot.xy);
+    presentedNormal.xy=turn*normal.xy;
+  }
+#endif
 ${waveVertexMotion}
   vec4 world=instanceMatrix*vec4(presentedPosition,1.0);
   if(billboard){
@@ -117,7 +128,7 @@ ${waveVertexMotion}
 #endif
   ){
     mat3 basis=mat3(instanceMatrix);
-    vec3 n=normalize(basis*(normal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
+    vec3 n=normalize(basis*(presentedNormal/vec3(dot(basis[0],basis[0]),dot(basis[1],basis[1]),dot(basis[2],basis[2]))));
     // Hemisphere fill and the shared sun/moon key reveal every elevation.
     // Vertex lighting keeps the painted materials and fragment cost intact.
     tint.rgb*=min(vec3(1.05),structureFill*(.90+.10*max(n.y,0.0))+structureKey*max(0.0,dot(n,structureLightDirection)));
@@ -382,7 +393,7 @@ export class SpriteBatch {
     // WebGLUniforms.upload honors needsUpdate even though IUniform omits it.
     // With clipCount=0 the shader never reads this 16-vector array.
     const clipRectsUniform={value:Array.from({length:16},(_,i)=>clips[i]??new Vector4()),needsUpdate:clips.length>0};
-    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},tradeAtlas:atmosphere?.tradeAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},shadowProjection:atmosphere?.shadowProjection??{value:new Vector2()},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
+    this.material=new ShaderMaterial({defines:combatGeometry?{COMBAT_SURFACES:1}:geometryFactory?{STRUCTURE_SURFACES:1}:{},uniforms:{worldDepth:{value:texture},depthClipRange:{value:new Vector2(2,4000)},depthTexel:{value:new Vector2(1,1)},occludedOverlay:{value:occludedOverlay},presentationViewport:presentationUniforms?.viewport??{value:new Vector2(1,1)},architectureAtlas:atmosphere?.architectureAtlas??{value:texture},furnishingsAtlas:atmosphere?.furnishingsAtlas??{value:texture},buildingDetailsAtlas:atmosphere?.buildingDetailsAtlas??{value:texture},natureAtlas:atmosphere?.natureAtlas??{value:texture},tradeAtlas:atmosphere?.tradeAtlas??{value:texture},visualTime:atmosphere?.visualTime??{value:0},windmillAngle:atmosphere?.windmillAngle??{value:0},billboard:{value:billboard},billboardRight:billboardRight??{value:new Vector2(1,0)},billboardPitch:atmosphere?.billboardPitch??{value:new Vector2(1,0)},...elevation?.uniforms,fogFocus:{value:new Vector2()},fogColor:{value:new Color()},fogRange:{value:new Vector2()},structureLightDirection:{value:new Vector3(-.4,.85,.3).normalize()},structureFill:{value:new Color().setRGB(.74,.76,.80)},structureKey:{value:new Color().setRGB(.26,.24,.20)},...atmosphere,atlas:{value:texture},fillTint:{value:fillTint},tiled:{value:tiled},shadow:{value:shadow},shadowProjection:atmosphere?.shadowProjection??{value:new Vector2()},telegraph:{value:telegraph},architecture:{value:Boolean(geometryFactory)&&!shadow},structureShading:{value:!additive},fadeOnly:{value:additive||ground&&!opaque},atlasTexel:{value:new Vector2(1/Math.max(1,image?.width??1),1/Math.max(1,image?.height??1))},groundSurface:{value:ground},clipCount:{value:clips.length},
       clipRects:clipRectsUniform},vertexShader,fragmentShader,
       transparent:!opaque,depthTest:!overlay,depthWrite,side:DoubleSide,forceSinglePass:true,
       polygonOffset:ground&&!opaque,polygonOffsetFactor:-1,polygonOffsetUnits:-2,
