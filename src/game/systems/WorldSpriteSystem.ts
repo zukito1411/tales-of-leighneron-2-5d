@@ -88,7 +88,7 @@ export class WorldSpriteSystem {
     if(this.scene.game.registry.get('presentation')==='three-2.5d'&&!(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
     if(furniture?.stairHeights)this.entranceSurfaces.registerStair(actor,furniture,worldHeight(this.scene,actor.x,actor.y),!staged);
-    if(!profile?.floor&&texture!=='port_dock'&&!(texture==='darkav_volcano'&&this.scene.game.registry.get('presentation')==='three-2.5d')){
+    if(furniture?.art!=='waterfall'&&!profile?.floor&&texture!=='port_dock'&&!(texture==='darkav_volcano'&&this.scene.game.registry.get('presentation')==='three-2.5d')){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
         ||texture==='world_objects'&&frame<4;
       const tree=isTreeArt(texture,frame),groundY=profile?.sortY??.96;

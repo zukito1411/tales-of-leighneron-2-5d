@@ -1,0 +1,35 @@
+/* The original layout stays intact until a player saves a custom one. */
+.mobile-controls.touch-custom {
+ inset:max(8px,env(safe-area-inset-top)) max(8px,env(safe-area-inset-right)) max(8px,env(safe-area-inset-bottom)) max(8px,env(safe-area-inset-left));padding:0;
+}
+.mobile-controls.touch-custom .touch-actions,.mobile-controls.touch-custom .touch-potions {display:contents;transform:none;}
+.mobile-controls.touch-custom [data-touch-control] {
+ position:absolute;right:auto;bottom:auto;box-sizing:border-box;width:var(--touch-size);height:var(--touch-size);
+ min-width:0;min-height:0;margin:0;transform:translate(-50%,-50%);transform-origin:center;
+}
+.mobile-controls.touch-custom button[data-touch-control]:active {transform:translate(-50%,-50%) scale(.93);}
+.mobile-controls.touch-custom .joystick-knob {width:40%;height:40%;max-width:88px;max-height:88px;transform:translate(calc(-50% + var(--stick-x,0px)),calc(-50% + var(--stick-y,0px)));}
+.mobile-controls.touch-custom .touch-button .touch-glyph {width:48%;height:48%;font-size:clamp(16px,calc(var(--touch-size) * .35),40px);}
+.mobile-controls.touch-custom .touch-button .touch-skill-glyph {width:70%;height:70%;}
+.mobile-controls.touch-custom .touch-potion .item-icon {width:72%;height:72%;}
+.mobile-controls.touch-custom .touch-button small {font-size:clamp(7px,calc(var(--touch-size) * .12),12px);}
+.touch-layout-editor.overlay-backdrop {position:fixed;inset:0;z-index:10000;display:block;padding:0;background:rgba(8,16,14,.48);touch-action:none;}
+.touch-layout-editor .mobile-controls.touch-editing {display:block!important;pointer-events:auto;}
+.touch-layout-editor .touch-editing [data-touch-control] {cursor:grab;transition:none;}
+.touch-layout-editor .touch-editing [data-touch-control]:active {cursor:grabbing;transform:translate(-50%,-50%);}
+.touch-layout-editor .touch-editing [data-touch-control]:focus {outline:2px solid #ffe79d;}
+.touch-layout-tools {position:absolute;z-index:2;left:max(8px,env(safe-area-inset-left));top:max(8px,env(safe-area-inset-top));
+ box-sizing:border-box;width:min(410px,calc(100% - 16px - env(safe-area-inset-right)));max-height:55dvh;overflow:auto;overscroll-behavior:contain;
+ padding:10px;border:1px solid #bfa06a;border-radius:8px;background:#211d16f5;color:#f4e5c5;box-shadow:0 4px 16px #0008;touch-action:pan-y;
+}
+.touch-layout-tools header {display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.touch-layout-tools header div {display:flex;gap:6px;}
+.touch-layout-tools button,.touch-layout-tools select {min-height:40px;box-sizing:border-box;padding:6px 9px;border:1px solid #ae905e;border-radius:5px;background:#423421;color:#fff0cd;font:inherit;}
+.touch-layout-tools header strong {font-size:13px;}
+.touch-layout-tools p {margin:7px 0;font-size:12px;line-height:1.35;}
+.touch-layout-tools label {display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;}
+.touch-layout-tools select {max-width:70%;}
+.touch-layout-tools .touch-layout-collapse {display:block;width:100%;margin:6px 0;font-size:12px;}
+.touch-layout-sliders {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:9px 0;}
+.touch-layout-sliders label {display:block;min-width:0;}
+.touch-layout-sliders input {display:block;width:100%;min-height:30px;margin:3px 0 0;accent-color:#dfbd72;}

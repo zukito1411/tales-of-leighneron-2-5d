@@ -1,5 +1,33 @@
 # Camera mode and dodge presentation repair
 
+## Quest camera ownership and return
+
+OrbitCamera now distinguishes the selected gameplay mode from an explicit
+temporary camera owner. Cinematics hold the prior view while concealing,
+use their authored shot camera only under cover, and restore the captured
+gameplay yaw, pitch, zoom, smoothing targets and saved TPP pitch before the
+return fade. Illustrated shots retain the preceding view. Travel/rest arrival
+owners use the same bounded handoff, with no camera settings written by the
+temporary override. A missing presentation player no longer rewrites the
+gameplay-mode transition state; a finite last eye height covers held views.
+
+Cinematic completion and skipping share the same return path. Native zoom is
+restored exactly, rather than retaining a room's temporary shot-zoom clamp.
+Two ready frames and the existing presentation readiness fence precede the
+return reveal, so a restored perspective can submit a valid frame under cover.
+Dialogue and scripted shots retain intentional input restrictions. Pending
+quest scenes still use the existing queue; no quest flags or queued scenes
+are discarded to unlock the camera.
+
+Control-owner and enabled-state changes clear Alt keys, cursor-resume intent,
+held attacks, touch captures and pinch distance. Epoch checks reject stale
+asynchronous pointer-lock completions. Wheel, pointer and mouse events reconcile
+missed Alt releases against their actual modifier state, and wheel/pinch handlers
+also consult the current gameplay-control gate before changing zoom.
+
+These are source-level repairs. No quest was replayed, no browser/Playwright or
+game was launched, and no FPS or device-runtime claim follows from compilation.
+
 Reported: a sky-only third-person view while first person renders, and a flash
 at the start of a first-person dodge. The screenshot retains the HUD/minimap.
 

@@ -1,3 +1,5 @@
+import {RegionalTreeArt} from './RegionalTreeArt';
+import {artFrameSize} from '../../data/art';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {preparePresentationSource,warmPresentationSource} from '../presentation25d/resourcePreparation';
@@ -51,7 +53,7 @@ export class ChunkManager {
   private lastCenter = '';
   private lastTravelViewKey='';
   private lastOpenSeaStatus:boolean|null=null;
-  private readonly baker: TerrainBaker;
+  private readonly baker: TerrainBaker;private readonly regionalTrees:RegionalTreeArt;
   private readonly terrainWorker:TerrainWorker;
   private readonly retiredScenery:ChunkRuntime['scenery']=[];
   // LEIGHNERON_STAGGER_CHUNKS_V1: don't bake three huge neighbor chunks in one frame.
@@ -75,7 +77,7 @@ export class ChunkManager {
     private readonly treeSway:TreeSwaySystem,private readonly lighting:DayNightSystem,private readonly ground:WorldSpriteSystem) {
     this.scene = scene;
     this.world = world;
-    this.baker = new TerrainBaker(scene);
+    this.baker = new TerrainBaker(scene);this.regionalTrees=new RegionalTreeArt(scene);
     this.terrainWorker=new TerrainWorker(this.baker);
   }
 
@@ -324,7 +326,7 @@ export class ChunkManager {
     this.recentTerrain.clear();this.sceneryPlans.clear();
     this.lastCenter = '';
     this.lastTravelViewKey='';this.lastOpenSeaStatus=null;
-    this.terrainWorker.destroy();
+    this.terrainWorker.destroy();this.regionalTrees.destroy();
     for(const actor of this.retiredScenery)actor.destroy();this.retiredScenery.length=0;
     this.baker.destroy();
     this.scene.textures.remove('shared-ocean-chunk');
@@ -415,8 +417,16 @@ export class ChunkManager {
     // Full-detail sprites and collisions are still created from the exact
     // original plan; only the expensive placement *calculation* is reused.
     const trees=plan.trees;
+    const regionalReady=trees.some(t=>t.texture==='regional_trees')
+      ?background?(yield* this.regionalTrees.prepare()):this.scene.textures.exists('regional_trees'):true;
     for (const tree of trees) {
-      const { x:wx,y:wy,texture,frame,scale } = tree;
+      const {x:wx,y:wy}=tree;let {texture,frame,scale}=tree;
+      if(texture==='regional_trees'&&!regionalReady){
+        // An optional file failure must never strand chunk streaming. Keep the
+        // established tree art within the exact reserved new-tree envelope.
+        const intended=artFrameSize(texture,frame);texture='world_assets';frame=tree.frame===3||tree.frame===5?1:0;
+        const fallback=artFrameSize(texture,frame);scale*=Math.min(intended.width/fallback.width,intended.height/fallback.height);
+      }
       const image=this.scene.add.image(wx,wy,texture,frame).setOrigin(.5,1)
         .setScale(artScale(texture)*scale).setDepth(wy).setName(tree.id).setVisible(false);
       scenery.push(image);this.ground.register(image,texture,frame,scale,true,undefined,false,true);

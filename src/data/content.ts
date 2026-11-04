@@ -1,3 +1,4 @@
+import {addElarionLandscape} from './elarionLandscapeContent';
 import {CAPITAL_STAIR_CONTENT} from './settlementStairs';
 import {addSettlementStreetscape} from './settlementStreetscape';
 import {addWildernessCamps} from './wildernessCamps';
@@ -515,7 +516,8 @@ addHighmereStreetLife(WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 addHighmereMarketLife(WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
 addWildernessCamps(WORLD_CONTENT);
 WORLD_CONTENT.push(CAPITAL_STAIR_CONTENT);
-addSettlementStreetscape(SETTLEMENT_LAYOUTS,WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
+addElarionLandscape(WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y));
+addSettlementStreetscape(SETTLEMENT_LAYOUTS,WORLD_CONTENT,(x,y)=>boardGeography.isWalkable(x,y),(x,y)=>boardGeography.getElevationAt(x,y));
 export const CONTENT_BY_ID = Object.fromEntries(WORLD_CONTENT.map(d => [d.id, d])) as Record<string, ContentDefinition>;
 export function initialContentState(definition: ContentDefinition): ContentState {
   return { ...definition.world,

@@ -1,4 +1,6 @@
-import { useEffect, useRef } from 'react';
+import {useTouchOrientation} from './useTouchOrientation';
+import {TOUCH_CONTROL_IDS,touchPlacementStyle,type TouchControlId,type TouchLayout} from '../game/systems/touchLayout';
+import { useEffect, useRef, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { slottedActiveSkills } from '../data/activeSkills';
 import {CombatArtIcon} from './CombatArtIcon';
 import { mobileInput } from '../game/input';
@@ -9,8 +11,36 @@ import {useControlSettings} from './useControlSettings';
 import {isPlayerHome} from '../data/playerHomes';
 import {keyLabel} from '../game/systems/controlSettings';
 
-export function MobileControls() {
-  const controls=useControlSettings();
+export interface TouchLayoutEditing {
+ layout:TouchLayout;selected:TouchControlId;
+ select(id:TouchControlId):void;move(id:TouchControlId,x:number,y:number):void;
+}
+export function MobileControls({editor}:{editor?:TouchLayoutEditing}={}) {
+  const controls=useControlSettings(),orientation=useTouchOrientation();
+  const layout=editor?.layout??controls.touchLayouts?.[orientation];
+  const layoutRoot=useRef<HTMLDivElement>(null);
+  const drag=useRef<{pointer:number;id:TouchControlId;dx:number;dy:number}|null>(null);
+  const placement=(id:TouchControlId):CSSProperties|undefined=>layout?{...touchPlacementStyle(layout[id],id,controls.touchScale),...(editor?.selected===id?{outline:'2px solid #ffe79d',outlineOffset:'4px'}:{})}:undefined;
+  const stopDrag=()=>{const active=drag.current;drag.current=null;if(active&&layoutRoot.current?.hasPointerCapture(active.pointer))layoutRoot.current.releasePointerCapture(active.pointer);};
+  const dragStart=(event:ReactPointerEvent<HTMLDivElement>)=>{
+    if(!editor)return;
+    event.preventDefault();event.stopPropagation();if(drag.current)return;
+    const node=event.target instanceof Element?event.target.closest<HTMLElement>('[data-touch-control]'):null;
+    const id=node?.dataset.touchControl as TouchControlId|undefined;
+    if(!node||!id||!TOUCH_CONTROL_IDS.includes(id))return;
+    const rect=node.getBoundingClientRect();editor.select(id);
+    drag.current={pointer:event.pointerId,id,dx:event.clientX-(rect.left+rect.width/2),dy:event.clientY-(rect.top+rect.height/2)};
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+  const dragMove=(event:ReactPointerEvent<HTMLDivElement>)=>{
+    if(!editor)return;event.preventDefault();event.stopPropagation();
+    const active=drag.current;if(!active||active.pointer!==event.pointerId)return;
+    const rect=event.currentTarget.getBoundingClientRect();if(rect.width<=0||rect.height<=0)return;
+    editor.move(active.id,Math.max(0,Math.min(1,(event.clientX-active.dx-rect.left)/rect.width)),Math.max(0,Math.min(1,(event.clientY-active.dy-rect.top)/rect.height)));
+  };
+  const dragEnd=(event:ReactPointerEvent<HTMLDivElement>)=>{
+    if(!editor)return;event.preventDefault();event.stopPropagation();if(drag.current?.pointer===event.pointerId)stopDrag();
+  };
   const joystickRef = useRef<HTMLDivElement>(null);
   const pointerId = useRef<number | null>(null);
   const attackPointer=useRef<number|null>(null);
@@ -29,10 +59,10 @@ export function MobileControls() {
   const interaction = useGameStore(s => s.navigation.interaction);
   const potions=useGameStore(s=>s.consumables);
   const hp=useGameStore(s=>s.hp),maxHp=useGameStore(s=>s.maxHp),stamina=useGameStore(s=>s.stamina),maxStamina=useGameStore(s=>s.maxStamina);
-  const blocked = Boolean(panel || dialogue || cinematic || housingEditing || transition || passage);
+  const blocked = !editor&&Boolean(panel || dialogue || cinematic || housingEditing || transition || passage);
   useEffect(() => {
     const reset = () => {
-      pointerId.current = null;
+      stopDrag();pointerId.current = null;
       attackPointer.current=null;
       if(sprintPointer.current)window.clearTimeout(sprintPointer.current.timer);
       sprintPointer.current = null;
@@ -44,7 +74,7 @@ export function MobileControls() {
     window.addEventListener('blur', reset);
     document.addEventListener('visibilitychange', reset);
     return () => { reset(); window.removeEventListener('blur', reset); document.removeEventListener('visibilitychange', reset); };
-  }, [blocked,controls]);
+  }, [blocked,controls,orientation]);
 
   const updateStick = (clientX: number, clientY: number) => {
     const node = joystickRef.current;
@@ -82,6 +112,7 @@ export function MobileControls() {
   };
 
   const lockButton=(desktop=false)=><button type="button" className={desktop?'target-lock-desktop':`touch-button target-lock${targetLock?' is-locked':''}`}
+    data-touch-control={desktop?undefined:'targetLock'} style={desktop?undefined:placement('targetLock')}
     aria-label={targetLock?`Unlock ${targetLock.name}`:'Lock target'} aria-pressed={Boolean(targetLock)} title={targetLock?`Unlock ${targetLock.name} · ${keyLabel(controls.keys.targetLock)}`:`Lock visible enemy · ${keyLabel(controls.keys.targetLock)}`}
     onKeyDown={event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();mobileInput.press('targetLock');}}}
     onPointerDown={event=>{event.stopPropagation();mobileInput.press('targetLock');}}>
@@ -89,11 +120,15 @@ export function MobileControls() {
     <small>{targetLock?'Unlock':'Lock'}{desktop?' · '+keyLabel(controls.keys.targetLock):''}</small>
   </button>;
   return <>
-    {!blocked&&lockButton(true)}
-    <div className="mobile-controls" data-at-home={atHome} aria-label="Touch controls" style={{display:blocked?'none':undefined,'--touch-scale':controls.touchScale} as React.CSSProperties}>
+    {!editor&&!blocked&&lockButton(true)}
+    <div ref={layoutRoot} className={`mobile-controls${layout?' touch-custom':''}${editor?' touch-editing':''}`} data-selected-control={editor?.selected} data-at-home={editor?false:atHome}
+      onPointerDownCapture={dragStart} onPointerMoveCapture={dragMove} onPointerUpCapture={dragEnd} onPointerCancelCapture={dragEnd}
+      onLostPointerCapture={()=>{if(editor)stopDrag();}}
+      onKeyDownCapture={event=>{if(editor&&(event.key==='Enter'||event.key===' ')){event.preventDefault();event.stopPropagation();}}}
+      onClickCapture={event=>{if(editor){event.preventDefault();event.stopPropagation();}}} aria-label="Touch controls" style={{display:blocked?'none':undefined,'--touch-scale':controls.touchScale} as React.CSSProperties}>
       <div
         ref={joystickRef}
-        className="joystick"
+        className="joystick" data-touch-control="move" style={placement('move')}
         onPointerDown={(event) => {
           if (pointerId.current !== null) return;
           pointerId.current = event.pointerId;
@@ -113,12 +148,12 @@ export function MobileControls() {
 
       <div className="touch-actions">
         {lockButton()}
-        <button type="button" className="touch-button jump" aria-label="Jump" onPointerDown={()=>mobileInput.press('jump')}><span className="touch-glyph">↑</span><small>Jump</small></button>
+        <button type="button" className="touch-button jump" data-touch-control="jump" style={placement('jump')} aria-label="Jump" onPointerDown={()=>mobileInput.press('jump')}><span className="touch-glyph">↑</span><small>Jump</small></button>
         <div className="touch-potions" aria-label="Potion shortcuts">
           {(['healing-potion','stamina-potion'] as const).map(base=>{
             const id=preferredPotion(base,potions);
             const healing=base==='healing-potion',count=potions[id]??0,full=healing?hp>=maxHp:stamina>=maxStamina;
-            return <button key={id} type="button" className={`touch-button touch-potion ${healing?'healing':'stamina'}`} aria-label={`${POTIONS[id].name}, ${count} remaining`} title={`${POTIONS[id].name} · ${count} remaining`} disabled={count<=0||full||Boolean(activeSkillStatus.casting)} onPointerDown={()=>mobileInput.press(healing?'healPotion':'staminaPotion')}>
+            return <button key={id} type="button" className={`touch-button touch-potion ${healing?'healing':'stamina'}`} data-touch-control={healing?'healPotion':'staminaPotion'} style={placement(healing?'healPotion':'staminaPotion')} aria-label={`${POTIONS[id].name}, ${count} remaining`} title={`${POTIONS[id].name} · ${count} remaining`} disabled={!editor&&(count<=0||full||Boolean(activeSkillStatus.casting))} onPointerDown={()=>mobileInput.press(healing?'healPotion':'staminaPotion')}>
               <ItemIcon id={id}/><span className="touch-potion-count">{count}</span>
             </button>;
           })}
@@ -132,11 +167,12 @@ export function MobileControls() {
           return (
             <button
               key={skill.id}
+              data-touch-control={skill.action} style={placement(skill.action)}
               type="button"
               aria-label={`${skill.name}, ${cooldownLabel}`}
               title={`${skill.name} · ${skill.staminaCost} stamina${cooldown ? ` · ${cooldownLabel}` : ' · ready'}`}
               className={`touch-button touch-skill skill-${skill.slot}${cooldown ? ' cooling' : ''}${locked?' locked':''}`}
-              disabled={locked}
+              disabled={!editor&&locked}
               onPointerDown={() => {if(!locked)mobileInput.press(skill.action);}}
             >
               {cooldown && <span className="touch-cooldown-ring" style={{
@@ -147,10 +183,11 @@ export function MobileControls() {
             </button>
           );
         })}
-        {interaction && <button type="button" aria-label={`Interact: ${interaction}`} title={interaction} className="touch-button interact" onPointerDown={() => mobileInput.press('interact')}>
+        {editor&&([1,2,3,4] as const).filter(slot=>!slottedActiveSkills(slots).some(skill=>skill.slot===slot)).map(slot=><button key={'empty:'+slot} type="button" className={`touch-button touch-skill skill-${slot}`} data-touch-control={`skill${slot}`} style={placement(`skill${slot}`)} aria-label={`Art slot ${slot}`}><span>{slot}</span></button>)}
+        {(interaction||editor) && <button type="button" aria-label={interaction?`Interact: ${interaction}`:'Interact'} title={interaction??'Interact'} className="touch-button interact" data-touch-control="interact" style={placement('interact')} onPointerDown={() => mobileInput.press('interact')}>
           <span className="touch-glyph">{keyLabel(controls.keys.interact)}</span><small>Interact</small>
         </button>}
-        <button type="button" aria-label="Attack" title="Hold to keep attacking" className="touch-button attack"
+        <button type="button" aria-label="Attack" title="Hold to keep attacking" className="touch-button attack" data-touch-control="attack" style={placement('attack')}
           onPointerDown={event=>{
             if(attackPointer.current!==null)return;
             attackPointer.current=event.pointerId;event.currentTarget.setPointerCapture(event.pointerId);
@@ -159,7 +196,7 @@ export function MobileControls() {
           onLostPointerCapture={event=>releaseAttack(event.pointerId)}>
           <span className="touch-glyph"><img src={`${import.meta.env.BASE_URL}icons/basic_attack.png`} alt="" /></span><small>Attack</small>
         </button>
-        <button type="button" aria-label="Tap to dash, hold to sprint" title="Tap to dash · Hold to sprint" className="touch-button sprint"
+        <button type="button" aria-label="Tap to dash, hold to sprint" title="Tap to dash · Hold to sprint" className="touch-button sprint" data-touch-control="sprint" style={placement('sprint')}
           onPointerDown={(event) => {
             if (sprintPointer.current) return;
             const press = {id:event.pointerId,startedAt:performance.now(),timer:0};

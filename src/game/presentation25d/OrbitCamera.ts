@@ -1,3 +1,4 @@
+import type {TerrainHeightRange} from '../systems/TerrainHeightField';
 import {PerspectiveCamera,Raycaster,Vector2,Vector3} from 'three';
 import type Phaser from 'phaser';
 import {mobileInput} from '../input';
@@ -9,6 +10,8 @@ const RAD=Math.PI/180;
 const MIN_ZOOM=.18,MAX_ZOOM=1.7,MIN_DISTANCE=90;
 const CORNERS=[[-1,-1],[1,-1],[-1,1],[1,1]] as const;
 interface ShakeOffset {_offsetX:number;_offsetY:number}
+export interface PresentationCameraControl {owner:object;view:'hold'|'scripted'|'player'}
+interface GameplayPose {yaw:number;targetYaw:number;pitch:number;targetPitch:number;zoom:number;targetZoom:number;savedPitch:number;gameplayFirstPerson:boolean}
 export class OrbitCamera {
   readonly camera=new PerspectiveCamera(38,1,2,4000);
   yaw=25*RAD;pitch=42*RAD;private targetYaw=this.yaw;private targetPitch=this.pitch;
@@ -18,6 +21,9 @@ export class OrbitCamera {
   private readonly lookTarget=new Vector3();
   private combatLocked=false;
   firstPerson=false;private savedPitch=42*RAD;
+  private gameplayFirstPerson=false;private cameraOwner:object|undefined;
+  private gameplayPose:GameplayPose|null=null;private scriptedView=false;private playerRestored=false;
+  private lastEyeHeight:number|undefined;private controlEpoch=0;
   private wasLocked=false;private releasing=false;
   private readonly altKeys=new Set<string>();
   private resumeCapture=false;private destroyed=false;
@@ -47,12 +53,18 @@ export class OrbitCamera {
   suspend(){this.enabled=false;this.clearControls();this.hint.hidden=true;}
   private readonly capture=()=>{
     if(this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)return;
+    const epoch=this.controlEpoch;
     try{const result=this.canvas.requestPointerLock?.();if(result)void result.then(()=>{
-      if(this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)this.release();
+      if(epoch!==this.controlEpoch||this.destroyed||this.altKeys.size||!this.controlsAllowed()||!document.hasFocus()||document.hidden)this.release();
     }).catch(()=>{});}catch{/* Touch/unsupported WebViews retain drag orbit. */}
   };
-  private readonly release=()=>{mobileInput.setAttackHeld(false);if(this.locked){this.releasing=true;document.exitPointerLock();}this.touches.clear();};
-  private readonly clearControls=()=>{this.altKeys.clear();this.resumeCapture=false;this.release();};
+  private readonly release=()=>{
+    mobileInput.setAttackHeld(false);if(this.locked){this.releasing=true;document.exitPointerLock();}
+    for(const id of this.touches.keys())if(this.canvas.hasPointerCapture(id))this.canvas.releasePointerCapture(id);
+    this.touches.clear();this.touchDistance=0;
+  };
+  private readonly clearControls=()=>{this.controlEpoch++;this.altKeys.clear();this.resumeCapture=false;this.release();};
+  private reconcileAlt(held:boolean){if(!held&&this.altKeys.size){this.altKeys.clear();this.resumeCapture=false;}}
   private readonly visibilityChanged=()=>{if(document.hidden)this.clearControls();};
   private readonly keyDown=(event:KeyboardEvent)=>{
     if(event.code==='KeyV'&&!event.repeat&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&this.controlsAllowed()){
@@ -61,6 +73,7 @@ export class OrbitCamera {
       event.preventDefault();mobileInput.setAttackHeld(false);toggleCameraMode();return;
     }
     if(event.code!=='AltLeft'&&event.code!=='AltRight')return;
+    if(!this.controlsAllowed()){this.clearControls();return;}
     if(!this.enabled&&!this.locked&&!this.altKeys.size)return;
     event.preventDefault();
     if(this.altKeys.has(event.code))return;
@@ -76,7 +89,8 @@ export class OrbitCamera {
   private readonly lockChanged=()=>{const locked=this.locked;if(locked&&(this.altKeys.size||!this.controlsAllowed())){this.release();return;}if(!locked){mobileInput.setAttackHeld(false);if(this.wasLocked&&!this.releasing&&this.enabled)this.pause();this.releasing=false;}this.wasLocked=locked;};
   private readonly contextMenu=(event:MouseEvent)=>{if(this.enabled)event.preventDefault();};
   private readonly down=(event:PointerEvent)=>{
-    if(this.altKeys.size){if(event.button===0)this.pick(event);return;}
+    this.reconcileAlt(event.altKey);
+    if(event.altKey||this.altKeys.size){if(event.button===0)this.pick(event);return;}
     if(!this.enabled){if(event.button===0)this.pick(event);return;}
     if(event.pointerType==='touch'){
       this.canvas.setPointerCapture(event.pointerId);this.touches.set(event.pointerId,{x:event.clientX,y:event.clientY,startX:event.clientX,startY:event.clientY,moved:false});this.touchDistance=0;return;
@@ -90,10 +104,10 @@ export class OrbitCamera {
     this.targetYaw-=Math.max(-140,Math.min(140,dx))*scale;
     this.targetPitch=Math.max((this.firstPerson?-85:-60)*RAD,Math.min((this.firstPerson?85:75)*RAD,this.targetPitch+dy*scale*(this.settings.invertY?-1:1)));
   }
-  private readonly mouseMove=(event:MouseEvent)=>{if(this.enabled&&!this.altKeys.size&&this.locked&&this.controlsAllowed())this.rotate(event.movementX,event.movementY);};
+  private readonly mouseMove=(event:MouseEvent)=>{this.reconcileAlt(event.altKey);if(this.enabled&&!event.altKey&&!this.altKeys.size&&this.locked&&this.controlsAllowed())this.rotate(event.movementX,event.movementY);};
   private readonly mouseUp=()=>{mobileInput.setAttackHeld(false);};
   private readonly touchMove=(event:PointerEvent)=>{
-    const touch=this.touches.get(event.pointerId);if(!touch||!this.enabled)return;
+    const touch=this.touches.get(event.pointerId);if(!touch||!this.enabled||!this.controlsAllowed())return;
     const dx=event.clientX-touch.x,dy=event.clientY-touch.y;touch.x=event.clientX;touch.y=event.clientY;
     touch.moved ||=Math.hypot(touch.x-touch.startX,touch.y-touch.startY)>6;
     if(this.touches.size===1&&touch.moved)this.rotate(dx,dy);
@@ -106,9 +120,48 @@ export class OrbitCamera {
     if(touch&&!touch.moved&&event.type!=='pointercancel')this.pick(event);
     if(this.canvas.hasPointerCapture(event.pointerId))this.canvas.releasePointerCapture(event.pointerId);
   };
-  private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();if(this.firstPerson)return;this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
+  private readonly wheel=(event:WheelEvent)=>{
+    if(!this.enabled||!this.controlsAllowed()){this.clearControls();return;}
+    this.reconcileAlt(event.altKey);
+    if(event.altKey||this.altKeys.size)return;
+    event.preventDefault();if(this.firstPerson)return;
+    this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));
+  };
+  private applyGameplayMode(eyeAvailable:boolean){
+    const selected=this.settings.mode==='first-person';if(selected===this.gameplayFirstPerson||selected&&!eyeAvailable)return;
+    if(selected){this.savedPitch=this.targetPitch;this.pitch=this.targetPitch=0;}
+    else this.pitch=this.targetPitch=this.savedPitch;
+    this.gameplayFirstPerson=selected;this.initialized=false;
+  }
+  private restoreGameplayPose(){
+    if(this.gameplayPose)Object.assign(this,this.gameplayPose);
+    this.scriptedView=false;this.playerRestored=true;this.initialized=false;
+  }
+  private ownCamera(control:PresentationCameraControl|undefined,eyeAvailable:boolean){
+    const owner=control?.owner;
+    if(owner!==this.cameraOwner){this.clearControls();this.cameraOwner=owner;}
+    if(!control){
+      if(this.gameplayPose&&!this.playerRestored)this.restoreGameplayPose();
+      this.gameplayPose=null;this.scriptedView=false;this.playerRestored=false;this.applyGameplayMode(eyeAvailable);return;
+    }
+    if(!this.gameplayPose){
+      this.applyGameplayMode(eyeAvailable);
+      const {yaw,targetYaw,pitch,targetPitch,zoom,targetZoom,savedPitch,gameplayFirstPerson}=this;
+      this.gameplayPose={yaw,targetYaw,pitch,targetPitch,zoom,targetZoom,savedPitch,gameplayFirstPerson};
+      this.playerRestored=false;
+    }
+    if(control.view==='scripted'&&!this.scriptedView){
+      this.scriptedView=true;this.playerRestored=false;this.initialized=false;
+      this.pitch=this.targetPitch=Math.max(20*RAD,Math.min(60*RAD,this.savedPitch));this.zoom=this.targetZoom=1;
+    }else if(control.view==='player'){
+      if(!this.playerRestored)this.restoreGameplayPose();this.applyGameplayMode(eyeAvailable);
+    }
+  }
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
-    lockedTarget?:{x:number;y:number},eyeHeight?:number){
+    lockedTarget?:{x:number;y:number},eyeHeight?:number,control?:PresentationCameraControl,terrainRange?:Readonly<TerrainHeightRange>){
+    // Input ownership is released even when a collapsed viewport cannot draw.
+    if(this.enabled!==enabled)this.clearControls();this.enabled=enabled;
+    this.ownCamera(control,eyeHeight!==undefined||this.lastEyeHeight!==undefined);
     // A transient collapsed viewport must not overwrite the last valid
     // camera/projection or produce an invalid frustum during a mode switch.
     if(!Number.isFinite(native.width)||!Number.isFinite(native.height)||native.width<=0||native.height<=0
@@ -116,13 +169,10 @@ export class OrbitCamera {
       ||eyeHeight!==undefined&&!Number.isFinite(eyeHeight))return false;
     const ground=height(target.x,target.y);if(!Number.isFinite(ground))return false;
     const frameDelta=Number.isFinite(delta)?Math.max(0,Math.min(80,delta)):0;
-    const firstPerson=this.settings.mode==='first-person'&&eyeHeight!==undefined;
-    if(firstPerson!==this.firstPerson){
-      if(firstPerson){this.savedPitch=this.targetPitch;this.pitch=this.targetPitch=0;}
-      else this.pitch=this.targetPitch=this.savedPitch;
-      this.firstPerson=firstPerson;this.initialized=false;
-    }
-    if(this.enabled&&!enabled){if(!this.altKeys.size)this.resumeCapture=false;this.release();}this.enabled=enabled;
+    if(eyeHeight!==undefined)this.lastEyeHeight=eyeHeight;
+    const activeEye=eyeHeight??this.lastEyeHeight;
+    const firstPerson=!this.scriptedView&&this.gameplayFirstPerson&&activeEye!==undefined;
+    if(firstPerson!==this.firstPerson){this.firstPerson=firstPerson;this.initialized=false;}
     this.hint.hidden=!enabled||this.locked||!this.finePointer.matches||!this.canvas.requestPointerLock;
     this.combatLocked=enabled&&Boolean(lockedTarget)&&!firstPerson;
     if(this.combatLocked&&lockedTarget){
@@ -153,7 +203,7 @@ export class OrbitCamera {
     // Only scenery obstructing the player fades in the presentation collector.
     // Keep the player's chosen orbit distance instead of zooming at wall edges.
     if(firstPerson){
-      this.camera.position.set(target.x,ground+eyeHeight!,target.y);
+      this.camera.position.set(target.x,ground+activeEye!,target.y);
       this.lookTarget.copy(this.camera.position).add(this.nextFocus.set(-Math.sin(this.yaw)*Math.cos(this.pitch),-Math.sin(this.pitch),-Math.cos(this.yaw)*Math.cos(this.pitch)));
       this.camera.lookAt(this.lookTarget);
     }else if(this.pitch>=8*RAD)this.camera.lookAt(this.combatLocked?this.lookTarget.set(focusX,aimY,focusZ):this.focus);
@@ -167,16 +217,24 @@ export class OrbitCamera {
     else if(this.camera.view?.enabled)this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();this.camera.updateMatrixWorld();
     this.focusGround.x=target.x;this.focusGround.y=target.y;
-    let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,hasGround=false;
+    // Streaming projects the same height slab as the terrain shader, rather
+    // than intersecting every ray with sea level beneath a raised settlement.
+    const validRange=terrainRange&&Number.isFinite(terrainRange.min)&&Number.isFinite(terrainRange.max)&&terrainRange.min<=terrainRange.max;
+    const low=Math.min(ground,validRange?terrainRange.min:ground),high=Math.max(ground,validRange?terrainRange.max:ground);
+    this.bounds.left=this.bounds.top=Infinity;this.bounds.right=this.bounds.bottom=-Infinity;
+    let hasGround=false;
     for(const [x,y] of CORNERS){this.ndc.set(x,y);this.ray.setFromCamera(this.ndc,this.camera);
-      const direction=this.ray.ray.direction;
-      if(direction.y<-.001)hasGround=true;
-      const t=direction.y<-.001?Math.max(0,Math.min(this.camera.far,-this.ray.ray.origin.y/direction.y)):this.camera.far;
-      let px=this.ray.ray.origin.x+direction.x*t,pz=this.ray.ray.origin.z+direction.z*t;
-      const dx=px-target.x,dz=pz-target.y,reach=Math.hypot(dx,dz);
-      if(reach>VIEW_DISTANCE){px=target.x+dx/reach*VIEW_DISTANCE;pz=target.y+dz/reach*VIEW_DISTANCE;}
-      left=Math.min(left,px);right=Math.max(right,px);top=Math.min(top,pz);bottom=Math.max(bottom,pz);
+      const {origin,direction}=this.ray.ray;let hit=false;
+      if(Math.abs(direction.y)>.001)for(let plane=0;plane<(low===high?1:2);plane++){
+        const t=((plane===0?low:high)-origin.y)/direction.y;if(t<0)continue;
+        hit=true;hasGround ||=t<=this.camera.far;this.includeGroundRay(Math.min(this.camera.far,t),target);
+      }
+      // Eye-level views can start inside the elevation slab. Keep their near
+      // ground as well as the distant intersections, including on cliff slopes.
+      if(origin.y>=low&&origin.y<=high){this.includeGroundRay(0,target);hasGround=true;}
+      if(!hit)this.includeGroundRay(this.camera.far,target);
     }
+    let {left,right,top,bottom}=this.bounds;
     // Include the center horizon ray: sky-facing corners alone can miss the
     // middle of a wide ground wedge. The fog boundary bounds its residency.
     if(!hasGround){left=target.x-384;right=target.x+384;top=target.y-384;bottom=target.y+384;}
@@ -191,8 +249,14 @@ export class OrbitCamera {
     this.bounds.left=left;this.bounds.right=right;this.bounds.top=top;this.bounds.bottom=bottom;
     return true;
   }
+  private includeGroundRay(distance:number,target:{x:number;y:number}){
+    const {origin,direction}=this.ray.ray;let x=origin.x+direction.x*distance,z=origin.z+direction.z*distance;
+    const dx=x-target.x,dz=z-target.y,reach=Math.hypot(dx,dz);
+    if(reach>VIEW_DISTANCE){x=target.x+dx/reach*VIEW_DISTANCE;z=target.y+dz/reach*VIEW_DISTANCE;}
+    const b=this.bounds;b.left=Math.min(b.left,x);b.right=Math.max(b.right,x);b.top=Math.min(b.top,z);b.bottom=Math.max(b.bottom,z);
+  }
   destroy(){
-    this.destroyed=true;this.enabled=false;window.removeEventListener(CONTROL_SETTINGS_EVENT,this.updateControlHint);
+    this.destroyed=true;this.enabled=false;this.gameplayPose=null;this.cameraOwner=undefined;window.removeEventListener(CONTROL_SETTINGS_EVENT,this.updateControlHint);
     this.clearControls();this.hint.removeEventListener('click',this.capture);this.hint.remove();
     this.canvas.removeEventListener('pointerdown',this.down);this.canvas.removeEventListener('pointermove',this.touchMove);this.canvas.removeEventListener('pointerup',this.up);this.canvas.removeEventListener('pointercancel',this.up);
     this.canvas.removeEventListener('wheel',this.wheel);this.canvas.removeEventListener('contextmenu',this.contextMenu);

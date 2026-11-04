@@ -22,6 +22,14 @@ Animal art decodes serially on demand. Preparation uses authored crop rectangles
 
 The follow-up review adds chicken-only commoner/residential courtyards and ordinary house side yards. Cows and goats retain agricultural/stable sites and the existing highland goat opportunities. Eligible stable/barn interiors author one cow, goat and chicken in separate bays; three indoor animals replace outdoor livestock in the same six-sprite pool. Room floors, fixtures, NPCs and reserved cart aisles validate each admission and route. NPC standing placement reserves the authored animal bays. No animal is added to quest, NPC or save ledgers.
 
+Stable interiors now also author a horse in a fourth bay, with horse-sized
+clearance and admission priority. The six-sprite pool is retained; four is the
+indoor ceiling. Existing horse sprites were recovered from Git history under
+`public/assets/wildlife/horse/`, with source provenance in its README. The
+horse's three directional sources are decoded sequentially into one uniformly
+scaled atlas; only one decoded direction is retained at once. Outdoor spawn
+lists and the retired roaming-caravan system are unchanged.
+
 Atlas preparation now yields between complete poses and charges the shared frame-work allowance. Animals wait for the existing presentation texture-upload fence before becoming visible, with live placement rechecked after the wait. Reset/disposal cancels decoded-but-unfinished preparation and removes partial atlases. Round-robin safety/decision/admission turns avoid starving movement and replenishment on slower frames. Idle animals and indoor contact shadows use change-only depth updates, removing unnecessary display-list sort requests; animal frames and facing update only when changed. Moving routes stop when their safety certificate becomes stale. These are source-level improvements, not measured FPS results.
 
 ## Design references

@@ -7,6 +7,11 @@ const greenGround=new Set(['grass','forest','marsh','dirt','farmland']);
 
 function fitsGround(texture:ArtTextureKey,frame:number,world:WorldGenerator,x:number,y:number){
   const terrain=world.getTerrainAt(x,y),region=world.getRegionAt(x,y);
+  if(texture==='regional_trees'){
+    if(frame<=1)return (region==='portquill'||region==='rindass')&&['sand','grass','forest','dirt'].includes(terrain);
+    if(frame<=3)return region==='narenthil'&&greenGround.has(terrain);
+    return region==='druganwoods'&&greenGround.has(terrain);
+  }
   if(texture==='climate_props')return frame<=5?terrain==='snow':frame===11?terrain==='lava':
     region==='darkav'&&['ash','stone','dirt'].includes(terrain);
   if(texture==='desert_props')return region==='rindass'&&['sand','dirt'].includes(terrain);

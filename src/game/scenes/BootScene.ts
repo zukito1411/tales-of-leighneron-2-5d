@@ -105,7 +105,7 @@ export class BootScene extends Phaser.Scene {
    * sprite sizes before preparing any generated atlases. */
   private repairSpriteSources():boolean {
     const required=new Map<string,{expected?:readonly [number,number];name:string}>();
-    for(const sheet of ART_SHEETS.filter(s=>s.key!=='walls'&&!isVarkhulTexture(s.key))){
+    for(const sheet of ART_SHEETS.filter(s=>!s.streamed&&s.key!=='walls'&&!isVarkhulTexture(s.key))){
       if(sheet.sources?.length){
         for(const frame of sheet.sources){
           const expected=sheet.key==='leigneron'?undefined:frame.imageSize;
@@ -236,7 +236,7 @@ export class BootScene extends Phaser.Scene {
     for(const page of VARKHUL_ATLAS_PAGES)this.load.image('varkhul-source:'+page.texture,page.path);
 
     const files = new Set<string>();
-    for (const sheet of ART_SHEETS.filter(s => s.key !== 'walls'&&!isVarkhulTexture(s.key))) {
+    for (const sheet of ART_SHEETS.filter(s => !s.streamed&&s.key !== 'walls'&&!isVarkhulTexture(s.key))) {
       if (sheet.sources) {
         for (const source of sheet.sources) files.add(source.path);
       } else {
@@ -253,7 +253,7 @@ export class BootScene extends Phaser.Scene {
     await new Promise<void>(resolve=>window.setTimeout(resolve,0));
   }
 
-  async prepareRegisteredSheets(sheets:typeof ART_SHEETS=ART_SHEETS.filter(s=>!isVarkhulTexture(s.key))){
+  async prepareRegisteredSheets(sheets:typeof ART_SHEETS=ART_SHEETS.filter(s=>!s.streamed&&!isVarkhulTexture(s.key))){
     const pixels = new Map<string, { data: Uint8ClampedArray; width: number }>();
     const remainingSources=new Map<string,number>();
     for(const sheet of sheets.filter(s=>s.key!=='walls'))

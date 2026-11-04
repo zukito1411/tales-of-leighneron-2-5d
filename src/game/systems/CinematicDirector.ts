@@ -1,4 +1,6 @@
 import Phaser from 'phaser';
+import type {PresentationCameraControl} from '../presentation25d/OrbitCamera';
+import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import { CINEMATICS, type StoryScene, type StoryShot } from '../../data/cinematics';
 import { useGameStore } from '../../store/gameStore';
 import type { WorldScene } from '../scenes/WorldScene';
@@ -17,6 +19,8 @@ export class CinematicDirector {
   private elapsed=0;
   private waiting=0;
   private origin={zoom:1};
+  private playerCamera=true;private returnReadyFrames=0;
+  private readonly cameraControl:PresentationCameraControl={owner:this,view:'hold'};
   private phase:Phase='preparing';
   private sequence=0;
   private disposed=false;
@@ -31,6 +35,12 @@ export class CinematicDirector {
       .setDepth(20_000_000).setName('cinematic-transition-cover').setAlpha(0).setVisible(false);
   }
   get active(){return this.sceneData!==null;}
+  get usesPlayerCamera(){return this.playerCamera;}
+  get presentationCameraControl(){
+    this.cameraControl.view=this.phase==='concealing'||this.phase==='return-preparing'||this.illustratedShot&&!this.phase.startsWith('return-')
+      ?'hold':this.playerCamera?'player':'scripted';
+    return this.cameraControl;
+  }
   get playing(){return this.active&&this.phase==='playing';}
   get illustrated(){return this.active&&this.illustratedShot&&!this.phase.startsWith('return-');}
   start(id:string){
@@ -41,7 +51,7 @@ export class CinematicDirector {
       const readingTime=1500+Math.max(...lines.map(line=>line.split(/\s+/).length))*220;
       return {...shot,duration:Math.max(shot.duration,Math.min(9000,readingTime))};
     })};
-    this.index=0;this.elapsed=0;
+    this.index=0;this.elapsed=0;this.playerCamera=true;this.returnReadyFrames=0;
     this.origin={zoom:this.scene.cameras.main.zoom/renderDensity(this.scene)};
     this.scene.player.resetInput();this.scene.beginCinematicView();
     this.scene.physics.world.pause();this.scene.cameras.main.stopFollow();this.frame();return true;
@@ -61,12 +71,14 @@ export class CinematicDirector {
     }
     if(this.phase==='return-preparing')return;
     if(this.phase==='return-loading'){
-      this.position(this.scene.player,this.origin.zoom*renderDensity(this.scene));
+      this.position(this.scene.player,this.origin.zoom*renderDensity(this.scene),true);
       this.waiting+=Math.min(delta,250);
       // A failed optional creature atlas must not trap the player in a black
       // return screen. Terrain/scenery coverage remains mandatory.
       const checkSubjects=this.waiting<15000;
-      if(this.scene.streamCinematicView(true,undefined,checkSubjects)){
+      const ready=this.scene.streamCinematicView(true,undefined,checkSubjects)&&presentationViewReady(this.scene,this.scene.player);
+      this.returnReadyFrames=ready?this.returnReadyFrames+1:0;
+      if(this.returnReadyFrames>=2){
         if(!checkSubjects)this.scene.notify('Some creature artwork could not load. You can continue your journey.');
         const sequence=this.sequence;this.phase='return-revealing';
         this.reveal(sequence,()=>this.complete());
@@ -164,6 +176,7 @@ export class CinematicDirector {
     this.reveal(sequence,()=>{this.phase='playing';this.elapsed=0;});
   }
   private async prepare(shot:StoryShot,sequence:number){
+    this.playerCamera=false;
     try{
       const ready=await this.scene.prepareCinematicShot(shot);
       if(!this.current(sequence))return;
@@ -179,16 +192,16 @@ export class CinematicDirector {
   private continueUnpreparedShot(){
     const shot=this.sceneData?.shots[this.index];
     if(!shot||this.phase==='revealing'||this.phase==='playing')return;
-    this.artworkLoad?.cancel();this.artworkLoad=null;this.illustratedShot=false;
+    this.artworkLoad?.cancel();this.artworkLoad=null;this.illustratedShot=false;this.playerCamera=false;
     const sequence=++this.sequence;
     this.position(this.scene.cinematicTarget(shot),shot.zoom*renderDensity(this.scene));
     this.scene.streamCinematicView(true,shot.focusNpcId,false);
     this.phase='revealing';
     this.reveal(sequence,()=>{this.phase='playing';this.elapsed=0;});
   }
-  private position(point:{x:number;y:number},zoom:number){
+  private position(point:{x:number;y:number},zoom:number,restore=false){
     const framed=this.scene.constrainCinematicCamera(point.x,point.y,zoom),camera=this.scene.cameras.main;
-    camera.setZoom(framed.zoom).centerOn(framed.x,framed.y);
+    camera.setZoom(restore?zoom:framed.zoom).centerOn(framed.x,framed.y);
     // worldView/midPoint otherwise describe the previous render, not this pan.
     camera.preRender();this.fitCover();
   }
@@ -228,7 +241,7 @@ export class CinematicDirector {
     const returning=this.phase.startsWith('return-');
     const shot=this.sceneData.shots[Math.min(this.index,this.sceneData.shots.length-1)];
     this.position(returning?this.scene.player:this.scene.cinematicTarget(shot),
-      (returning?this.origin.zoom:shot.zoom)*renderDensity(this.scene));
+      (returning?this.origin.zoom:shot.zoom)*renderDensity(this.scene),returning);
     if(this.phase==='playing'){
       const focus=shot.focusNpcId;
       if(!this.scene.streamCinematicView(true,focus)){
@@ -260,7 +273,8 @@ export class CinematicDirector {
       this.scene.recoverCinematicLocation();
     }
     if(!this.current(sequence))return;
-    this.position(this.scene.player,this.origin.zoom*renderDensity(this.scene));
+    this.playerCamera=true;this.returnReadyFrames=0;
+    this.position(this.scene.player,this.origin.zoom*renderDensity(this.scene),true);
     this.waiting=0;this.phase='return-loading';
   }
   private complete(){

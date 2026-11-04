@@ -12,6 +12,7 @@ const base=(l:number,t:number,r:number,b:number):GroundPolygon=>[
 ];
 const profile=(polygon:GroundPolygon,sortY=.96,forceSolid=true):WorldSpriteProfile=>({solids:[polygon],sortY,forceSolid});
 const floor:WorldSpriteProfile={solids:[],sortY:1,floor:true};
+const regionalTrees=([[.44,.87,.57,.98],[.36,.86,.65,.98],[.41,.88,.60,.98],[.43,.88,.59,.98],[.35,.86,.66,.98],[.44,.88,.58,.98]] as const).map(([l,t,r,b])=>profile(base(l,t,r,b),.98));
 // Ground-plane contours surveyed from the supplied illustrations. Roofs,
 // canopy, spear/banner height and transparent padding are NOT solid volume.
 const buildings:WorldSpriteProfile[]=[
@@ -81,6 +82,7 @@ export function worldSpriteProfile(texture:ArtTextureKey,frame:number):WorldSpri
       {solids:[base(.05,frame===1?.57:.66,.95,.98)],sortY:.97};
   if(texture==='pirate_flagship')return floor;
   if(texture==='port_dock')return floor;
+  if(texture==='regional_trees')return regionalTrees[frame];
   if(texture==='elarion_tree')return lifeTree;
   if(texture==='flower_fence')return flowerFences[frame];
   if(texture==='darkav_props')return frame===0?profile(base(.25,.80,.78,.98)):

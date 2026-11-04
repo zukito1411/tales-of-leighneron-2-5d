@@ -1,6 +1,7 @@
 /** Simulation and GPU terrain use the same fixed lattice and triangle split.
  * This cache depends on world coordinates, never camera position or zoom. */
 export const ELEVATION_CELL_SIZE=64;
+export interface TerrainHeightRange {min:number;max:number}
 const LIMIT=129*129*2;
 export class TerrainHeightField {
   private readonly samples=new Map<number,number>();

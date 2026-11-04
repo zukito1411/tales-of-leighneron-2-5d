@@ -1,3 +1,4 @@
+import {elarionCascade} from '../../data/elarionHighlands';
 import {wildernessCampReservations} from '../../data/wildernessCampSites';
 import {CHUNK_SIZE} from '../../data/world';
 import {WORLD_CONTENT} from '../../data/content';
@@ -15,7 +16,8 @@ export function* planChunkScenerySteps(world:WorldGenerator,chunkX:number,chunkY
       const sites=authoredReservations.query({left:cx-CHUNK_SIZE,right:cx+CHUNK_SIZE,top:cy-CHUNK_SIZE,bottom:cy+CHUNK_SIZE})
         .map(item=>item.definition).filter(d=>Math.abs(d.world.x-cx)<CHUNK_SIZE&&Math.abs(d.world.y-cy)<CHUNK_SIZE);
       const reservations=sites.map(d=>{
-        const arena=bossArenaBounds(d);
+        const arena=bossArenaBounds(d),cascade=elarionCascade(d.id);
+        if(cascade)return {...d.world,bounds:{left:cascade.x-cascade.width/2-80,right:cascade.x+cascade.width/2+80,top:cascade.y-cascade.run-96,bottom:cascade.y+96}};
         return {...d.world,...('frame' in d?{bounds:spriteBounds(d.texture??'world_objects',d.frame,d.scale??1,d.world.x,d.world.y)}:{}),
           ...(arena?{bounds:arena}:{})};
       });

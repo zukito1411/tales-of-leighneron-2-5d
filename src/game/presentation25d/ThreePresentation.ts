@@ -20,7 +20,7 @@ import {
 import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
 import {ForegroundOcclusion,FOREGROUND_OPACITY} from './ForegroundOcclusion';
 import {createCombatEffectGeometry,combatEffectPoint,type CombatEffectShape} from './CombatEffectGeometry';
-import {OrbitCamera} from './OrbitCamera';
+import {OrbitCamera,type PresentationCameraControl} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
@@ -81,6 +81,7 @@ interface PresentationScene extends Phaser.Scene {
   readonly presentationTerrain?:TerrainHeightField;
   readonly groundHeightAt?:(x:number,y:number)=>number;
   readonly presentationControlsEnabled?:boolean;
+  readonly presentationCameraControl?:PresentationCameraControl;
   readonly presentationLockedTarget?:{x:number;y:number;displayWidth:number;displayHeight:number;presentationElevation?:number};
   readonly presentationOcclusionSubject?:Readonly<{x:number;y:number;presentationElevation?:number}>;
   readonly presentationPause?:()=>void;
@@ -300,18 +301,19 @@ export class ThreePresentation {
     this.heightEnabled=!this.interior&&Boolean(presentation.presentationHeightAt);
     this.sceneGroundHeight=presentation.groundHeightAt;
     if(presentation.presentationHeightAt)this.elevation.setSource(presentation.presentationHeightAt,presentation.presentationTerrain);
+    const terrainRange=this.heightEnabled&&this.elevation.initialized?this.elevation.heightRange:undefined;
     const lockedTarget=presentation.presentationLockedTarget;
     this.firstPersonPlayer=presentation.presentationPlayer;
     const eye=this.firstPersonPlayer?HERO_BODY_HEIGHT*.8+this.firstPersonPlayer.presentationElevation+this.firstPersonPlayer.skills.presentationElevation:undefined;
     if(!this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,
-      presentation.presentationControlsEnabled===true,lockedTarget,eye))return;
+      presentation.presentationControlsEnabled===true,lockedTarget,eye,presentation.presentationCameraControl,terrainRange))return;
     // Resizing clears the drawing buffer. Validate the next view first so
     // invalid transition inputs retain the last presented image.
     if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
       this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
       this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
     }
-    this.visibility.update(this.orbit.camera,this.orbit.focusGround);
+    this.visibility.update(this.orbit.camera,this.orbit.focusGround,terrainRange);
     this.viewProjection.multiplyMatrices(this.orbit.camera.projectionMatrix,this.orbit.camera.matrixWorldInverse);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);
     this.billboardRight.value.set(this.yawCos,-this.yawSin);
@@ -904,13 +906,14 @@ export class ThreePresentation {
       // A terrain quad can cross the camera's near plane. Dividing its four
       // corners by negative clip-W can put every projected corner offscreen
       // even though the ground fills the view. Cull its world-space volume.
-      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity;
+      let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,baseMin=Infinity,baseMax=-Infinity;
       for(let i=0;i<4;i++){
         const [x,y]=VERTICES[i];this.projected.set(x,y,0).applyMatrix4(this.model);
         left=Math.min(left,this.projected.x);right=Math.max(right,this.projected.x);
         top=Math.min(top,this.projected.z);bottom=Math.max(bottom,this.projected.z);
+        baseMin=Math.min(baseMin,this.projected.y);baseMax=Math.max(baseMax,this.projected.y);
       }
-      return this.visibility.ground(left,top,right,bottom);
+      return this.visibility.ground(left,top,right,bottom,baseMin,baseMax);
     }
     let left=Infinity,right=-Infinity,top=Infinity,bottom=-Infinity,depth=0,near=Infinity,far=-Infinity;
     // Fuse model, billboard lean, view and projection once per object rather

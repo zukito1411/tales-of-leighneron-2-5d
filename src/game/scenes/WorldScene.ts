@@ -1,3 +1,4 @@
+import type {PresentationCameraControl} from '../presentation25d/OrbitCamera';
 import {CombatClock} from '../systems/CombatClock';
 import {presentationViewReady} from '../presentation25d/resourcePreparation';
 import {TerrainHeightField} from '../systems/TerrainHeightField';
@@ -202,8 +203,14 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
   private roadLife!:AmbientRoadLifeSystem;
   private aliceCompanion!:AliceCompanionSystem;
   get inInterior(){return Boolean(this.interiors?.active);}
+  private readonly transitionCameraControl:PresentationCameraControl={owner:this,view:'scripted'};
+  get presentationCameraControl():PresentationCameraControl|undefined{
+    if(this.cinematicDirector?.active)return this.cinematicDirector.presentationCameraControl;
+    const owner=this.passage?.active?this.passage:this.arrivalView??this.restSession;
+    if(!owner)return undefined;this.transitionCameraControl.owner=owner;return this.transitionCameraControl;
+  }
   get presentationFocus(){
-    return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active
+    return this.player?.active&&this.player.visible&&(!this.cinematicDirector?.active||this.cinematicDirector.usesPlayerCamera)
       ?this.player:this.cameras.main.midPoint;
   }
   get presentationOcclusionSubject(){
@@ -211,7 +218,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       ?this.player:undefined;
   }
   get presentationPlayer(){
-    return this.player?.active&&this.player.visible&&!this.cinematicDirector?.active&&!this.passage?.active&&!this.arrivalView&&!this.restSession?this.player:undefined;
+    return this.player?.active&&this.player.visible&&(!this.cinematicDirector?.active||this.cinematicDirector.usesPlayerCamera)&&!this.passage?.active&&!this.arrivalView&&!this.restSession?this.player:undefined;
   }
   private readonly lockPresentation={x:0,y:0,displayWidth:0,displayHeight:0,presentationElevation:0};
   get presentationLockedTarget(){

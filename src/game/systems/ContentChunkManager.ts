@@ -1,3 +1,5 @@
+import {outdoorSceneryBounds} from '../../data/outdoorFurniture';
+import {artFrameSize} from '../../data/art';
 import type {FrameWorkBudget} from '../presentation25d/FrameWorkBudget';
 import type { ContentDefinition, ContentState, ContentWorldState, CreatureContentDefinition, EncounterRole, Vec2 } from '../types';
 import { chunkNeighborhood,nearbyPhysicsChunks, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
@@ -109,11 +111,17 @@ export class ContentChunkManager<Actor> {
     this.sceneryIndex=new StaticBoundsIndex(definitions.flatMap(d=>{
       if(!('frame' in d))return [];
       const scale=d.scale??.6,b=spriteBounds(d.texture??'world_objects',d.frame,scale,d.world.x,d.world.y,d.anchor==='center');
+      const fitting=outdoorSceneryBounds(d.id,d.world.x,d.world.y,artFrameSize(d.texture??'world_objects',d.frame).width*scale,d.rotation??0);
       const angle=d.rotation??0,c=Math.cos(angle),s=Math.sin(angle);
       const corners=[[b.left,b.top],[b.right,b.top],[b.left,b.bottom],[b.right,b.bottom]]
         .map(([x,y])=>({x:d.world.x+(x-d.world.x)*c-(y-d.world.y)*s,y:d.world.y+(x-d.world.x)*s+(y-d.world.y)*c}));
-      return [{id:d.id,bounds:{left:Math.min(...corners.map(p=>p.x)),right:Math.max(...corners.map(p=>p.x)),
-        top:Math.min(...corners.map(p=>p.y)),bottom:Math.max(...corners.map(p=>p.y))}}];
+      const bounds={left:Math.min(...corners.map(p=>p.x)),right:Math.max(...corners.map(p=>p.x)),
+        top:Math.min(...corners.map(p=>p.y)),bottom:Math.max(...corners.map(p=>p.y))};
+      // Keep the original silhouette coverage too; model extents may expand
+      // residency, but must never shorten the retained furniture's coverage.
+      if(fitting){bounds.left=Math.min(bounds.left,fitting.left);bounds.right=Math.max(bounds.right,fitting.right);
+        bounds.top=Math.min(bounds.top,fitting.top);bounds.bottom=Math.max(bounds.bottom,fitting.bottom);}
+      return [{id:d.id,bounds}];
     }));
     this.nextSpawnSequence = persisted.nextSpawnSequence;
     this.flagshipLayoutVersion=persisted.flagshipLayoutVersion;

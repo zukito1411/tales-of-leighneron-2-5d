@@ -1,3 +1,4 @@
+import {createRuralFitting} from './RuralGeometry';
 import type {CapitalPropStyle} from '../../data/highmereStreetStyle';
 import {addCapitalMarketStock,addCapitalCanopy,createStreetFitting} from './CapitalDetailsGeometry';
 import {createFountainGeometry} from './FountainGeometry';
@@ -20,12 +21,12 @@ import {HERO_BODY_HEIGHT} from '../../data/heroBodyRegistration';
 import materials from './furnitureMaterials.json';
 import {propPassageFootprints} from '../../data/worldPropGroundPlan';
 
-export type PropArt='campfire'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
+export type PropArt='windmill'|'waterfall'|'campfire'|'life-tree'|'crate'|'cargo'|'barrels'|'fence'|'sign'|'lampPost'|'brazier'|'well'|'fountain'|'stall'|'tent'|'wagon'|'rock'|'columns'|'crystals'|'waystone'|'lectern'|'sack'|'pump'|'banner'|'shrine'|'dummy'|'keepsake'|'ship'|'ship-stern'|'ship-mast'|'ship-pennant'|'bridge'|'ledger'|'satchel'|'sealed-gate'|'coastal-boat'|'dock';
 export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|'doorway'|'openChest'|'tower-door-closed'|'tower-door-open'|PropArt;
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
   streetStyle?:CapitalPropStyle;
-  stairHeights?:readonly number[];openSides?:boolean;
+  stairHeights?:readonly number[];cascadeHeights?:readonly number[];openSides?:boolean;
   interiorUse?:InteriorFurnishingUse;
   art:FurnitureArt;kit:string;key:string;
   /** Visible artwork in frame UV coordinates, independent of atlas padding. */
@@ -96,7 +97,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
-  if(createStreetFitting(m,shape,emission)||createStableFitting(m,shape,emission)||createInteriorFitting(m,shape,emission))return m.finish();
+  if(createRuralFitting(m,shape,emission)||createStreetFitting(m,shape,emission)||createStableFitting(m,shape,emission)||createInteriorFitting(m,shape,emission))return m.finish();
   // Source crops contain shaded object paintings and transparent margins,
   // rather than flat diffuse wood. Enlarging a tiny patch loses the grain;
   // alpha-forced mesh faces can expose the source's plain background RGB.

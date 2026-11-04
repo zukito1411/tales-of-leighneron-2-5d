@@ -1,3 +1,4 @@
+import {SETTLEMENT_PASTURES,type SettlementPasture} from '../../data/settlementPastures';
 import type Phaser from 'phaser';
 import {paintCanvas,paintContext,type PaintCanvas,type PaintContext} from './PaintCanvas';
 import type {CoverArt} from './GroundCoverBaker';
@@ -12,7 +13,7 @@ import {darkavGroundPatterns,darkavGroundFrame,DARKAV_GROUND_FRAMES} from './Dar
 import {TOWN_BY_ID} from '../../data/towns';
 import {insideDefense} from '../../data/settlementDefenses';
 
-export interface TerrainBakeResources {patternImages:CanvasImageSource[];cover:[string,CoverArt][]}
+export interface TerrainBakeResources {patternImages:CanvasImageSource[];cover:[string,CoverArt][];pastures?:readonly SettlementPasture[]}
 
 export class TerrainBaker {
   private readonly patterns: CanvasPattern[] = [];
@@ -163,7 +164,7 @@ export class TerrainBaker {
         cover.push([key,{source,sx:0,sy:0,width:source.width,height:source.height,ratio:art.ratio}]);
         await new Promise<void>(resolve=>window.setTimeout(resolve,0));
       }
-      return {patternImages,cover};
+      return {patternImages,cover,pastures:SETTLEMENT_PASTURES};
     }catch(error){for(const bitmap of bitmaps)bitmap.close();throw error;}
   }
   destroy() {

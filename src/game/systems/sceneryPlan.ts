@@ -1,3 +1,4 @@
+import {regionalTree} from '../../data/regionalTrees';
 import {propFitsHabitat} from './propHabitat';
 import {createNoise2D} from 'simplex-noise';
 import {CHUNK_SIZE} from '../../data/world';
@@ -15,7 +16,7 @@ import {flagshipFootprint} from '../../data/pirateFlagship';
 
 const standNoise=createNoise2D(seededRandom('mernondna:woodland-stands'));
 export interface SceneryReservation extends Vec2 {bounds?:Rect}
-export interface SceneryTree extends Vec2 {texture:TreeTexture;frame:0|1;scale:number;id:string}
+export interface SceneryTree extends Vec2 {texture:TreeTexture;frame:number;scale:number;id:string}
 const reservedBounds=(site:SceneryReservation):Rect=>site.bounds??{left:site.x-90,right:site.x+90,top:site.y-115,bottom:site.y+75};
 function clearSite(bounds:Rect,world:WorldGenerator,reserved:readonly Rect[],gap:number){
   if([bounds.left,(bounds.left+bounds.right)/2,bounds.right].some(x=>[bounds.top,(bounds.top+bounds.bottom)/2,bounds.bottom].some(y=>inDragonArena(x,y,180))))return false;
@@ -41,12 +42,13 @@ export function* planWildernessTreeSteps(chunkX:number,chunkY:number,world:World
     if(settlementAt(x,y))continue;
     const terrain=world.getTerrainAt(x,y),region=world.getRegionAt(x,y),biome=world.getBiomeAt(x,y);
     const stand=standNoise(x*.0015,y*.0015),profile=REGION_SCENERY[region];
+    const variation=standNoise(x*.002+19,y*.002-31),palette=regionalTree(region,biome,terrain,variation);
     if(region==='darkav'||region==='dead-sea'||biome==='dryland'||terrain==='water')continue;
     const cold=terrain==='snow'||biome==='snowfield';
-    if(!(terrain==='forest'&&stand>-.55||terrain==='grass'&&stand>.42||cold&&terrain==='snow'&&stand>.35))continue;
-    const texture:TreeTexture=cold?'climate_props':'world_assets';
-    const frame:0|1=cold?0:region==='nardorous'?1:standNoise(x*.002+19,y*.002-31)>.45?1:0;
-    const scale=treeScale(texture,frame,profile.treeHeight+(rng()-.5)*profile.treeVariation*2);
+    if(!(terrain==='forest'&&stand>-.55||terrain==='grass'&&stand>.42||cold&&terrain==='snow'&&stand>.35||palette&&terrain==='sand'&&stand>.42))continue;
+    const texture:TreeTexture=palette?.texture??(cold?'climate_props':profile.treeTexture);
+    const frame=palette?.frame??(cold?0:region==='nardorous'?1:variation>.45?1:0);
+    const scale=treeScale(texture,frame,(palette?.height??profile.treeHeight)+(rng()-.5)*profile.treeVariation*2);
     if(!propFitsHabitat(texture,frame,world,x,y,scale))continue;
     if(!clearSite(spriteBounds(texture,frame,scale,x,y),world,reservedRects,24))continue;
     trees.push({id:`scenery:${chunkX}:${chunkY}:${col}:${row}`,x,y,texture,frame,scale});

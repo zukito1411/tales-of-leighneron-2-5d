@@ -1,3 +1,4 @@
+import {registerSettlementPasture} from '../../data/settlementPastures';
 import {TerrainBaker} from './TerrainBaker';
 import {WorldGenerator} from './WorldGenerator';
 import {planChunkScenerySteps} from './chunkSceneryPlan';
@@ -13,7 +14,7 @@ const world=new WorldGenerator();let baker:TerrainBaker|undefined;
 scope.onmessage=({data})=>{
   let bitmap:ImageBitmap|undefined;
   try{
-    if(data.kind==='init'){baker=new TerrainBaker(data.resources);scope.postMessage({kind:'ready'});return;}
+    if(data.kind==='init'){for(const pasture of data.resources.pastures??[])registerSettlementPasture(pasture);baker=new TerrainBaker(data.resources);scope.postMessage({kind:'ready'});return;}
     if(!baker)throw new Error('Terrain worker is not ready');
     const canvas=new OffscreenCanvas(data.pixels,data.pixels),context=canvas.getContext('2d');
     if(!context)throw new Error('Worker canvas is unavailable');

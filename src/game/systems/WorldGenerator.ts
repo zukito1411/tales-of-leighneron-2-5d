@@ -1,3 +1,5 @@
+import {elarionElevation,elarionCliffTerrain} from '../../data/elarionHighlands';
+import {settlementPastureAt} from '../../data/settlementPastures';
 import {friendlyCampAt} from '../../data/wildernessCampSites';
 import { createNoise2D } from 'simplex-noise';
 import type { RegionId, TerrainKind, Vec2 } from '../types';
@@ -106,17 +108,17 @@ export class WorldGenerator {
       const dx=Math.max(f.left-x,0,x-f.right),dy=Math.max(f.top-y,0,y-f.bottom);
       if(dx>384||dy>384)continue;
       const outside=Math.hypot(dx,dy);
-      if(outside<=0)return 0;
+      if(outside<=0)return elarionElevation(x,y,0);
       const t=Math.min(1,outside/384);foundation=Math.min(foundation,t*t*(3-2*t));
     }
-    if(terrain==='lava'||terrain==='ice'||terrain==='farmland')return 0;
+    if(terrain==='lava'||terrain==='ice'||terrain==='farmland')return elarionElevation(x,y,0);
     if(capitalDistance<HIGHMERE_PLAN.radius+384){
       foundation=Math.min(foundation,smoothFoundation(Math.max(0,capitalDistance-HIGHMERE_PLAN.radius)/384));
     }
     const coast=Math.max(0,Math.min(1,(Math.min(bank,harborShoreDistance(x,y),lakeShoreDistance(x,y))-120)/700));
     const biome=this.getBiomeAt(x,y),amplitude=biome==='highland'?165:biome==='snowfield'?115:biome==='volcanic'?95:biome==='forest'?58:biome==='coast'?14:36;
     const hill=Math.max(0,noise2D(x*.0008,y*.0008)*.55+noise2D(x*.00032,y*.00032)*.30+noise2D(x*.0018,y*.0018)*.15+.35);
-    return hill*amplitude*coast*coast*(3-2*coast)*foundation;
+    return elarionElevation(x,y,hill*amplitude*coast*coast*(3-2*coast)*foundation);
   }
   getFootstepSurface(x:number,y:number):'grass'|'stone'|'snow'|'wood'{
     if(onPortDeck(x,y)||onFlagshipBoarding(x,y)||onWildernessBridge(x,y)||onHighmereBridge(x,y))return 'wood';
@@ -197,6 +199,7 @@ export class WorldGenerator {
     // bridge in the agricultural approaches outside the built-up wards.
     if(onHeadwaterStream(worldX,worldY))return 'water';
 
+    const pasture=settlementPastureAt(worldX,worldY);if(pasture)return pasture.terrain;
     const layout = settlementAt(worldX,worldY);
     if (layout) {
       const town = TOWN_BY_ID[layout.townId];
@@ -212,6 +215,7 @@ export class WorldGenerator {
     if (FARM_PLOTS.some(plot => Math.abs(worldX - plot.x) < plot.width / 2 && Math.abs(worldY - plot.y) < plot.height / 2)) return 'farmland';
     const lake=lakeAt(worldX,worldY);if(lake)return lake.frozen?'ice':'water';
 
+    if(elarionCliffTerrain(worldX,worldY)&&!road)return 'stone';
     const region = REGIONS.find((entry) => entry.id === regionId);
     if (!region) return 'grass';
 

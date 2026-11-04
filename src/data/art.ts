@@ -1,3 +1,4 @@
+import {REGIONAL_TREE_SHEET} from './regionalTrees';
 import {NATIVE_PROP_ART,type NativePropTexture} from './nativePropArt';
 import {HERO_BODY_HEIGHT} from './heroBodyRegistration';
 import {varkhulGroundPadding} from './varkhulArt';
@@ -22,7 +23,7 @@ import { PLAYER_SKILL_ART, skillArtSources } from './playerSkillArt';
 import type { PlayerSkillTexture } from './activeSkills';
 
 export type PlayerPresentationTexture = 'leigneron' | 'leigneron_idle' | 'leigneron_idle_sides' | 'leigneron_running';
-type SourceArtTextureKey = NativePropTexture | typeof DIRECTIONAL_ENEMY_ART[number]['walkTexture'] | 'elarion_tree' | 'elven_villas' | 'flower_fence' | 'darkav_props' | 'darkav_volcano' | 'enemy_troll' | 'enemy_dragon' | 'enemy_dragon_fly' | 'enemy_orc_raider' | 'enemy_orc_spearman' | 'enemy_orc_spearman_actions' | 'enemy_orc_spearman_states' | 'enemy_spear_projectile' | 'effect_troll_impact' | 'desert_props' | 'woodland_props' | 'climate_props' | 'flora' | PlayerSkillTexture | typeof NPC_IDLE_ART[number]['key'] | typeof NPC_IDLE_ART[number]['walk'] | PlayerPresentationTexture | 'leigneron_attack' | 'effect_fortification' | 'effect_hit' | 'effect_heal' | 'effect_slash' | 'effect_teleport' | 'npcs' | 'npc_guard' | 'npc_woman' | 'npc_huntress' | 'npc_villager' | 'npc_blacksmith' | 'npc_adventurer' | 'npc_attendant' | 'npc_general' | 'enemies' | 'world_objects' | 'world_buildings' | 'world_assets' | 'capital_buildings' | 'bridges' | 'others' | 'walls' | 'royal_walls' | 'terrain';
+type SourceArtTextureKey = NativePropTexture | typeof DIRECTIONAL_ENEMY_ART[number]['walkTexture'] | 'regional_trees' | 'elarion_tree' | 'elven_villas' | 'flower_fence' | 'darkav_props' | 'darkav_volcano' | 'enemy_troll' | 'enemy_dragon' | 'enemy_dragon_fly' | 'enemy_orc_raider' | 'enemy_orc_spearman' | 'enemy_orc_spearman_actions' | 'enemy_orc_spearman_states' | 'enemy_spear_projectile' | 'effect_troll_impact' | 'desert_props' | 'woodland_props' | 'climate_props' | 'flora' | PlayerSkillTexture | typeof NPC_IDLE_ART[number]['key'] | typeof NPC_IDLE_ART[number]['walk'] | PlayerPresentationTexture | 'leigneron_attack' | 'effect_fortification' | 'effect_hit' | 'effect_heal' | 'effect_slash' | 'effect_teleport' | 'npcs' | 'npc_guard' | 'npc_woman' | 'npc_huntress' | 'npc_villager' | 'npc_blacksmith' | 'npc_adventurer' | 'npc_attendant' | 'npc_general' | 'enemies' | 'world_objects' | 'world_buildings' | 'world_assets' | 'capital_buildings' | 'bridges' | 'others' | 'walls' | 'royal_walls' | 'terrain';
 export type ArtTextureKey=SourceArtTextureKey|NpcWalkTexture|NpcDirectionalIdleTexture|typeof BANDIT_COMBAT_TEXTURE|typeof SALT_KING_TEXTURE|GuardMarchTexture|NpcCombatTexture|'port_dock'|'pirate_flagship'|typeof PIRATE_TEXTURE|typeof BOATSWAIN_TEXTURE|typeof GOBLIN_TEXTURE|M14Texture|'enemy_goblin_stone';
 
 export type SpriteRegion = readonly [x: number, y: number, width: number, height: number];
@@ -38,7 +39,7 @@ interface ArtSheet {
   blackBackground: boolean; sourceSize?: readonly [number, number]; regions?: readonly SpriteRegion[];
 
   density: number; atlasColumns?: number;
-  groundPadding?:number;
+  groundPadding?:number;streamed?:boolean;
 
   sourceInset?: number;
 
@@ -253,6 +254,7 @@ export const ART_SHEETS: readonly ArtSheet[] = [
 
       'wall-royal-arch','wall-great-gate','wall-ruined-arch','wall-broken-run','wall-ivy-arch'] },
 
+  REGIONAL_TREE_SHEET,
   { key: 'world_assets', path: 'assets/sprites/world_assets.png', columns: 8, density: 4, frameWidth: 128, frameHeight: 128, blackBackground: false,
 
     sourceSize: [2172, 724], regions: [[14,127,368,436],[386,132,254,427],[644,335,334,228],[986,370,290,193],[1291,374,223,189],[1543,319,149,244],[1696,370,188,193],[1896,368,263,188]],

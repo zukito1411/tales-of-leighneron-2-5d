@@ -1,6 +1,6 @@
 import {DataTexture,FloatType,NearestFilter,RedFormat,Vector4} from 'three';
 import {CHUNK_SIZE} from '../../data/world';
-import {TerrainHeightField,ELEVATION_CELL_SIZE} from '../systems/TerrainHeightField';
+import {TerrainHeightField,ELEVATION_CELL_SIZE,type TerrainHeightRange} from '../systems/TerrainHeightField';
 
 export {ELEVATION_CELL_SIZE} from '../systems/TerrainHeightField';
 export const TERRAIN_GRID_SEGMENTS=CHUNK_SIZE/ELEVATION_CELL_SIZE;
@@ -17,9 +17,11 @@ export class ElevationField {
   private sample:(x:number,y:number)=>number=()=>0;
   private left=Infinity;private top=Infinity;private columns=0;
   private centerX=Infinity;private centerY=Infinity;
+  /** Bounds of the same complete buffer currently supplied to the shader. */
+  readonly heightRange:TerrainHeightRange={min:0,max:0};
   private pending:{
     centerX:number;centerY:number;left:number;top:number;
-    pixels:Float32Array;steps:Generator<void,void>
+    pixels:Float32Array;range:TerrainHeightRange;steps:Generator<void,void>
   }|undefined;
   readonly texture=new DataTexture(this.pixels,TEXTURE_SIZE,TEXTURE_SIZE,RedFormat,FloatType);
   readonly uniforms={heightMap:{value:this.texture},heightBounds:{value:new Vector4(0,0,CELL,CELL)},heightEnabled:{value:false}};
@@ -27,7 +29,7 @@ export class ElevationField {
   setSource(sample:(x:number,y:number)=>number,field?:TerrainHeightField){
     if(this.sample===sample&&(!field||this.field===field))return;
     this.sample=sample;this.field=field??new TerrainHeightField(sample);this.left=this.centerX=this.centerY=Infinity;
-    this.columns=0;this.pending=undefined;
+    this.columns=0;this.pending=undefined;this.heightRange.min=this.heightRange.max=0;
   }
   get initialized(){return this.columns>0;}
   private vertex(x:number,y:number){
@@ -42,8 +44,8 @@ export class ElevationField {
   private center(focus:{x:number;y:number}){
     return {x:Math.round(focus.x/CHUNK_SIZE)*CHUNK_SIZE,y:Math.round(focus.y/CHUNK_SIZE)*CHUNK_SIZE};
   }
-  private publish(centerX:number,centerY:number,pixels:Float32Array){
-    this.pixels.set(pixels);
+  private publish(centerX:number,centerY:number,pixels:Float32Array,range:TerrainHeightRange){
+    this.pixels.set(pixels);this.heightRange.min=range.min;this.heightRange.max=range.max;
     const half=(TEXTURE_SIZE-1)*CELL/2;
     this.left=centerX-half;this.top=centerY-half;
     this.centerX=centerX;this.centerY=centerY;
@@ -51,11 +53,12 @@ export class ElevationField {
     this.uniforms.heightBounds.value.set(this.left,this.top,(TEXTURE_SIZE-1)*CELL,(TEXTURE_SIZE-1)*CELL);
     this.texture.needsUpdate=true;
   }
-  private *build(left:number,top:number,pixels:Float32Array):Generator<void,void>{
+  private *build(left:number,top:number,pixels:Float32Array,range:TerrainHeightRange):Generator<void,void>{
     const gx=left/CELL,gy=top/CELL;
     for(let y=0;y<TEXTURE_SIZE;y++){
       for(let x=0;x<TEXTURE_SIZE;x++){
-        pixels[y*TEXTURE_SIZE+x]=this.vertex(gx+x,gy+y);
+        const height=this.vertex(gx+x,gy+y);pixels[y*TEXTURE_SIZE+x]=height;
+        range.min=Math.min(range.min,height);range.max=Math.max(range.max,height);
         if((x&15)===15)yield;
       }
       yield;
@@ -79,9 +82,9 @@ export class ElevationField {
       this.pending.steps.return();this.pending=undefined;
     }
     if(target.x===this.centerX&&target.y===this.centerY)return;
-    const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length);
+    const half=(TEXTURE_SIZE-1)*CELL/2,pixels=new Float32Array(this.pixels.length),range={min:Infinity,max:-Infinity};
     this.pending={centerX:target.x,centerY:target.y,left:target.x-half,top:target.y-half,
-      pixels,steps:this.build(target.x-half,target.y-half,pixels)};
+      pixels,range,steps:this.build(target.x-half,target.y-half,pixels,range)};
   }
   /** One short, measured slice after presentation; expensive height queries
    * never rebuild a texture synchronously in response to yaw or pitch. */
@@ -91,7 +94,7 @@ export class ElevationField {
     const deadline=performance.now()+budgetMs;
     for(let i=0;i<64;i++){
       if(job.steps.next().done){
-        this.publish(job.centerX,job.centerY,job.pixels);
+        this.publish(job.centerX,job.centerY,job.pixels,job.range);
         this.pending=undefined;break;
       }
       if(performance.now()>=deadline)break;

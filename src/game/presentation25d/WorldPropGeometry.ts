@@ -1,3 +1,5 @@
+import {elarionCascade} from '../../data/elarionHighlands';
+import {worldHeight} from './plane';
 import {streetStair} from '../../data/settlementStairs';
 import {outdoorFitting} from '../../data/outdoorFurniture';
 import {capitalPropStyle} from '../../data/highmereStreetStyle';
@@ -15,12 +17,25 @@ import {FLAGSHIP,FLAGSHIP_GANGPLANK} from '../../data/pirateFlagship';
  * and the original collision survey. Called once when a streamed prop enters. */
 export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects.Sprite,texture:ArtTextureKey,index:number):FurnitureShape|undefined {
   const style=capitalPropStyle(actor.name),fitting=outdoorFitting(actor.name),stairs=streetStair(actor.name);
-  const art=stairs?'stairs':fitting?.art??(actor.name.startsWith('wildcamp:')&&actor.name.endsWith(':fire')?'campfire':style==='cafe-table'||style==='cloth-counter'?'table':style==='cafe-chair'?'chair':style==='flower-pot'?'planter':style==='arms-rack'?'weaponRack':worldPropKind(texture,index));if(!art)return;
+  const cascade=elarionCascade(actor.name);
+  const art=cascade?'waterfall':stairs?'stairs':fitting?.art??(actor.name.startsWith('wildcamp:')&&actor.name.endsWith(':fire')?'campfire':style==='cafe-table'||style==='cloth-counter'?'table':style==='cafe-chair'?'chair':style==='flower-pot'?'planter':style==='arms-rack'?'weaponRack':worldPropKind(texture,index));if(!art)return;
   const sheet=ART_BY_KEY[texture],frame=actor.frame;
   const meta=frame.customData as {visibleBounds?:{left:number;top:number;width:number;height:number};sourceRegion?:readonly number[]}|undefined;
   const b=meta?.visibleBounds;if(!b)return;
   const d=sheet.density,w=b.width*d,h=b.height*d;
   const width=w/frame.cutWidth,height=h/frame.cutHeight,left=b.left*d/frame.cutWidth,top=b.top*d/frame.cutHeight;
+  if(cascade){
+    // Match every water vertex to the simulation's exact terrain triangles.
+    // Both dimensions are lattice-aligned; this work occurs once per admission.
+    const modelWidth=cascade.width,base=worldHeight(actor.scene,cascade.x,cascade.y),heights:number[]=[];
+    for(let row=0;row<=cascade.run/64;row++)for(let col=0;col<=4;col++)
+      heights.push((worldHeight(actor.scene,cascade.x-modelWidth/2+col*64,cascade.y-cascade.run+row*64)-base+3)/modelWidth);
+    const rise=Math.max(...heights);
+    return {art:'waterfall',kit:'world:elarion-cascade',key:cascade.id+':'+heights.join(','),left,top,width,height,
+      rise,depth:cascade.run/modelWidth,patch:[.4,.55,.48,.63],cascadeHeights:heights,
+      modelScale:modelWidth/(Math.abs(actor.displayWidth)*width),footX:0,footY:0,fixedGround:base,
+      bounds:{left:-.65,right:.65,bottom:-.02,top:rise+.08,back:-cascade.run/modelWidth-.1,front:.08}};
+  }
   if(stairs){
     const modelWidth=artFrameSize(texture,index).width*Math.abs(actor.scaleX)*d;
     return {art:'stairs',kit:'world:capital-stair',key:'capital-stair:'+modelWidth,left,top,width,height,
@@ -64,16 +79,24 @@ export function worldPropShape(actor:Phaser.GameObjects.Image|Phaser.GameObjects
   if(woodPatch)patch=woodPatch;
   if(fitting||style==='cloth-counter'||style==='flower-pot'||style==='arms-rack'){
     const worldWidth=Math.max(1,fitting?fittingWidth:Math.abs(actor.displayWidth)*width*modelScale);
-    rise=(style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
+    rise=(style==='windmill'?HERO_BODY_HEIGHT*5.2:style==='pasture-fence'?HERO_BODY_HEIGHT*.72:style==='pasture-straw'?HERO_BODY_HEIGHT*.045:style==='pasture-trough'?HERO_BODY_HEIGHT*.46:style==='laundry-line'?HERO_BODY_HEIGHT*1.65:style==='hay-bales'?HERO_BODY_HEIGHT*.80:style==='cafe-table'||style==='cloth-counter'?HERO_BODY_HEIGHT*.44:style==='cafe-chair'?HERO_BODY_HEIGHT*.86:style==='arms-rack'?HERO_BODY_HEIGHT*1.20:HERO_BODY_HEIGHT*.72)/worldWidth;
   }
-  return {streetStyle:style,art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
+  const shape:FurnitureShape={streetStyle:style,art,kit:'world:'+texture+':'+index,left,top,width,height,rise,depth,patch,stonePatch,roofPatch,footX,footY,modelScale,
     fire:!(texture==='native_quest_landmarks'&&index===1),canopy:!(texture==='native_quest_landmarks'&&index===0),
     paintOffset:vertical?0:.5-(l+r)/2,ornamentX:art==='lampPost'?(index===1?.5:.78)-(l+r)/2:undefined,
     bounds:{left:-.60+Math.min(0,.5-(l+r)/2),right:.60+Math.max(0,.5-(l+r)/2),bottom:0,top:rise*(style?.endsWith('-stall')?1.4:1.25),back:-Math.max(depth*1.1,depth/2+.5),front:Math.max(.16,.5-depth/2,art==='wagon'?rise*.22-depth*.2+.03:0)},
     heading:vertical?Math.PI/2:0,quarterTurnUV:vertical,
-    ...(fitting?{depth:fitting.depth,...(style==='hay-bales'?{interiorUse:'stable-hay' as const}:{}),modelScale:fittingWidth/(Math.abs(actor.displayWidth)*width),footX:0,footY:0,heading:0,paintOffset:0,
-      bounds:{left:-.52,right:.52,bottom:0,top:rise*1.25,back:-fitting.depth-.03,front:.03}}:{}),
     key:['world',art,style??'',texture,index,left,top,width,height,rise,depth,modelScale].join(':')};
+  if(fitting){
+    shape.depth=fitting.depth;shape.modelScale=fittingWidth/(Math.abs(actor.displayWidth)*width);
+    shape.footX=shape.footY=shape.heading=shape.paintOffset=0;
+    shape.bounds={left:style==='windmill'?-.95:-.52,right:style==='windmill'?.95:.52,bottom:0,top:style==='windmill'?Math.max(rise*1.25,rise*.71+.94):rise*1.25,
+      back:-fitting.depth-.03,front:style==='windmill'?.12:.03};
+    if(style==='hay-bales')shape.interiorUse='stable-hay';
+    else if(style==='pasture-straw')shape.interiorUse='stable-bedding';
+    else if(style==='pasture-trough')shape.interiorUse='stable';
+  }
+  return shape;
 }
 
 /** The ship's source is already a measured ground plan, not an elevation. */

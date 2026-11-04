@@ -34,6 +34,12 @@ wheel-pose shader paths, and their public art bundles were removed. Static
 world wagon props remain, as do sea-route and docked boat traffic. Historic
 artwork and source revisions can be recovered from Git history.
 
+The standalone side/front/rear horse PNGs have since been recovered under
+`public/assets/wildlife/horse/` for the bounded stable-interior livestock pool.
+They remain painted billboards; no caravan routes, horse mesh/rig or wheel
+animation system was restored. See that directory's README for provenance and
+the staged, serial-loading registration.
+
 Jagged edges receive contrast-adaptive FXAA in the existing composite pass, with
 no extra render target, history buffer, world redraw or MSAA depth resolve. The
 old unsharp-mask detail boost and stippled cutaway noise are removed. Standalone
