@@ -6,9 +6,10 @@ import type {FurnitureShape} from './FurnitureGeometry';
  * their volume from behind and at eye level. Built once per attunement state. */
 export function createGoddessShrineGeometry(shape:FurnitureShape,emission=false){
  const m=new ModelMesh(shape,emission),z=-shape.depth/2;
- // Tile actual painted stone, light edges, shaded carving and amber ornament
+ // Tile larger painted stone regions, light edges, shaded carving and amber ornament
  // from this actor's source sprite on every modeled side. Preserve its grain
- // and warm contrast rather than inventing a blue-gray marble palette.
+ // and warm contrast. Large source regions retain grain and chisel marks;
+ // quiet 12-pixel swatches washed that detail out in the game camera.
  const paint=shape.shrinePaint;
  const stone=paintedMaterial(paint?.body??shape.patch,.30,.30);
  const ivory=paintedMaterial(paint?.light??shape.patch,.28,.28);
