@@ -1,3 +1,4 @@
+import {outdoorFitting,outdoorFittingBodies} from '../../data/outdoorFurniture';
 import {EntranceWalkSurfaces} from '../presentation25d/EntranceWalkSurfaces';
 import {CAPITAL_SHOPFRONTS} from '../../data/highmereStreetStyle';
 import {settlementTrade} from '../../data/settlementTradeSigns';
@@ -86,6 +87,7 @@ export class WorldSpriteSystem {
     }
     if(this.scene.game.registry.get('presentation')==='three-2.5d'&&!(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture&&(texture==='port_dock'||texture==='bridges'&&profile?.floor&&frame!==ROAD_BRIDGE_FRAME))actor.setData(PRESENTATION_HINT,{plane:'ground',elevation:BRIDGE_DECK_HEIGHT,absoluteGround:true} satisfies PresentationHint);
     const furniture=(actor.getData(PRESENTATION_HINT) as PresentationHint).furniture;
+    if(furniture?.stairHeights)this.entranceSurfaces.registerStair(actor,furniture,worldHeight(this.scene,actor.x,actor.y),!staged);
     if(!profile?.floor&&texture!=='port_dock'&&!(texture==='darkav_volcano'&&this.scene.game.registry.get('presentation')==='three-2.5d')){
       const building=texture==='world_buildings'||texture==='capital_buildings'||texture==='elven_villas'
         ||texture==='world_objects'&&frame<4;
@@ -159,7 +161,12 @@ export class WorldSpriteSystem {
           for(const rect of polygonGroundBands(footprint))add(rect.left,rect.top,rect.right,rect.bottom);
         }
       }else if(solid||profile?.forceSolid){
-        if(furniture?.art==='stall'){/* Structural counter/posts are added below; the painted canopy is not a floor body. */}
+        if(furniture?.stairHeights){/* Open public treads are walk surfaces, not cargo colliders. */}
+        else if(furniture&&outdoorFitting(actor.name)){
+          const p=furniturePlacement(actor,furniture,{x:0,y:0,width:0,heading:0,lift:0});
+          for(const r of outdoorFittingBodies(actor.name,p.x,p.y,p.width,p.heading))add(r.left,r.top,r.right,r.bottom);
+        }
+        else if(furniture?.art==='stall'){/* Structural counter/posts are added below; the painted canopy is not a floor body. */}
         else if(profile?.solids.length){for(const polygon of profile.solids){
           const worldPolygon=polygon.map(([x,y]):GroundPoint=>{const p=point(x,y);return [p.x,p.y];});
           for(const rect of polygonGroundBands(worldPolygon))add(rect.left,rect.top,rect.right,rect.bottom);
@@ -197,7 +204,7 @@ export class WorldSpriteSystem {
         });
         for(const rect of polygonGroundBands(trunk))add(rect.left,rect.top,rect.right,rect.bottom);
       }
-      if(furniture&&(solid||profile?.forceSolid)&&!['arch','fence','stall','keepsake','banner','life-tree'].includes(furniture.art)){
+      if(furniture&&!furniture.stairHeights&&!outdoorFitting(actor.name)&&(solid||profile?.forceSolid)&&!['arch','fence','stall','keepsake','banner','life-tree'].includes(furniture.art)){
         // Deeper props need matching clearance, as buildings already do.
         // Add the body behind its existing front contact; keep old surveyed
         // stoops/details and open fence/arch passages intact. These bodies use

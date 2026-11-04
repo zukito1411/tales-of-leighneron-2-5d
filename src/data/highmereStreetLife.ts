@@ -1,3 +1,4 @@
+import {outdoorFittingBounds,outdoorDiningLayout} from './outdoorFurniture';
 import {artFrameSize} from './art';
 import {TOWN_BY_ID} from './towns';
 import {SETTLEMENT_BY_ID} from './settlements';
@@ -9,7 +10,7 @@ import {INTERIOR_ASSIGNMENTS} from './interiorAssignments';
 import {propPlacementBounds,spriteBounds,overlaps,rectTouchesStreet,type Rect} from './settlementGeometry';
 import {StaticBoundsIndex} from '../game/systems/StaticBoundsIndex';
 import {worldSpriteProfile} from './worldSpriteGeometry';
-import {CAPITAL_SHOPFRONTS,type CapitalPropStyle} from './highmereStreetStyle';
+import {CAPITAL_SHOPFRONTS,capitalPropStyle,type CapitalPropStyle} from './highmereStreetStyle';
 import type {ContentDefinition,PropContentDefinition,Vec2,WorldPropTexture} from '../game/types';
 
 export interface CapitalDressingSummary {added:number;byKind:Record<string,number>;omitted:number}
@@ -38,7 +39,8 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
  const doors=Object.entries(CAPITAL_BUILDING_SITES).map(([,s])=>({left:s.x-90,right:s.x+90,top:s.y-8,bottom:s.frontY+48}));
  const protectedBeds=layout.parcels.filter(p=>p.terrain==='farmland'||p.terrain==='water').map(p=>({left:p.x-p.width/2,right:p.x+p.width/2,top:p.y-p.height/2,bottom:p.y+p.height/2}));
  const envelope=(d:PropContentDefinition):Rect=>{
-  const r=propPlacementBounds(d.texture!,d.frame,d.scale,d.world.x,d.world.y,false,undefined,d.rotation??0);
+  const r=outdoorFittingBounds(d.id,d.world.x,d.world.y,artFrameSize(d.texture!,d.frame).width*d.scale,d.rotation??0)
+   ??propPlacementBounds(d.texture!,d.frame,d.scale,d.world.x,d.world.y,false,undefined,d.rotation??0);
   // propPlacementBounds reserves the full source and modeled ground depth.
   // Upright furniture height is not extra ground behind its feet.
   return r;
@@ -61,6 +63,17 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
   const r=envelope(d);index.add({bounds:r});content.push(d);
   CAPITAL_DRESSING.added++;CAPITAL_DRESSING.byKind[kind]=(CAPITAL_DRESSING.byKind[kind]??0)+1;return true;
  };
+ const dining=(id:string,p:Vec2)=>{
+  if(CAPITAL_DRESSING.added>177)return;
+  const group=outdoorDiningLayout(p.x,p.y).map((f,i):PropContentDefinition=>{
+   const kind=f.art==='table'?'cafe-table':'cafe-chair',texture='native_civic_bare',frame=f.art==='table'?9:7;
+   return {id:'detail:highmere:streetlife:'+kind+':'+id+(i===0?'':i===1?':w':':e'),kind:'prop',world:world(f),
+    texture,frame,scale:f.width/artFrameSize(texture,frame).width,rotation:f.rotation,solid:true,placement:'fixed'};
+  });
+  if(!group.every(fits)){CAPITAL_DRESSING.omitted+=3;return;}
+  for(const d of group){content.push(d);index.add({bounds:envelope(d)});CAPITAL_DRESSING.added++;
+   const kind=capitalPropStyle(d.id)!;CAPITAL_DRESSING.byKind[kind]=(CAPITAL_DRESSING.byKind[kind]??0)+1;}
+ };
  // Shop-associated street furnishings: deliberately in front courts, to one
  // side of each existing entrance, with a broad, unobstructed central approach.
  for(const [id,style] of Object.entries(CAPITAL_SHOPFRONTS)){
@@ -68,9 +81,7 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
   const side=slot%2?-1:1,cx=site.x+side*230,cy=site.frontY-105;
   if(style==='cafe'||style==='bakery'){
    for(const [i,x] of [cx,cx-side*480].entries()){
-    if(!add('shop:'+slot+':'+i,'cafe-table',{x,y:cy},'native_civic_bare',9,74))continue;
-    add('shop:'+slot+':'+i+':w','cafe-chair',{x:x-110,y:cy+4},'native_civic_bare',7,36,-Math.PI/2);
-    add('shop:'+slot+':'+i+':e','cafe-chair',{x:x+110,y:cy+4},'native_civic_bare',7,36,Math.PI/2);
+    dining('shop:'+slot+':'+i,{x,y:cy});
    }
   }else if(style==='clothier')add('shop:'+slot,'cloth-counter',{x:cx,y:cy},'native_civic_bare',9,95);
   else if(style==='armorer')add('shop:'+slot,'arms-rack',{x:cx,y:cy},'native_civic_bare',9,82);
@@ -80,10 +91,7 @@ export function addHighmereStreetLife(content:ContentDefinition[],walkable:(x:nu
  // An open-air tea terrace beside the western civic approach, away from
  // the central quest board and processional crossing.
  for(const [i,p] of [{x:-960,y:550},{x:-710,y:550}].entries()){
-  if(add('plaza:'+i,'cafe-table',p,'native_civic_bare',9,74)){
-   add('plaza:'+i+':w','cafe-chair',{x:p.x-105,y:p.y+4},'native_civic_bare',7,36,-Math.PI/2);
-   add('plaza:'+i+':e','cafe-chair',{x:p.x+105,y:p.y+4},'native_civic_bare',7,36,Math.PI/2);
-  }
+  dining('plaza:'+i,p);
  }
  add('market:cloth-display','cloth-counter',{x:-3200,y:800},'native_civic_bare',9,90);
  add('market:arms-display','arms-rack',{x:-2420,y:800},'native_civic_bare',9,70);

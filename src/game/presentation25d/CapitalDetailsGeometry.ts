@@ -120,6 +120,34 @@ export function addCapitalCanopy(m:ModelMesh,H:number,D:number){
  for(const x of [-.44,.44])m.beam([x,H*1.15,-.04],[x,H*1.15,-D*.35],.018,wood,4);
 }
 
+/** Static household clothesline: closed timber posts, sagged hemp rope,
+ * pegged linen and a complete tunic silhouette, all in one cached mesh. */
+export function createStreetFitting(m:ModelMesh,shape:FurnitureShape,emission:boolean){
+ if(shape.streetStyle!=='laundry-line')return false;
+ if(emission)return true;
+ const H=shape.rise,D=shape.depth,z=-D/2,wood=atlasMaterial('furnishings',0,.3,.3),rope=atlasMaterial('furnishings',2,.15,.15);
+ for(const x of [-.47,.47]){
+  m.softBox(x-.018,x+.018,0,H,z-.018,z+.018,wood,.003);
+  m.softBox(x-.026,x+.026,H*.94,H*1.02,z-.026,z+.026,wood,.004);
+ }
+ const height=(x:number)=>H*(.96-.10*(1-(x/.47)**2));
+ for(let i=0;i<12;i++){
+  const a=-.47+i*.94/12,b=a+.94/12;m.beam([a,height(a),z],[b,height(b),z],.004,rope,6);
+ }
+ for(const [i,x] of [-.29,0,.29].entries()){
+  const y=height(x),mat=atlasMaterial('furnishings',i===0?4:i===1?6:5,.22,.26);
+  const hem=y-H*.39;
+  // Full cloth silhouettes, thickness and a folded hem keep rear views finished.
+  const points:readonly [number,number][]=i===1?[[x-.10,y],[x+.10,y],[x+.16,y-H*.13],[x+.11,y-H*.19],
+   [x+.08,y-H*.14],[x+.08,hem],[x-.08,hem],[x-.08,y-H*.14],[x-.11,y-H*.19],[x-.16,y-H*.13]]
+   :[[x-.105,y],[x+.105,y],[x+.105,hem],[x-.105,hem]];
+  m.extrude(points,z+.003,z-.003,mat);
+  for(const peg of [x-.075,x+.075])m.softBox(peg-.008,peg+.008,y-.025,y+.018,z-.012,z+.012,wood,.002);
+  m.beam([x-.08,hem+.012,z+.004],[x+.08,hem+.012,z+.004],.004,mat,4);
+ }
+ return true;
+}
+
 /** Readable complete paintings, not repeating/cropped cloth swatches. */
 export function addCapitalTradeSign(m:ModelMesh,shape:HouseShape,emission:boolean){
  const trade=shape.tradeSign;if(!trade||emission)return;

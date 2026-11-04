@@ -610,6 +610,11 @@ export class InteriorSession {
     if(!this.cinematicContext&&objective?.type==='visit'&&objective.targetId===entry.id)story.progressQuest('visit',entry.id);
     if(!this.cinematicContext)this.scene.notify(`${entry.name} — use the south doorway to leave.${entry.profile==='inn'?` Guest beds: ${INN_REST_COST}G until 06:00.`:''}`);
     if(entry.profile==='cave'&&!cinematic)this.scene.beginDungeon(entry.id);
+    scene.setInteriorLivestock(entry.profile==='stable'&&!cinematic&&plan.livestock?.length?{
+      sites:plan.livestock.map((animal,i)=>({id:entry.id+':stall:'+i,...this.localPoint(animal),
+        radius:animal.radius,species:[animal.species],population:1,fixed:true})),
+      route:(from,to,radius)=>this.livestockPath(from,to,radius),depthAt:y=>this.playerRenderDepth(y),
+    }:null);
   }
   /** One bounded flood over the real swept-foot geometry at room opening.
    * Occupants must have a reachable interaction approach from the entrance. */
@@ -769,6 +774,7 @@ export class InteriorSession {
         &&person.y>=r.y+40&&p.y<=r.y+r.height-40))return false;
       const touches=(a:RoomRect,b:RoomRect)=>a.x<b.x+b.width&&a.x+a.width>b.x
         &&a.y<b.y+b.height&&a.y+a.height>b.y;
+      if(plan.livestock?.some(a=>Math.hypot(a.x-p.x,a.y-p.y)<a.radius+96))return false;
       const feet={x:p.x-14,y:p.y-24,width:28,height:24};
       if(optional&&plan.aisles?.some(r=>touches(feet,r)))return false;
       if(this.wallSolids.some(r=>touches(feet,r))||this.passageOverlaps(r=>touches(feet,r))||plan.objects.some(o=>o.solid&&touches(feet,o.solid)))return false;
@@ -823,6 +829,18 @@ export class InteriorSession {
   }
   private validFeet(x:number,y:number){
     return this.playerFeet(x,y);
+  }
+  private livestockPath(a:Vec2,b:Vec2,radius:number){
+    const plan=this.plan;if(!plan||this.entry?.profile!=='stable'||this.loading||this.cinematicContext)return false;
+    const distance=Math.hypot(b.x-a.x,b.y-a.y);if(distance>120)return false;
+    const steps=Math.max(1,Math.ceil(distance/12)),residents=this.getResidents();
+    for(let i=0;i<=steps;i++){
+      const x=a.x+(b.x-a.x)*i/steps,y=a.y+(b.y-a.y)*i/steps;
+      if(!this.combatFeet(x,y,radius,undefined,true)||residents.some(n=>n.active&&Math.hypot(n.x-x,n.y-y)<radius+65))return false;
+      const lx=x-this.origin.x,ly=y-this.origin.y;
+      if(plan.aisles?.some(r=>lx+radius>r.x&&lx-radius<r.x+r.width&&ly>r.y&&ly-radius*2<r.y+r.height))return false;
+    }
+    return true;
   }
   combatPath(a:Vec2,b:Vec2,radius=12){
     const steps=Math.max(1,Math.ceil(Math.hypot(b.x-a.x,b.y-a.y)/6));
@@ -1094,6 +1112,7 @@ export class InteriorSession {
     this.scene.syncState();
   }
   private closeRoom(){
+    this.scene.setInteriorLivestock(null);
     if(!this.entry&&!this.objects.length){this.releaseArt();return;}
     if(this.entry?.profile==='cave')this.scene.closeDungeon(!this.cinematicContext);
     this.entry=null;this.plan=null;this.backdrop=null;this.homeObjects=[];this.homeItems=null;

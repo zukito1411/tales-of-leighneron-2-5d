@@ -75,6 +75,7 @@ import { EventDirector, type EventDirectorHost } from '../systems/EventDirector'
 import { WorldGenerator } from '../systems/WorldGenerator';
 import { ContentChunkManager, restoreLegacySummonWaves, type EncounterSpawnMember } from '../systems/ContentChunkManager';
 import { EncounterCoordinator } from '../systems/EncounterCoordinator';
+import type {InteriorLivestockContext} from '../systems/LivestockSystem';
 import { AmbientWildlifeSystem } from '../systems/AmbientWildlifeSystem';
 import {PirateFlagshipArt} from '../systems/PirateFlagshipArt';
 import {FLAGSHIP,FLAGSHIP_CONTENT,flagshipFootprint,flagshipWalkable,flagshipNavigation,flagshipDeckPathClear,onFlagshipDeck,onFlagshipBoarding,isFlagshipCombatant} from '../../data/pirateFlagship';
@@ -513,6 +514,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     try{if(this.inInterior)this.addInteriorContact(enemy);return enemy;}
     catch(error){this.destroyContentActor(enemy);throw error;}
   }
+  setInteriorLivestock(context:InteriorLivestockContext|null){this.wildlife.setInteriorLivestock(context);}
   addInteriorContact(actor:Phaser.GameObjects.Sprite){return this.groundShadows.interiorContact(actor,y=>this.playerRenderDepth(y)-1);}
   addInteriorFurnitureContact(actor:Phaser.GameObjects.Image,width:number,depth:number){return this.groundShadows.interiorFurnitureContact(actor,width,depth);}
   addInteriorLight(actor:Phaser.GameObjects.Image,art:string){this.dayNight.registerInterior(actor,art);}
@@ -893,6 +895,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       habitat:point=>({region:this.worldGenerator.getRegionAt(point.x,point.y),
         biome:this.worldGenerator.getBiomeAt(point.x,point.y),terrain:this.worldGenerator.getTerrainAt(point.x,point.y)}),
       clearRoute:(from,to)=>this.wildlifeRouteClear(from,to),
+      livestockRoute:(from,to,radius)=>this.livestockRouteClear(from,to,radius),
       birdSite:point=>this.birdGroundSite(point),
       gullFlyby:player=>this.tidewatchGullFlyby(player),
       coastalSite:point=>this.coastalBirdSite(point),
@@ -1245,6 +1248,7 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       this.dayNight.setFirefliesEnabled(false);
       this.dayNight.update(interiorBlocked?0:delta,this.player.x,this.player.y);
       this.interiors.update(time,delta,interiorBlocked);
+      this.wildlife.updateInteriorLivestock(delta,this.player,this.getWorldHour(),interiorBlocked||!this.interiors.ready);
       return;
     }
     this.enemySounds.pause(!this.focused||Boolean(travelStore.panel||travelStore.dialogue||travelStore.cinematic||this.passage.active));
@@ -2814,6 +2818,21 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     release('flagship art',()=>this.flagshipArt?.destroy());
   }
 
+  private livestockRouteClear(from:Vec2,to:Vec2,radius:number){
+    if(this.inInterior||this.storyCombatActive||this.cinematicDirector?.active||this.passage?.active)return false;
+    const distance=Math.hypot(to.x-from.x,to.y-from.y),steps=Math.max(1,Math.ceil(distance/16));
+    if(distance>300||this.exteriorPlacement.blocksEnemyPath(from,to,radius))return false;
+    for(let i=0;i<=steps;i++){
+      const x=from.x+(to.x-from.x)*i/steps,y=from.y+(to.y-from.y)*i/steps;
+      if(this.exteriorPlacement.blocksEnemy({x,y},radius,true)||this.worldGenerator.isRoad(x,y,radius+28))return false;
+      for(const dx of [-radius,0,radius])for(const dy of [-radius,0,radius]){
+        if(!this.worldGenerator.isWalkable(x+dx,y+dy)||!['grass','forest','dirt','stone','sand','snow'].includes(this.worldGenerator.getTerrainAt(x+dx,y+dy)))return false;
+      }
+      if(this.npcs.some(n=>n.active&&Math.hypot(n.x-x,n.y-y)<radius+80)
+        ||this.getCombatEnemies().some(e=>e.isAlive&&Math.hypot(e.x-x,e.y-y)<radius+130))return false;
+    }
+    return true;
+  }
   private wildlifeRouteClear(from:Vec2,to:Vec2){
     if(this.worldSprites.blocksPath(from,to,20,12)||fortificationBlocksPath(from,to,12))return false;
     const steps=Math.max(1,Math.ceil(Math.hypot(to.x-from.x,to.y-from.y)/16));

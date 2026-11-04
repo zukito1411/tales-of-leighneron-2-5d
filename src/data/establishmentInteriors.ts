@@ -53,6 +53,7 @@ export function establishmentPlan(profile:InteriorProfile,name:string,identity=e
   let entrance={x:540,y:1320};
   let residents:RoomPlan['residents'],visitorPositions:RoomPlan['visitorPositions'];
   let populationLimit:number|undefined;
+  const livestock:NonNullable<RoomPlan['livestock']>=[];
   if(shop){
     const food=use==='bakery'||use==='restaurant',cloth=use==='clothier',books=use==='bookseller';
     const main=room('main',cloth?'Clothing displays & fitting floor':use==='bakery'?'Pastry counter & tea tables'
@@ -192,6 +193,10 @@ export function establishmentPlan(profile:InteriorProfile,name:string,identity=e
         place(main,'chest',side<0?bay-130:width-bay+130,150,140,'stable-hay');
         place(main,'barrel',side<0?bay-105:width-bay+105,800,85);
       }
+      livestock.push({species:'horse',x:width-bay/2,y:main.y+235,radius:28},
+        {species:'cow',x:bay/2,y:main.y+235,radius:28},
+        {species:'goat',x:width-bay/2,y:main.y+545,radius:38},
+        {species:'chicken',x:bay/2,y:main.y+855,radius:45});
       place(west,'wardrobe',115,190,150,'stable');place(west,'workstation',320,190,130,'stable-gear');
       place(east,'chest',110,190,130,'stable-hay');place(east,'pantry',305,190,170,'stable');
       residents=[{x:bay-75,y:805},{x:width-bay+75,y:1370},{x:320,y:235}];
@@ -220,7 +225,7 @@ export function establishmentPlan(profile:InteriorProfile,name:string,identity=e
       );
     }
   }
-  return {rooms,floors,objects,occupants,aisles,residents,entrance,visitorPositions,populationLimit,
+  return {rooms,floors,objects,occupants,aisles,residents,entrance,visitorPositions,populationLimit,...(livestock.length?{livestock}:{}),
     entranceWidth:profile==='stable'?stableDoorWidth:180,
     entranceHeight:profile==='stable'?stableDoorHeight:150};
 }

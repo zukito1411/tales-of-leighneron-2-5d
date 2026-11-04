@@ -109,6 +109,13 @@ export class OrbitCamera {
   private readonly wheel=(event:WheelEvent)=>{if(!this.enabled||this.altKeys.size)return;event.preventDefault();if(this.firstPerson)return;this.targetZoom=Math.max(MIN_ZOOM,Math.min(MAX_ZOOM,this.targetZoom*Math.exp(Math.max(-100,Math.min(100,event.deltaY))*.0015)));};
   update(native:Phaser.Cameras.Scene2D.Camera,target:{x:number;y:number},height:(x:number,y:number)=>number,delta:number,enabled:boolean,
     lockedTarget?:{x:number;y:number},eyeHeight?:number){
+    // A transient collapsed viewport must not overwrite the last valid
+    // camera/projection or produce an invalid frustum during a mode switch.
+    if(!Number.isFinite(native.width)||!Number.isFinite(native.height)||native.width<=0||native.height<=0
+      ||!Number.isFinite(native.zoom)||native.zoom<=0||!Number.isFinite(target.x)||!Number.isFinite(target.y)
+      ||eyeHeight!==undefined&&!Number.isFinite(eyeHeight))return false;
+    const ground=height(target.x,target.y);if(!Number.isFinite(ground))return false;
+    const frameDelta=Number.isFinite(delta)?Math.max(0,Math.min(80,delta)):0;
     const firstPerson=this.settings.mode==='first-person'&&eyeHeight!==undefined;
     if(firstPerson!==this.firstPerson){
       if(firstPerson){this.savedPitch=this.targetPitch;this.pitch=this.targetPitch=0;}
@@ -123,14 +130,14 @@ export class OrbitCamera {
       this.targetYaw=this.yaw+Math.atan2(Math.sin(desired-this.yaw),Math.cos(desired-this.yaw));
       this.targetPitch=Math.max(20*RAD,Math.min(60*RAD,this.targetPitch));
     }
-    const step=1-Math.exp(-Math.min(80,Math.max(0,delta))/(this.combatLocked?170:85));
+    const step=1-Math.exp(-frameDelta/(this.combatLocked?170:85));
     this.yaw+=(this.targetYaw-this.yaw)*step;this.pitch+=(this.targetPitch-this.pitch)*step;this.zoom+=(this.targetZoom-this.zoom)*step;
     // Keep angles bounded after many complete revolutions without a visible snap.
     if(Math.abs(this.yaw)>Math.PI*4){const turns=Math.trunc(this.yaw/(Math.PI*2))*Math.PI*2;this.yaw-=turns;this.targetYaw-=turns;}
-    const ground=height(target.x,target.y),aimY=ground+32;
+    const aimY=ground+32;
     let focusX=target.x,focusZ=target.y;
     if(this.combatLocked&&lockedTarget){const dx=lockedTarget.x-target.x,dz=lockedTarget.y-target.y,d=Math.max(1,Math.hypot(dx,dz)),bias=Math.min(.30,180/d);focusX+=dx*bias;focusZ+=dz*bias;}
-    const follow=1-Math.exp(-Math.min(80,Math.max(0,delta))/55);
+    const follow=1-Math.exp(-frameDelta/55);
     if(!this.initialized||Math.hypot(this.focus.x-target.x,this.focus.z-target.y)>1200){this.focus.set(target.x,aimY,target.y);this.initialized=true;}
     else this.focus.lerp(this.nextFocus.set(target.x,aimY,target.y),follow);
     // Select the current mode's projection before deriving orbit distance.
@@ -182,6 +189,7 @@ export class OrbitCamera {
       }
     }
     this.bounds.left=left;this.bounds.right=right;this.bounds.top=top;this.bounds.bottom=bottom;
+    return true;
   }
   destroy(){
     this.destroyed=true;this.enabled=false;window.removeEventListener(CONTROL_SETTINGS_EVENT,this.updateControlHint);

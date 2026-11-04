@@ -343,6 +343,7 @@
   outline-offset:-4px;
 }
 .map-panel .regional-world-plane .regional-service {
+  z-index:7;
   position:absolute;
   display:grid;
   place-items:center;
@@ -358,7 +359,7 @@
   font-weight:700;
   line-height:1.1;
   white-space:nowrap;
-  pointer-events:none;
+  pointer-events:auto;
 }
 .map-panel .regional-world-plane .regional-poi,
 .map-panel .regional-world-plane .regional-quest,
@@ -386,3 +387,5 @@
 @media (hover:none) {
   .map-panel .regional-world-plane > button.regional-settlement i {width:14px;height:14px;}
 }
+
+.map-panel .regional-world-plane .regional-service:is(:hover,:focus-visible) {z-index:20;outline:2px solid currentColor;outline-offset:2px;}

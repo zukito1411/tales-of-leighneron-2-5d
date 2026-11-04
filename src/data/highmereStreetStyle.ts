@@ -19,12 +19,12 @@ export const CAPITAL_SHOPFRONTS:Readonly<Record<string,CapitalShopStyle>>={
  'town:highmere:building:93':'herbalist',
 };
 export type CapitalPropStyle='cafe-table'|'cafe-chair'|'flower-pot'|'arms-rack'|'cloth-counter'
-  |'produce-stall'|'cloth-stall'|'herb-stall'|'tools-stall'|'bread-stall'|'book-stall';
+  |'laundry-line'|'hay-bales'|'produce-stall'|'cloth-stall'|'herb-stall'|'tools-stall'|'bread-stall'|'book-stall';
 const STALL_STOCK:readonly CapitalPropStyle[]=['cloth-stall','produce-stall','herb-stall','tools-stall','herb-stall','bread-stall'];
 export function capitalPropStyle(id:string):CapitalPropStyle|undefined{
- const prefix='detail:highmere:streetlife:';
- if(id.startsWith(prefix)){const kind=id.slice(prefix.length).split(':')[0];
-  return (['cafe-table','cafe-chair','flower-pot','arms-rack','cloth-counter','produce-stall','cloth-stall','herb-stall','tools-stall','bread-stall','book-stall'] as const).find(style=>style===kind);
+ const street=id.indexOf(':streetlife:');
+ if(id.startsWith('detail:')&&street>=0){const kind=id.slice(street+12).split(':')[0];
+  return (['laundry-line','hay-bales','cafe-table','cafe-chair','flower-pot','arms-rack','cloth-counter','produce-stall','cloth-stall','herb-stall','tools-stall','bread-stall','book-stall'] as const).find(style=>style===kind);
  }
  if(id.startsWith('detail:highmere:capital:market:-1:'))return STALL_STOCK[Number(id.split(':').at(-1))%STALL_STOCK.length];
  return undefined;

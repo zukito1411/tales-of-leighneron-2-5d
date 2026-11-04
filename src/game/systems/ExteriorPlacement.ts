@@ -1,3 +1,5 @@
+import {streetStair} from '../../data/settlementStairs';
+import {outdoorFittingBounds,outdoorFittingBodies} from '../../data/outdoorFurniture';
 import {cinderpeakOutline} from '../../data/cinderpeak';
 import type {ContentDefinition,Vec2} from '../types';
 import {highmereBridgeRailsBlock} from '../../data/rivers';
@@ -24,7 +26,7 @@ export class ExteriorPlacement {
   constructor(content:readonly ContentDefinition[]){
     const entries:Obstacle[]=[];
     for(const d of content){
-      if(!('frame' in d))continue;
+      if(!('frame' in d)||streetStair(d.id))continue;
       const texture=d.texture??'world_objects',scale=d.scale??.6;
       const profile=worldSpriteProfile(texture,d.frame),architecture=architectureProfile(texture,d.frame);
       if(profile?.floor)continue;
@@ -36,6 +38,8 @@ export class ExteriorPlacement {
         entries.push({id:d.id,bounds,solids,footY:d.world.y});continue;
       }
       const source=spriteBounds(texture,d.frame,scale,d.world.x,d.world.y,d.anchor==='center');
+      const dining=outdoorFittingBounds(d.id,d.world.x,d.world.y,artFrameSize(texture,d.frame).width*scale,d.rotation??0,true);
+      if(dining){entries.push({id:d.id,bounds:dining,solids:outdoorFittingBodies(d.id,d.world.x,d.world.y,artFrameSize(texture,d.frame).width*scale,d.rotation??0),footY:d.world.y});continue;}
       // Curved curtain walls are checked against their surveyed endpoints in
       // fortificationBlocksPoint(). A gate's opening must remain traversable,
       // but its physical left and right supports still block quest characters.

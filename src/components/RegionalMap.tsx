@@ -3,6 +3,7 @@ import {useGameStore} from '../store/gameStore';
 import {TOWNS} from '../data/towns';
 import {WORLD_WIDTH,WORLD_HEIGHT} from '../data/world';
 import {MAP_SERVICE_STYLE} from '../data/mapServices';
+import {REGIONAL_MAP_SERVICES} from '../data/regionalMapServices';
 import {housingFor} from '../data/housing';
 import {PLAYER_HOMES} from '../data/playerHomes';
 import {TOWER_DOOR,TOWER_ENTRY_ID,towerCampaignComplete} from '../data/towerOfMight';
@@ -60,7 +61,16 @@ export function RegionalMap({select,center,zoom=1}:{
  const towerVisible=useGameStore(s=>towerCampaignComplete(s.quests));
  const housing=useGameStore(s=>s.housing);
  const homes=useMemo(()=>PLAYER_HOMES.filter(home=>housingFor(housing,home.id).owned),[housing]);
- const markers=navigation.markers;
+ const markers=navigation.interiorName?[]:navigation.markers;
+ const services=useMemo(()=>{
+  const visible=(p:MapPoint)=>Math.abs(p.x-center.x)<=halfX+240&&Math.abs(p.y-center.y)<=halfY+240;
+  const all=new Map(REGIONAL_MAP_SERVICES.filter(visible).map(m=>[m.id,m]));
+  for(const marker of markers)if(marker.service&&visible(marker))all.set(marker.id,marker);
+  all.delete(TOWER_ENTRY_ID);
+  if(towerVisible&&visible(TOWER_DOOR))all.set(TOWER_ENTRY_ID,{id:TOWER_ENTRY_ID,kind:'landmark',service:'tower',
+   label:'Tower of Might · north of Oakmere',...TOWER_DOOR});
+  return [...all.values()];
+ },[markers,center.x,center.y,halfX,halfY,towerVisible]);
  return <div className="regional-map-wrap" aria-label="Regional terrain map">
    <div className="regional-world-plane" style={{
     transform:'translate3d('+(-center.x/REGIONAL_SPAN_X*100)+'%, '+(-center.y/REGIONAL_SPAN_Y*100)+'%, 0)',
@@ -75,15 +85,13 @@ export function RegionalMap({select,center,zoom=1}:{
     {markers.filter(marker=>!marker.service&&(marker.kind==='boss'||marker.kind==='landmark'))
       .map(marker=><span key={marker.id} title={marker.label} className="regional-poi"
         style={worldPosition(marker.x,marker.y)}>◇</span>)}
-    {[...markers.filter(marker=>marker.id!==TOWER_ENTRY_ID),
-      ...(towerVisible?[{id:TOWER_ENTRY_ID,kind:'landmark' as const,service:'tower' as const,
-       label:'Tower of Might · north of Oakmere',...TOWER_DOOR}]:[])].map(marker=>{
+    {services.map(marker=>{
        if(!marker.service||marker.service==='home')return null;
        const style=MAP_SERVICE_STYLE[marker.service];
        return <span key={'service:'+marker.id} className="regional-service"
-         title={style.name+': '+marker.label} aria-label={style.name+': '+marker.label}
+         tabIndex={0} title={style.name+': '+marker.label} aria-label={style.name+': '+marker.label}
          style={{...worldPosition(marker.x,marker.y),color:style.color}}>
-         <b aria-hidden="true">{style.symbol}</b>
+         <b aria-hidden="true">{style.symbol}</b><small>{marker.label}</small>
        </span>;
       })}
     {navigation.target&&(()=>{

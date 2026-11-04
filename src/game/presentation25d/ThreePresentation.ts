@@ -271,6 +271,8 @@ export class ThreePresentation {
 
   private draw(scene:Phaser.Scene,children:Phaser.GameObjects.GameObject[],camera:Phaser.Cameras.Scene2D.Camera){
     if(this.stopped||this.contextLost||!this.programsReady)return;
+    const width=this.game.scale.width,height=this.game.scale.height;
+    if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)return;
     const profStart=this.frameDiagnostics?performance.now():0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
@@ -282,13 +284,8 @@ export class ThreePresentation {
     this.textures.prepare(this.renderer,work);
     this.renderer.info.reset();
     this.native.emit(Phaser.Renderer.Events.RENDER,scene,camera);
-    const width=this.game.scale.width,height=this.game.scale.height;
     const presentation=scene as PresentationScene,density=renderDensity(scene);
     const scale=this.budget.scale(width,height,density,this.game.loop.rawDelta,adaptive,presentation.presentationControlsEnabled===true,this.gpuTimer.milliseconds);
-    if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
-      this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
-      this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
-    }
     const arch=scene.textures.exists(PAINTED_MODEL_ATLASES[0].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[0].key):undefined,furnishings=scene.textures.exists(PAINTED_MODEL_ATLASES[1].key)?scene.textures.getFrame(PAINTED_MODEL_ATLASES[1].key):undefined;
     if(arch?.source.image)this.atmosphere.architectureAtlas.value=this.textures.get(arch.source,this.frame);
     if(furnishings?.source.image)this.atmosphere.furnishingsAtlas.value=this.textures.get(furnishings.source,this.frame);
@@ -306,7 +303,14 @@ export class ThreePresentation {
     const lockedTarget=presentation.presentationLockedTarget;
     this.firstPersonPlayer=presentation.presentationPlayer;
     const eye=this.firstPersonPlayer?HERO_BODY_HEIGHT*.8+this.firstPersonPlayer.presentationElevation+this.firstPersonPlayer.skills.presentationElevation:undefined;
-    this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,presentation.presentationControlsEnabled===true,lockedTarget,eye);
+    if(!this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,
+      presentation.presentationControlsEnabled===true,lockedTarget,eye))return;
+    // Resizing clears the drawing buffer. Validate the next view first so
+    // invalid transition inputs retain the last presented image.
+    if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
+      this.width=width;this.height=height;this.renderScale=scale;this.renderer.setDrawingBufferSize(width,height,scale);
+      this.screenCamera.right=width;this.screenCamera.bottom=height;this.screenCamera.updateProjectionMatrix();
+    }
     this.visibility.update(this.orbit.camera,this.orbit.focusGround);
     this.viewProjection.multiplyMatrices(this.orbit.camera.projectionMatrix,this.orbit.camera.matrixWorldInverse);
     this.yawCos=Math.cos(this.orbit.yaw);this.yawSin=Math.sin(this.orbit.yaw);

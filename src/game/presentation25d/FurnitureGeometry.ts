@@ -1,5 +1,5 @@
 import type {CapitalPropStyle} from '../../data/highmereStreetStyle';
-import {addCapitalMarketStock,addCapitalCanopy} from './CapitalDetailsGeometry';
+import {addCapitalMarketStock,addCapitalCanopy,createStreetFitting} from './CapitalDetailsGeometry';
 import {createFountainGeometry} from './FountainGeometry';
 import {createDockGeometry} from './DockGeometry';
 import {STAIR_STEPS,STAIR_HALF_WIDTH} from './WalkSurface';
@@ -25,6 +25,7 @@ export type FurnitureArt=Exclude<HomeFurnitureArt,'rug'|'northWall'|'sideWall'>|
 type Patch=readonly [number,number,number,number];
 export interface FurnitureShape {
   streetStyle?:CapitalPropStyle;
+  stairHeights?:readonly number[];openSides?:boolean;
   interiorUse?:InteriorFurnishingUse;
   art:FurnitureArt;kit:string;key:string;
   /** Visible artwork in frame UV coordinates, independent of atlas padding. */
@@ -95,7 +96,7 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
   if(shape.art==='bridge')return createBridgeGeometry(shape,emission);
   if(shape.art==='rock'||shape.art==='columns'||shape.art==='crystals')return createRockGeometry(shape,emission);
   const {art,kit,rise:H,depth:D}=shape,m=new ModelMesh(shape,emission);
-  if(createStableFitting(m,shape,emission)||createInteriorFitting(m,shape,emission))return m.finish();
+  if(createStreetFitting(m,shape,emission)||createStableFitting(m,shape,emission)||createInteriorFitting(m,shape,emission))return m.finish();
   // Source crops contain shaded object paintings and transparent margins,
   // rather than flat diffuse wood. Enlarging a tiny patch loses the grain;
   // alpha-forced mesh faces can expose the source's plain background RGB.
@@ -351,8 +352,9 @@ export function createFurnitureGeometry(shape:FurnitureShape,emission=false){
     for(const x of [-.43,.43]){box(x-.04,x+.04,0,H,-D*.65,-D*.35);box(x-.075,x+.075,0,H*.08,-D,0);}
     for(const y of [.16,.79])box(-.47,.47,H*y,H*(y+.065),-D*.65,-D*.35);for(let i=0;i<4;i++){const x=-.30+i*.2;m.beam([x,H*.81,-D*.36],[x,H*.76,-D*.15],.014,metal);}
   }else if(art==='stairs'){
-    for(let i=0;i<STAIR_STEPS;i++)box(-STAIR_HALF_WIDTH,STAIR_HALF_WIDTH,0,H*(i+1)/STAIR_STEPS,-D*(i+1)/STAIR_STEPS,-D*i/STAIR_STEPS,stone);
-    for(const x of [-.46,.46]){m.beam([x,H*.16,-.02],[x,H*.97,-D],.025,trim);for(let i=0;i<3;i++)m.beam([x,H*i/3,-D*i/3],[x,H*i/3+H*.20,-D*i/3],.016,trim);}
+    const steps=shape.stairHeights?.length??STAIR_STEPS;
+    for(let i=0;i<steps;i++)box(-STAIR_HALF_WIDTH,STAIR_HALF_WIDTH,0,shape.stairHeights?.[i]??H*(i+1)/steps,-D*(i+1)/steps,-D*i/steps,stone);
+    if(!shape.openSides)for(const x of [-.46,.46]){m.beam([x,H*.16,-.02],[x,H*.97,-D],.025,trim);for(let i=0;i<3;i++)m.beam([x,H*i/3,-D*i/3],[x,H*i/3+H*.20,-D*i/3],.016,trim);}
   }else if(art==='campfire'){
     const z=-D/2;
     for(let i=0;i<10;i++){const a=i/10*Math.PI*2;const x=Math.cos(a)*.34,d=z+Math.sin(a)*D*.39;

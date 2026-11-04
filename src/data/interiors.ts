@@ -1,3 +1,4 @@
+import type {LivestockSpecies} from './livestockSites';
 import type {Vec2,NpcDefinition} from '../game/types';
 import {diningFurniture,type FurnitureHeading} from './interiorFurnitureLayout';
 import {WORLD_CONTENT} from './content';
@@ -95,6 +96,8 @@ export interface RoomPlan {
   throneResident?:Vec2;guardPosts?:{west:Vec2;east:Vec2};
   /** Local ambience belongs to the open room, never outdoor/save content. */
   occupants?:InteriorOccupant[];
+  /** Authored resting animals stay in stall bays, outside the public cart aisle. */
+  livestock?:Array<Vec2&{species:LivestockSpecies;radius:number}>;
   /** Authored social positions, distinct from permanent quest/work contacts. */
   visitorPositions?:Vec2[];
   populationLimit?:number;

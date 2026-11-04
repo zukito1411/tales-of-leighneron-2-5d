@@ -17,6 +17,7 @@ const depthFunctions=`
 uniform sampler2D sceneDepth;
 uniform vec2 clipRange;
 uniform float focusDistance;
+uniform float focusEnabled;
 uniform float focusRange;
 uniform float focusFalloff;
 uniform vec2 focusUV;
@@ -38,6 +39,7 @@ float lockedProtection(vec2 uv,float depth){
   return (1.0-smoothstep(1.0,1.16,extent))*(1.0-smoothstep(lockDepthRange*.7,lockDepthRange,abs(depth-lockDepth)));
 }
 float circleOfConfusion(vec2 uv,float depth){
+  if(focusEnabled<.5)return 0.0;
   // Empty background pixels do not belong to a distant wall or landscape.
   if(depth>clipRange.y-1.0)return 0.0;
   float delta=depth-focusDistance;
@@ -112,7 +114,7 @@ void main(){
   float rawDepth=texture2D(sceneDepth,vUv).r;
   float depth=clipRange.x*clipRange.y/(clipRange.y-rawDepth*(clipRange.y-clipRange.x));
   float protection=lockedProtection(vUv,depth);
-  float blur=dofEnabled*circleOfConfusion(vUv,depth);
+  float blur=dofEnabled>.5?circleOfConfusion(vUv,depth):0.0;
   vec3 color=original;
   if(edgeSmoothing>0.5){
     vec3 east=texture2D(sourceColor,vUv+vec2(sourceTexel.x,0.0)).rgb;
@@ -232,7 +234,7 @@ export class WorldPostFX {
   private readonly hazeNight=new Color(0x202c46);
   private readonly common={
     sceneDepth:{value:null as Texture|null},clipRange:{value:new Vector2(.1,20000)},
-    focusDistance:{value:6000},focusRange:{value:150},focusFalloff:{value:300},
+    focusDistance:{value:6000},focusEnabled:{value:0},focusRange:{value:150},focusFalloff:{value:300},
     focusUV:{value:new Vector2(.5,.5)},aspect:{value:1},
     lockUV:{value:new Vector2()},lockRadius:{value:new Vector2(.1,.1)},lockDepth:{value:0},lockDepthRange:{value:100},lockEnabled:{value:0},
   };
@@ -249,6 +251,8 @@ export class WorldPostFX {
     vertexShader,fragmentShader:compositeShader,depthTest:false,depthWrite:false,blending:NoBlending,toneMapped:false,
   });
   private readonly quad=new Mesh(this.geometry,this.composite);
+  private readonly warmTarget=new WebGLRenderTarget(1,1,{depthBuffer:false,stencilBuffer:false});
+  private disposed=false;
   private targets:Targets|null=null;
   private quality=getEffectsQuality();
   private readonly onQualityChange=()=>{this.quality=getEffectsQuality();};
@@ -258,9 +262,20 @@ export class WorldPostFX {
     window.addEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);
   }
   async warm(renderer:WebGLRenderer){
+    if(this.disposed)return;
     const scene=new Scene();scene.add(new Mesh(this.geometry,this.blur),new Mesh(this.geometry,this.composite));
-    try{await renderer.compileAsync(scene,this.camera);}
-    finally{scene.clear();}
+    try{
+      await renderer.compileAsync(scene,this.camera);
+      if(this.disposed)return;
+      // Blur writes into a linear render target. Warming only the display
+      // program leaves a distinct shader variant compiling on the first TPP
+      // frame with depth blur (or the first bloom pass in FPP).
+      scene.clear();scene.add(new Mesh(this.geometry,this.blur));
+      const previous=renderer.getRenderTarget();let ready:Promise<unknown>;
+      try{renderer.setRenderTarget(this.warmTarget);ready=renderer.compileAsync(scene,this.camera);}
+      finally{renderer.setRenderTarget(previous);}
+      await ready;
+    }finally{scene.clear();}
   }
   setNight(mask:Texture|null,darkness:number){this.composite.uniforms.nightMask.value=mask;this.composite.uniforms.nightOpacity.value=mask?darkness:0;}
   prepareWorld(width:number,height:number,samples=0){
@@ -298,16 +313,29 @@ export class WorldPostFX {
     const filterEnabled=blurEnabled||bloomEnabled;
     const scale=Math.min(profile.blurScale,profile.blurEdge/cssWidth,profile.blurEdge/cssHeight,Math.sqrt(profile.blurPixels/(cssWidth*cssHeight)));
     const bw=Math.max(1,Math.floor(cssWidth*scale)),bh=Math.max(1,Math.floor(cssHeight*scale));
-    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,filterEnabled,samples);
+    // Retain already allocated blur targets during FPP. They stay bounded to
+    // this viewport and are not rendered unless filtering is enabled; a mode
+    // round trip should not dispose and rebuild the same GPU buffers.
+    const retainFilters=Boolean(frame.firstPerson&&effects.depthOfField&&!low);
+    const targets=this.prepareTargets(frame.width,frame.height,bw,bh,filterEnabled,samples,retainFilters);
     this.common.sceneDepth.value=targets.world.depthTexture;
     this.common.clipRange.value.set(frame.camera.near,frame.camera.far);
     this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).applyMatrix4(frame.camera.matrixWorldInverse);
-    this.common.focusDistance.value=-this.focusPoint.z;
+    const focusDepth=-this.focusPoint.z;
+    this.common.focusDistance.value=Number.isFinite(focusDepth)?Math.max(frame.camera.near,focusDepth):frame.camera.near;
+    this.common.focusEnabled.value=Number(blurEnabled);
     const depthSpan=this.common.focusDistance.value*.9;
     this.common.focusRange.value=frame.interior?Math.max(140,Math.min(240,depthSpan*.28)):Math.max(600,depthSpan*.65);
     this.common.focusFalloff.value=frame.interior?Math.max(260,depthSpan*.55):Math.max(700,depthSpan*.85);
-    this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
-    this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
+    // The FPP camera shares the player's X/Z. At a level gaze the player's
+    // projected clip-W is zero. Do not upload NaN/Infinity to either shader,
+    // including the bloom shader while depth blur itself is disabled.
+    this.common.focusUV.value.set(.5,.5);
+    if(!frame.firstPerson&&focusDepth>frame.camera.near){
+      this.focusPoint.set(focus.x,frame.focusHeight+24,focus.y).project(frame.camera);
+      if(Number.isFinite(this.focusPoint.x)&&Number.isFinite(this.focusPoint.y))
+        this.common.focusUV.value.set((this.focusPoint.x+1)/2,(this.focusPoint.y+1)/2);
+    }
     this.common.aspect.value=frame.width/frame.height;
     const lock=frame.lockedTarget;this.common.lockEnabled.value=0;
     if(lock){
@@ -377,14 +405,14 @@ export class WorldPostFX {
     }finally{renderer.setRenderTarget(previous);}
   }
 
-  private prepareTargets(width:number,height:number,bw:number,bh:number,dof:boolean,samples:number):Targets {
+  private prepareTargets(width:number,height:number,bw:number,bh:number,dof:boolean,samples:number,retainFilters=false):Targets {
     this.prepareWorld(width,height,samples);
     const targets=this.targets!;
     if(dof){
       if(!targets.horizontal)targets.horizontal=new WebGLRenderTarget(bw,bh,{depthBuffer:false,stencilBuffer:false,minFilter:LinearFilter,magFilter:LinearFilter,generateMipmaps:false});
       if(!targets.vertical)targets.vertical=targets.horizontal.clone();
       for(const target of [targets.horizontal,targets.vertical])if(target.width!==bw||target.height!==bh)target.setSize(bw,bh);
-    }else{
+    }else if(!retainFilters){
       targets.horizontal?.dispose();targets.vertical?.dispose();targets.horizontal=targets.vertical=undefined;
     }
     return targets;
@@ -397,6 +425,7 @@ export class WorldPostFX {
     this.composite.uniforms.sourceColor.value=this.composite.uniforms.blurredColor.value=null;
   }
   destroy(){
+    this.disposed=true;this.warmTarget.dispose();
     window.removeEventListener(EFFECTS_QUALITY_EVENT,this.onQualityChange);this.releaseTargets();
     this.geometry.dispose();this.blur.dispose();this.composite.dispose();this.scene.remove(this.quad);
   }

@@ -1,3 +1,4 @@
+import {LivestockSystem,type InteriorLivestockContext} from './LivestockSystem';
 import {onPlane} from '../presentation25d/plane';
 import Phaser from 'phaser';
 import type {ArtTextureKey} from '../../data/art';
@@ -15,6 +16,7 @@ type Scenery=Phaser.GameObjects.Image|Phaser.GameObjects.Sprite;
 export interface WildlifeHost {
   habitat(point:Vec2):{region:string;biome:string;terrain:string};
   clearRoute(from:Vec2,to:Vec2):boolean;
+  livestockRoute?(from:Vec2,to:Vec2,radius:number):boolean;
   /** Bird-only ground admission: roads/courts are allowed, solids/water are not. */
   birdSite?(point:Vec2):boolean;
   /** Harbor-anchored aerial route near Tidewatch; may cross roofs/shoreline. */
@@ -48,6 +50,7 @@ interface GroundAnimal {
 /** Ambient visuals, not enemies: no bodies, timers, health or saved records.
  * Four ground slots plus two shared bird slots keep the six-actor limit. */
 export class AmbientWildlifeSystem {
+  private readonly livestock:LivestockSystem;
   private readonly covers=new WildlifeCoverIndex();
   private readonly treePoints=new WildlifeCoverIndex();
   /** Bounded spatial lookup of streamed scenery, not a global tree scan. */
@@ -70,6 +73,7 @@ export class AmbientWildlifeSystem {
   private readonly onVisibility=()=>{if(document.hidden)this.reset();};
   constructor(private readonly scene:Phaser.Scene,private readonly host:WildlifeHost,
     private readonly shadows:GroundShadowSystem,private readonly random:()=>number=Math.random){
+    this.livestock=new LivestockSystem(scene,host,shadows);
     this.birds=new WoodlandBirdSystem(scene,host,this.covers,shadows,random,
       id=>this.animals.some(a=>a.source?.id===id||a.destination?.id===id));
     document.addEventListener('visibilitychange',this.onVisibility);
@@ -139,10 +143,15 @@ export class AmbientWildlifeSystem {
     });
   }
 
+  setInteriorLivestock(context:InteriorLivestockContext|null){this.reset();this.livestock.setInterior(context);}
+  updateInteriorLivestock(delta:number,player:Vec2,hour:number,paused:boolean){
+    if(!this.destroyed&&!paused&&!document.hidden&&this.livestock.interior)this.livestock.update(delta,player,hour);
+  }
   update(delta:number,player:Vec2,hour:number,paused:boolean){
     if(this.destroyed||paused||document.hidden||delta<=0)return;
     if(this.lastPlayer&&Math.hypot(player.x-this.lastPlayer.x,player.y-this.lastPlayer.y)>600)this.reset();
     this.lastPlayer={x:player.x,y:player.y};
+    this.livestock.update(delta,player,hour);
     const step=Math.min(delta,100);this.elapsed+=step;this.scanMs+=step;
     const scan=this.scanMs>=125;
     if(scan){this.scanMs=0;this.checkEntry(player,hour);}
@@ -409,12 +418,12 @@ export class AmbientWildlifeSystem {
     animal.source=undefined;animal.destination=undefined;animal.sprite.setVisible(false).setActive(false);
   }
   /** Travel/hidden-tab cleanup preserves loaded anchors and their cooldowns. */
-  reset(){for(const animal of this.animals)this.release(animal);this.inside.clear();this.lastPlayer=undefined;
+  reset(){this.livestock.reset();for(const animal of this.animals)this.release(animal);this.inside.clear();this.lastPlayer=undefined;
     this.pendingRabbits.clear();
     this.birds.reset(this.elapsed);
     this.nextEventAt=Math.max(this.nextEventAt,this.elapsed+TUNING.groundGapMin);}
   destroy(){if(this.destroyed)return;this.destroyed=true;this.reset();
     document.removeEventListener('visibilitychange',this.onVisibility);
-    this.birds.destroy();
+    this.livestock.destroy();this.birds.destroy();
     for(const animal of this.animals)animal.sprite.destroy();this.animals.length=0;this.covers.clear();this.treePoints.clear();}
 }

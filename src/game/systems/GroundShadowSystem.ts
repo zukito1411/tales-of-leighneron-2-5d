@@ -1,4 +1,5 @@
 ﻿import Phaser from 'phaser';
+import {setDepthIfChanged} from './renderDepth';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import {overlayViewport,groundEffectViewport} from './renderSizing';
 import {cloudShadowStamps} from './CloudShadowArt';
@@ -206,7 +207,7 @@ export class GroundShadowSystem {
    const bounds=((actor.frame.customData??{}) as {visibleBounds?:{width:number}}).visibleBounds;
    const density=ART_BY_KEY[actor.texture.key as ArtTextureKey]?.density??1;
    const width=(bounds?bounds.width*density:actor.frame.cutWidth)*Math.abs(actor.scaleX),radius=Math.max(8,Math.min(30,width*.34));
-   image.setPosition(actor.x,actor.y).setDisplaySize(radius*2,radius*2/3).setDepth(depthAt(actor.y))
+   setDepthIfChanged(image,depthAt(actor.y)).setPosition(actor.x,actor.y).setDisplaySize(radius*2,radius*2/3)
     .setVisible(actor.visible&&getGraphicEffects().dynamicShadows).setAlpha(actor.alpha);
   };
   const release=()=>image.destroy();

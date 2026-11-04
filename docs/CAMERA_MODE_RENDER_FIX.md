@@ -26,3 +26,35 @@ sky-only frame. No game launch, browser/gameplay test or phone profiling was
 performed. Required compiler checks cover integration only. Verify repeated
 FPP/TPP switching near Highmere buildings and dodging on Android; report a
 remaining blank view with the game's graphics report if one is recorded.
+
+## Follow-up source review
+
+The FOV ordering, finite shake offsets, first-person dodge-ward/afterimage
+visibility and bounded foreground preparation fixes remain in place.
+
+Further repairs cover these incomplete paths:
+
+- WorldPostFX previously projected the player's body point even in FPP, where
+  camera and player share X/Z. A level gaze puts that point on the camera plane;
+  perspective division can produce non-finite screen coordinates. FPP now uses
+  a finite center focus, focus depth is positive, and TPP projections are checked
+  before upload. Disabled depth blur exits before its focus calculation in both
+  the filtering and composite shaders, including when bloom is still enabled.
+- Existing blur buffers remain resident during an FPP round trip when depth of
+  field is enabled. This retains at most the existing pair of bounded buffers;
+  starting directly in FPP does not allocate unused blur targets. Filtering is
+  still skipped when disabled, and quality changes/teardown keep their cleanup.
+- Post-processing warmup now prepares the blur shader's linear render-target
+  variant as well as the display variant. The one-pixel preparation target is
+  disposed on teardown, and async preparation checks destruction before starting
+  another compile. This matches the target used by the actual filtering pass.
+- A collapsed/invalid viewport cannot resize the backing buffer or publish a
+  non-finite camera/frustum. Invalid focus/height inputs preserve the preceding
+  image until valid input returns; invalid frame delta cannot poison smoothed
+  camera angles. Valid camera input follows the existing FOV, orbit and shake.
+
+Both required TypeScript checks passed after these code changes. No browser,
+Playwright, gameplay simulation or performance measurements ran. Repeated view
+switches, level-gaze FPP dodges and actual Android frame stability remain pending
+runtime confirmation; these source changes are not proof that every reported
+blank frame has been reproduced or eliminated.
