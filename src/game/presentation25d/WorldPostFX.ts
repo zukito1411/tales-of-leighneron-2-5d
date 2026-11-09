@@ -71,7 +71,10 @@ void main(){
   for(int i=-2;i<=2;i++){
     float tap=float(i);
     vec2 uv=clamp(vUv+direction*(tap*0.5)*(bloomEnabled>.5?1.0:blur),vec2(0.0),vec2(1.0));
-    float neighborDepth=eyeDepth(uv);
+    // The central tap is exactly vUv: reuse the depth sampled above rather
+    // than fetching the same world-depth texel twice. Every neighbor and the
+    // original bilateral weight/depth rejection remain unchanged.
+    float neighborDepth=i==0?depth:eyeDepth(uv);
     // Reject unrelated surfaces to avoid dark roof/tree halos bleeding onto
     // a sharp actor or foreground colors smearing over distant scenery.
     float edge=1.0-smoothstep(focusRange*0.18,focusRange*0.65,abs(neighborDepth-depth));
