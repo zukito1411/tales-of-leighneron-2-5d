@@ -49,7 +49,10 @@ export class GpuShadows {
     // already 25+ ms or when entering an interior: collisions and player
     // animation still update normally every tick.
     if(source&&!interior&&getEffectsQuality()==='low'&&frame%2===1&&scene.game.loop.rawDelta<25)return;
-    for(const batch of this.batches.values())batch.begin();
+    // Retained shadow batches with no instances are already invisible. Avoid
+    // resetting their seven attribute update lists on every outdoor frame.
+    // SpriteBatch.add() begins a dormant batch lazily when a caster returns.
+    for(const batch of this.batches.values())if(batch.mesh.visible)batch.begin();
     if(source&&!interior){
       if(!this.contactSource||!this.contactSource.image){
         const texture=scene.textures.exists('gpu-contact-shadow')?scene.textures.get('gpu-contact-shadow'):scene.textures.addCanvas('gpu-contact-shadow',source.contactArtwork);
@@ -141,7 +144,10 @@ export class GpuShadows {
         this.add(art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,house,furniture);
       }
     }
-    for(const batch of this.batches.values())batch.finish();
+    // Batches that were visible last frame must be finished even if a caster
+    // disappears, so their instance count drops to zero. Dormant batches do
+    // not require another empty finish until they receive a new instance.
+    for(const batch of this.batches.values())if(batch.mesh.visible||batch.hasSubmittedInstances)batch.finish();
     const work=frameWork(scene.game),start=performance.now();
     pruneSpriteBatches(this.batches,frame,16,1,start+Math.max(.1,work.remaining('retire',.2)));work.charge('retire',start);
   }
