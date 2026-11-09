@@ -282,6 +282,7 @@ export class ThreePresentation {
     // Always retain one cheap CPU timestamp: background work must not assume
     // spare headroom solely because the display is 120 Hz.
     const cpuStart=performance.now(),profStart=this.frameDiagnostics?cpuStart:0;
+    this.textures.beginFrame(cpuStart);
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
     const work=frameWork(this.game);
