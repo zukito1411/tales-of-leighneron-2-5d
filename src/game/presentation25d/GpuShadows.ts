@@ -23,6 +23,9 @@ interface ModelShadow {
   base:Matrix4;coefficients:Float64Array;uv:Float64Array;
   reach:number;radius:number;footDx:number;rightX:number;rightZ:number;opacityFactor:number;
   house:HouseShape|undefined;furniture:FurnitureShape|undefined;
+  /** Last terrain-deck offset used for the retained GPU instance. If it
+   * changes, upload the new matrix rather than reuse the static token. */
+  cachedDeck?:number;
 }
 function optionsMatch(saved:ShadowOptions,caster:ShadowCaster){
   for(const key of OPTION_KEYS)if(saved[key]!==caster[key])return false;
@@ -163,7 +166,10 @@ export class GpuShadows {
     this.matrix.copy(plan.base);
     this.uv.set(plan.uv);this.repeat[0]=caster.projectionBottom??1;
     this.repeat[1]=plan.coefficients[0];this.repeat[2]=plan.coefficients[1];this.repeat[3]=plan.coefficients[3];
-    this.add(plan.art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,plan.house,plan.furniture);
+    // House/furniture projected geometry is immutable until modelStateMatches
+    // invalidates the plan. Sun direction still changes in a shared uniform;
+    // dynamic alpha and deck height are validated by addStatic/this.add.
+    this.add(plan.art.source,actor,actor.alpha*(.16+daylight*.07)*(1-cloud*.35),frame,true,plan.house,plan.furniture,plan);
   }
   private contact(actor:ShadowCaster['actor'],x:number,z:number,width:number,height:number,alpha:number,frame:number){
     if(width<=0||height<=0||!this.contactSource)return;
@@ -171,13 +177,18 @@ export class GpuShadows {
     this.uv[0]=this.uv[1]=0;this.uv[2]=this.uv[3]=1;this.repeat[0]=1;this.repeat[1]=this.repeat[2]=this.repeat[3]=0;
     this.add(this.contactSource,actor,alpha,frame,false);
   }
-  private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape){
+  private add(source:Phaser.Textures.TextureSource,actor:ShadowCaster['actor'],alpha:number,frame:number,projected:boolean,house?:HouseShape,furniture?:FurnitureShape,plan?:ModelShadow){
     const deck=furniture?.fixedGround??walkSurfaceHeight(actor.x,actor.y);
+    // A changing walk surface must invalidate a previously retained shadow
+    // matrix even when the caster's authored model is otherwise unchanged.
+    const reuse=Boolean(plan&&plan.cachedDeck===deck);
+    if(plan)plan.cachedDeck=deck;
     if(deck!==undefined)this.matrix.elements[13]+=deck;
     const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
     let batch=this.batches.get(key);
     if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
-    batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
+    if(reuse&&plan)batch.addStatic(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat,plan);
+    else batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
   destroy(){this.modelShadows=new WeakMap();for(const batch of this.batches.values())batch.destroy();this.batches.clear();this.contactSource=undefined;}
 }
