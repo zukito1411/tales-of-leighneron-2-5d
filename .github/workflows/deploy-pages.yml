@@ -58,19 +58,26 @@ jobs:
     name: Publish playable game on GitHub Pages
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # The Pages backend has its own 10-minute cap per deployment. Allow two
+    # independent attempts for sporadic large-artifact sync timeouts.
+    timeout-minutes: 30
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: ${{ steps.deployment_retry.outputs.page_url || steps.deployment.outputs.page_url }}
     steps:
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v5
       - name: Deploy game site
         id: deployment
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Retry Pages deployment if synchronization timed out
+        if: ${{ steps.deployment.outcome == 'failure' }}
+        id: deployment_retry
+        uses: actions/deploy-pages@v4
       - name: Show playable game link
         env:
-          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+          SITE_URL: ${{ steps.deployment_retry.outputs.page_url || steps.deployment.outputs.page_url }}
         run: |
           echo "### Play Tales of Leighneron 2.5D" >> "$GITHUB_STEP_SUMMARY"
           echo "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
