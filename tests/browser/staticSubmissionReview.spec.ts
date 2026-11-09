@@ -42,7 +42,8 @@ test('cached submission matches full collection and preserves texture invalidati
     // prevent only that test-only pending scene before BootScene finishes.
     // Real players and cinematic regression tests still run the original intro.
     await page.evaluate(async()=>{
-      const {useGameStore}=await import('/src/store/gameStore.ts') as typeof import('../../src/store/gameStore');
+      const storePath='/src/store/gameStore.ts';
+      const {useGameStore}=await import(/* @vite-ignore */ storePath) as typeof import('../../src/store/gameStore');
       useGameStore.getState().hydrate({pendingCinematic:null,cinematicQueue:[]});
     });
     await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:180000});
