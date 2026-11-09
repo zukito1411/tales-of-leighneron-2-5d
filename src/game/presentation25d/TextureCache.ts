@@ -8,11 +8,13 @@ import {VISUAL_QUALITY} from './VisualQuality';
 export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
 export function sourceHeight(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.height:source.height;}
 
-interface Entry {texture:Texture;lastUsed:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
+interface Entry {texture:Texture;lastUsed:number;lastUsedAtMs:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
-const IDLE_FRAMES=300;
-const RESIDENCY_GRACE=120;
+// Frame counts become shorter time periods at 120/144Hz. Residency must use
+// actual time, not frame numbers, or the FPS unlock causes cache churn.
+const IDLE_MS=5000;
+const RESIDENCY_GRACE_MS=2000;
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
@@ -21,7 +23,12 @@ const MAX_IDLE_ENTRIES=MOBILE?48:80;
 // resources time to be reused on camera turns, but accelerate cleanup when
 // memory grows far beyond the normal working set. Never rescale source art.
 const EMERGENCY_RESIDENT_BYTES=MAX_RESIDENT_BYTES*(MOBILE?2.25:1.75);
-const PRESSURE_GRACE_FRAMES=45;
+const PRESSURE_GRACE_MS=850;
+const EMERGENCY_GRACE_MS=65;
+export function textureGraceMs(residentBytes:number,softBytes:number,emergencyBytes:number){
+  return residentBytes>emergencyBytes?EMERGENCY_GRACE_MS
+    :residentBytes>softBytes?PRESSURE_GRACE_MS:RESIDENCY_GRACE_MS;
+}
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
@@ -30,6 +37,10 @@ export class TextureCache {
   private readonly profile=VISUAL_QUALITY[getEffectsQuality()];
   private readonly entries=new Map<Phaser.Textures.TextureSource,Entry>();
   private bytes=0;
+  private frameTimeMs=0;
+  /** Called once per rendered frame; no performance.now() in the many
+   * repeated TextureCache.get calls for shared atlases. */
+  beginFrame(nowMs:number){if(Number.isFinite(nowMs))this.frameTimeMs=nowMs;}
   private readonly pending=new Set<Phaser.Textures.TextureSource>();
   private uploads=0;private uploadMs=0;
   private coldCreates=0;
@@ -47,7 +58,8 @@ export class TextureCache {
     // memory charge changes only when image identity/dimensions change. Keep
     // immediate dirty-version checks, including updates made in this frame.
     if(entry&&entry.width===width&&entry.height===height&&entry.texture.image===source.image&&(!text||entry.text===text)){
-      entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);
+      entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
+      if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);
       return entry.texture;
     }
     if(!entry){
@@ -84,7 +96,7 @@ export class TextureCache {
         dynamic.fill=nextFill;dynamic.clear=nextClear;dynamic.endDraw=nextEnd;
         restoreDynamic.push(()=>{if(dynamic.fill===nextFill)dynamic.fill=fill;if(dynamic.clear===nextClear)dynamic.clear=clear;if(dynamic.endDraw===nextEnd)dynamic.endDraw=endDraw;});
       }
-      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;if(source.destroy===destroy)source.destroy=originalDestroy;for(const restore of restoreDynamic)restore();}};
+      entry={texture,lastUsed:frame,lastUsedAtMs:this.frameTimeMs,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;if(source.destroy===destroy)source.destroy=originalDestroy;for(const restore of restoreDynamic)restore();}};
       this.entries.set(source,entry);
     }
     if(text&&entry.text!==text){
@@ -106,7 +118,8 @@ export class TextureCache {
     const bytes=Math.ceil(Math.max(1,width)*Math.max(1,height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
     if(this.bytes>MAX_RESIDENT_BYTES)this.prefetchPaused=true;
-    entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
+    entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
+    if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
   prefetch(source:Phaser.Textures.TextureSource,frame:number){
     // Reserve headroom for the visible view and mandatory upload fences.
@@ -116,7 +129,7 @@ export class TextureCache {
     const mipmaps=key.startsWith('chunk:')||key==='shared-ocean-chunk'||key.startsWith('painted-model-');
     const bytes=Math.ceil(Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4*(mipmaps?4/3:1));
     if(this.prefetchPaused||!entry&&this.bytes+bytes>MAX_RESIDENT_BYTES*.85
-      ||entry&&this.bytes>MAX_RESIDENT_BYTES*.85&&entry.lastUsed<frame-2){this.prefetchSuppressed++;return;}
+      ||entry&&this.bytes>MAX_RESIDENT_BYTES*.85&&entry.lastUsedAtMs<this.frameTimeMs-30){this.prefetchSuppressed++;return;}
     this.get(source,frame);
   }
   ready(source:Phaser.Textures.TextureSource){const entry=this.entries.get(source);return Boolean(entry&&entry.uploadedVersion===entry.texture.version);}
@@ -151,10 +164,11 @@ export class TextureCache {
     // retire an entire biome's textures; disposing all of them at once causes
     // a second spike after the original upload.
     for(const [source,entry] of this.entries){
-      if(entry.lastUsed<frame-RESIDENCY_GRACE)idle++;
-      if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
+      const age=this.frameTimeMs-entry.lastUsedAtMs;
+      if(age>RESIDENCY_GRACE_MS)idle++;
+      if((!source.image||age>IDLE_MS)&&retired<2){
         this.release(source,entry,'idle');retired++;
-        if(entry.lastUsed<frame-RESIDENCY_GRACE)idle--;
+        if(age>RESIDENCY_GRACE_MS)idle--;
       }
     }
     if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
@@ -165,11 +179,11 @@ export class TextureCache {
       // eviction was causing recently visible textures to be discarded during
       // camera turns. Keep a short reuse window unless emergency pressure
       // demands quicker retirement; still retire no more than two per frame.
-      const grace=this.bytes>EMERGENCY_RESIDENT_BYTES?4
-        :this.bytes>MAX_RESIDENT_BYTES?PRESSURE_GRACE_FRAMES:RESIDENCY_GRACE;
-      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-grace&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
+      const graceMs=textureGraceMs(this.bytes,MAX_RESIDENT_BYTES,EMERGENCY_RESIDENT_BYTES);
+      for(const [source,entry] of this.entries)if(entry.lastUsedAtMs<this.frameTimeMs-graceMs
+        &&(!oldest||entry.lastUsedAtMs<oldest.lastUsedAtMs)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
-      if(oldest.lastUsed<frame-RESIDENCY_GRACE)idle--;
+      if(this.frameTimeMs-oldest.lastUsedAtMs>RESIDENCY_GRACE_MS)idle--;
       this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
