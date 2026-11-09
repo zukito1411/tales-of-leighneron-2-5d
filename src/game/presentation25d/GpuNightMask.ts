@@ -53,7 +53,7 @@ export class GpuNightMask {
   }
   warmupObjects(){return [this.holes,this.overlay];}
   active(night:number,_interior:boolean){return night>0&&getGraphicEffects().nightDarkness;}
-  render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number,merged=false){
+  render(renderer:WebGLRenderer,scene:Phaser.Scene,source:DayNightSystem|undefined,depth:Texture|null,night:number,interior:boolean,density:number,merged=false,sharedInverseVP?:Matrix4){
     const active=this.active(night,interior)&&Boolean(source&&depth);
     this.overlay.visible=active&&!merged;
     if(!active||!source||!depth){this.suspend();return;}
@@ -97,7 +97,8 @@ export class GpuNightMask {
     try{renderer.setRenderTarget(this.target);renderer.setClearColor(0x000000,1);renderer.clear();if(count)renderer.render(this.scene,this.camera);}
     finally{renderer.setRenderTarget(previous);renderer.setClearColor(this.color,alpha);}
     this.uniforms.mask.value=this.target.texture;this.uniforms.worldDepth.value=depth;this.uniforms.darkness.value=night*(interior?.58:.84);
-    this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
+    if(sharedInverseVP)this.uniforms.inverseVP.value.copy(sharedInverseVP);
+    else this.uniforms.inverseVP.value.multiplyMatrices(view.camera.projectionMatrix,view.camera.matrixWorldInverse).invert();
     this.uniforms.focus.value.set(view.focusGround.x,view.focusGround.y);
     this.uniforms.fogRange.value.set(interior?10000:FOG_START,interior?20000:VIEW_DISTANCE);
   }
