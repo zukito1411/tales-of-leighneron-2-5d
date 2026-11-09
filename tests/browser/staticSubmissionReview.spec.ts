@@ -95,10 +95,34 @@ test('cached submission matches full collection and preserves texture invalidati
         return {fast:p.fast,cpuPerFrame:p.cpu/p.frames,calls:p.calls,frames:p.frames,median:sorted[Math.floor(sorted.length/2)],hash:hash>>>0,instances,dispatchHits:renderer['cachedDispatchHits']};
       }));
     }
-    // Same frozen shot and actual instance buffers, alternating ABBA to avoid
-    // treating startup/JIT drift as evidence of a rendering improvement.
-    expect(new Set(samples.map(s=>s.hash)).size).toBe(1);
-    expect(new Set(samples.map(s=>s.instances)).size).toBe(1);
+    // The benchmark blocks above occur on different rAF ticks and can include
+    // time-dependent presentation data even when WorldScene is paused.
+    // Compare cached/full submission on the SAME game-loop tick instead:
+    // immediate alternating ABBA draws prevent that drift from corrupting
+    // exact instance-buffer parity checks. All normal actors stay untouched.
+    const parity=await page.evaluate(()=>{
+      const probe=window.__submissionProbe!,renderer=window.__submissionRenderer!;
+      const world=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      const snapshot=(fast:boolean)=>{
+        probe.fast=fast;probe.measure=false;
+        renderer['draw'](world,world.children.list,world.cameras.main);
+        let hash=2166136261,instances=0;
+        for(const batch of renderer['batches'].values()){
+          if(!batch.mesh.visible)continue;
+          instances+=batch.mesh.count;
+          const attributes=[batch.mesh.instanceMatrix,...['atlasRect','instanceTint','instanceTintTR','instanceTintBL','instanceTintBR','tileRepeat'].map(key=>batch.mesh.geometry.getAttribute(key))];
+          for(const attribute of attributes){
+            const values=attribute.array;
+            for(let i=0;i<batch.mesh.count*attribute.itemSize;i++)
+              hash=Math.imul(hash^(Math.round(values[i]*10000)|0),16777619);
+          }
+        }
+        return {fast,hash:hash>>>0,instances};
+      };
+      return [snapshot(false),snapshot(true),snapshot(true),snapshot(false)];
+    });
+    expect(new Set(parity.map(s=>s.hash)).size,JSON.stringify(parity)).toBe(1);
+    expect(new Set(parity.map(s=>s.instances)).size,JSON.stringify(parity)).toBe(1);
     expect(samples[1].dispatchHits).toBeGreaterThan(samples[0].dispatchHits);
     const textures=await page.evaluate(async()=>{
       const path='/src/game/presentation25d/TextureCache.ts';const {TextureCache}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/TextureCache');
