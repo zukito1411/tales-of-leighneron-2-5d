@@ -9,9 +9,9 @@ declare global {interface Window {
 }}
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('cached submission matches full collection and preserves texture invalidation',async({browser})=>{
-  // Keep the real renderer and frozen gameplay. CI software GL is much slower
-  // than a phone: test enough alternating frames for parity without spending
-  // six minutes on ~1,000 redundant headless frames.
+  // This is a deterministic instance-buffer equality check, not an FPS
+  // benchmark. A few frozen frames in each ABBA block suffice to prove exact
+  // ordering, while software GL on CI can take seconds per rendered frame.
   test.setTimeout(240000);
   const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
@@ -79,7 +79,7 @@ test('cached submission matches full collection and preserves texture invalidati
       await page.evaluate(fast=>{const p=window.__submissionProbe!;p.fast=fast;p.measure=false;},fast);
       await page.waitForTimeout(80);
       await page.evaluate(()=>{const p=window.__submissionProbe!;p.cpu=0;p.calls=0;p.frames=0;p.samples=[];p.measure=true;});
-      await page.waitForFunction(()=>window.__submissionProbe!.frames>=72);
+      await page.waitForFunction(()=>window.__submissionProbe!.frames>=16);
       samples.push(await page.evaluate(()=>{
         const p=window.__submissionProbe!;p.measure=false;
         const renderer=window.__submissionRenderer!;let hash=2166136261,instances=0;
