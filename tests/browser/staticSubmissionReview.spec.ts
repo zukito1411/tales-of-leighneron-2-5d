@@ -1,5 +1,5 @@
 import {test,expect} from '@playwright/test';
-import {writeFile} from 'node:fs/promises';
+import {mkdir,writeFile} from 'node:fs/promises';
 import type {ThreePresentation} from '../../src/game/presentation25d/ThreePresentation';
 import type {WorldScene} from '../../src/game/scenes/WorldScene';
 
@@ -192,6 +192,7 @@ test('cached submission matches full collection and preserves texture invalidati
     await page.evaluate(()=>{window.__submissionProbe!.fast=true;});
     await page.screenshot({path:'test-results/cached-static-submission.png'});
     console.log(JSON.stringify({samples,textures,slots,adaptive}));
+    await mkdir('.asset-review',{recursive:true});
     await writeFile('.asset-review/static-submission-review.json',JSON.stringify({samples,textures,slots,adaptive},null,2));
     expect(errors).toEqual([]);
   }finally{await context.close();}
