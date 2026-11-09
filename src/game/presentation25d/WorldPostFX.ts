@@ -301,6 +301,10 @@ export class WorldPostFX {
     return this.targets.world.depthTexture;
   }
   get depth(){return this.targets?.world.depthTexture??null;}
+  // The night-mask overlay and world compositor use the exact same view.
+  // Share the already-inverted matrix instead of doing a second 4x4 inverse
+  // on the same presentation frame (no camera/visual approximation).
+  get inverseViewProjection(){return this.composite.uniforms.inverseVP.value;}
 
   render(renderer:WebGLRenderer,frame:WorldFrame){
     // Loading/asset preparation scenes do not allocate or compile world FX.
