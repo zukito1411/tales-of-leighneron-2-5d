@@ -9,7 +9,9 @@ declare global {interface Window {
 }}
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('cached submission matches full collection and preserves texture invalidation',async({browser})=>{
-  test.setTimeout(180000);
+  // Cold CI startup and four 240-frame comparison blocks can exceed three
+  // minutes even when the engine is healthy. Keep a bounded six-minute limit.
+  test.setTimeout(360000);
   const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   try{
@@ -35,10 +37,21 @@ test('cached submission matches full collection and preserves texture invalidati
       };
     });
     await page.getByRole('button',{name:'Start New Game',exact:true}).click();
-    await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:120000});
-    await page.getByRole('button',{name:/Skip scene/}).click();
-    await page.waitForFunction(()=>!(window.__mernondnaGame!.scene.getScene('world') as WorldScene)['cinematicDirector'].active);
-    await page.waitForTimeout(2000);
+    // This test measures instanced world rendering, not the cinematic return
+    // streaming sequence. New saves queue the long roadborn-opening intro;
+    // prevent only that test-only pending scene before BootScene finishes.
+    // Real players and cinematic regression tests still run the original intro.
+    await page.evaluate(async()=>{
+      const {useGameStore}=await import('/src/store/gameStore.ts') as typeof import('../../src/store/gameStore');
+      useGameStore.getState().hydrate({pendingCinematic:null,cinematicQueue:[]});
+    });
+    await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:180000});
+    const cinematicActive=await page.evaluate(()=>{
+      const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      return s['cinematicDirector'].active;
+    });
+    expect(cinematicActive,'renderer parity fixture must be outside story cinematics').toBe(false);
+    await page.waitForTimeout(1000);
     await page.evaluate(()=>{const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;s.player.resetInput();s.scene.pause();});
     await page.waitForTimeout(500);
     for(const fast of [false,true,false,true]){
