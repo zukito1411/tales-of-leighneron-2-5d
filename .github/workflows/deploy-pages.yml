@@ -1,15 +1,17 @@
-name: Build 2.5D browser game
+name: Build and deploy 2.5D game to GitHub Pages
 
 on:
   push:
     branches: [main]
-    # No browser rebuild for workflow-only maintenance.
+    # Workflow-only maintenance does not trigger another full game build.
     paths-ignore:
       - '.github/workflows/**'
   workflow_dispatch:
 
 permissions:
   contents: read
+  pages: write
+  id-token: write
 
 concurrency:
   group: browser-25d-${{ github.ref }}
@@ -32,9 +34,43 @@ jobs:
           npm exec --no -- tsc -p tsconfig.node.json --noEmit
       - name: Build browser game
         run: npm run build
+      - name: Check site entry point and offline shell
+        run: |
+          test -s dist/index.html
+          test -s dist/sw.js
+          test -s dist/offline-shell.json
+          test -s dist/manifest.webmanifest
+          # GitHub Pages must serve the files as built, including directories
+          # with underscores used by static assets.
+          touch dist/.nojekyll
       - uses: actions/upload-artifact@v4
         with:
           name: Tales-of-Leighneron-2.5D-Web
           path: dist/
           if-no-files-found: error
           retention-days: 14
+      - name: Upload playable site for GitHub Pages
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist/
+
+  deploy:
+    name: Publish playable game on GitHub Pages
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Deploy game site
+        id: deployment
+        uses: actions/deploy-pages@v4
+      - name: Show playable game link
+        env:
+          SITE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          echo "### Play Tales of Leighneron 2.5D" >> "$GITHUB_STEP_SUMMARY"
+          echo "$SITE_URL" >> "$GITHUB_STEP_SUMMARY"
