@@ -16,6 +16,12 @@ const RESIDENCY_GRACE=120;
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
+// Texture budgets are soft: a live scene's full-quality textures cannot be
+// thrown out just because the view itself exceeds 128 MiB. Give recently seen
+// resources time to be reused on camera turns, but accelerate cleanup when
+// memory grows far beyond the normal working set. Never rescale source art.
+const EMERGENCY_RESIDENT_BYTES=MAX_RESIDENT_BYTES*(MOBILE?2.25:1.75);
+const PRESSURE_GRACE_FRAMES=45;
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
@@ -28,9 +34,12 @@ export class TextureCache {
   private uploads=0;private uploadMs=0;
   private coldCreates=0;
   private evictions=0;
+  private pressureEvictions=0;
+  private idleEvictions=0;
+  private sourceDisposals=0;
   private prefetchPaused=false;
   private prefetchSuppressed=0;
-  stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed};}
+  stats(){return {residentMiB:Math.round(this.bytes/1048576),budgetMiB:Math.round(MAX_RESIDENT_BYTES/1048576),emergencyMiB:Math.round(EMERGENCY_RESIDENT_BYTES/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pressureEvictions:this.pressureEvictions,idleEvictions:this.idleEvictions,sourceDisposals:this.sourceDisposals,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed};}
   get(source:Phaser.Textures.TextureSource,frame:number,text?:Phaser.GameObjects.Text){
     const width=sourceWidth(source),height=sourceHeight(source);
     let entry=this.entries.get(source);
@@ -62,7 +71,7 @@ export class TextureCache {
       // streaming frame has exhausted its optional retirement allowance.
       const destroy:typeof originalDestroy=()=>{
         const current=this.entries.get(source);
-        if(current)this.release(source,current);
+        if(current)this.release(source,current,'source');
         originalDestroy.call(source);
       };
       source.destroy=destroy;
@@ -130,7 +139,12 @@ export class TextureCache {
       this.uploads++;this.uploadMs+=performance.now()-started;work.charge('upload',started);break;
     }
   }
-  private release(source:Phaser.Textures.TextureSource,entry:Entry){entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.evictions++;}
+  private release(source:Phaser.Textures.TextureSource,entry:Entry,reason:'source'|'idle'|'pressure'){
+    entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.evictions++;
+    if(reason==='source')this.sourceDisposals++;
+    else if(reason==='idle')this.idleEvictions++;
+    else this.pressureEvictions++;
+  }
   prune(frame:number){
     let idle=0,retired=0;
     // Destroy a maximum of two GPU resources per frame. A camera turn can
@@ -139,7 +153,7 @@ export class TextureCache {
     for(const [source,entry] of this.entries){
       if(entry.lastUsed<frame-RESIDENCY_GRACE)idle++;
       if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
-        this.release(source,entry);retired++;
+        this.release(source,entry,'idle');retired++;
         if(entry.lastUsed<frame-RESIDENCY_GRACE)idle--;
       }
     }
@@ -147,13 +161,16 @@ export class TextureCache {
     // Evict only idle resources, oldest first; never drop visible assets.
     while((this.bytes>MAX_RESIDENT_BYTES||idle>MAX_IDLE_ENTRIES)&&retired<2){
       let oldest:Entry|undefined,oldestSource:Phaser.Textures.TextureSource|undefined;
-      // Above the byte budget, reclaim sources absent from the last complete
-      // view immediately. A two-second grace is only affordable below budget.
-      const grace=this.bytes>MAX_RESIDENT_BYTES?2:RESIDENCY_GRACE;
+      // The normal working set can exceed the *soft* budget. Two-frame
+      // eviction was causing recently visible textures to be discarded during
+      // camera turns. Keep a short reuse window unless emergency pressure
+      // demands quicker retirement; still retire no more than two per frame.
+      const grace=this.bytes>EMERGENCY_RESIDENT_BYTES?4
+        :this.bytes>MAX_RESIDENT_BYTES?PRESSURE_GRACE_FRAMES:RESIDENCY_GRACE;
       for(const [source,entry] of this.entries)if(entry.lastUsed<frame-grace&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
       if(oldest.lastUsed<frame-RESIDENCY_GRACE)idle--;
-      this.release(oldestSource,oldest);retired++;
+      this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
   destroy(){for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}
