@@ -1,0 +1,114 @@
+name: Publish 2.5D Android APK to itch.io
+
+on:
+  # Reuse the APK that GitHub already built, signed, verified, and released.
+  # Never rebuild or sign a separate APK just for itch.io.
+  workflow_run:
+    workflows: ['Build and release 2.5D Android APK']
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing 2.5D Android release tag (blank = latest)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leighneron-25d-itch-android
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Upload verified 2.5D APK to itch.io
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Verify itch.io credentials are configured
+        shell: bash
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY || secrets.BUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [[ -z "${BUTLER_API_KEY:-}" ]]; then
+            echo "::error::Add the itch.io API key to THIS repository's Actions secrets as BUTLER_API_KEY (or legacy BUTER_API_KEY)."
+            echo 'The GitHub APK release is unaffected, but itch.io cannot receive updates without its own credential.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo 'itch.io credential is present (value is not printed).'
+
+      - name: Retrieve exact published 2.5D release APK and verify checksum
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REQUESTED_TAG: ${{ inputs.release_tag }}
+          SOURCE_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          SOURCE_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_run' ]]; then
+            tag="leighneron-25d-${SOURCE_RUN_ID}-${SOURCE_RUN_ATTEMPT}"
+          elif [[ -n "${REQUESTED_TAG:-}" ]]; then
+            tag="$REQUESTED_TAG"
+          else
+            tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq '.tagName')"
+          fi
+          if [[ ! "$tag" =~ ^leighneron-25d-[0-9]+-[0-9]+$ ]]; then
+            echo "::error::Refusing to upload unexpected release tag: $tag"
+            exit 1
+          fi
+          if [[ "$GITHUB_EVENT_NAME" == 'workflow_run' ]]; then
+            published_sha="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq '.targetCommitish')"
+            if [[ "$published_sha" != "$SOURCE_HEAD_SHA" ]]; then
+              echo "::error::Release source commit does not match the successful Android build."
+              exit 1
+            fi
+          fi
+          target="$RUNNER_TEMP/itch-android"
+          mkdir -p "$target"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'Tales-of-Leighneron-2.5D.apk' --dir "$target"
+          gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern 'Tales-of-Leighneron-2.5D.apk.sha256' --dir "$target"
+          (cd "$target" && sha256sum --check Tales-of-Leighneron-2.5D.apk.sha256)
+          test -s "$target/Tales-of-Leighneron-2.5D.apk"
+          echo "ITCH_RELEASE_TAG=$tag" >> "$GITHUB_ENV"
+          echo "Verified the exact signed APK published by GitHub: $tag"
+
+      - name: Install official itch.io Butler
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 30 --max-time 300 \
+            --output "$RUNNER_TEMP/butler.zip" \
+            'https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default'
+          mkdir -p "$RUNNER_TEMP/itch-butler"
+          unzip -q "$RUNNER_TEMP/butler.zip" -d "$RUNNER_TEMP/itch-butler"
+          chmod +x "$RUNNER_TEMP/itch-butler/butler"
+          "$RUNNER_TEMP/itch-butler/butler" --version
+
+      - name: Publish APK to the 2.5D itch.io Android channel
+        shell: bash
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY || secrets.BUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          version="2.5d-${ITCH_RELEASE_TAG#leighneron-25d-}"
+          "$RUNNER_TEMP/itch-butler/butler" push \
+            "$RUNNER_TEMP/itch-android/Tales-of-Leighneron-2.5D.apk" \
+            'zukiaoki/tales-of-leighneron-25d:android' \
+            --userversion "$version"
+          {
+            echo '## Tales of Leighneron 2.5D APK published to itch.io'
+            echo "- Source GitHub release: \`$ITCH_RELEASE_TAG\`"
+            echo '- Project: https://zukiaoki.itch.io/tales-of-leighneron-25d'
+            echo '- itch.io channel: android'
+            echo 'Existing external download links on the itch.io page may need to be hidden manually to prevent duplicate download choices.'
+          } >> "$GITHUB_STEP_SUMMARY"
