@@ -369,13 +369,17 @@ export class ThreePresentation {
     this.gpuWater.update(scene,presentation.presentationWater,focus,this.frame,this.interior);
     this.gpuWeather.update(weather,this.orbit.camera,focus,night,this.interior,this.orbit.bounds);
     this.gpuLightning.update(this.interior?null:presentation.presentationStorm?.bolt,this.heightAt);
-    for(const batch of this.batches.values())batch.begin();
+    // Inactive retained batches already have zero instances. Resetting them
+    // each frame wastes work; submissions reactivate them lazily.
+    for(const batch of this.batches.values())if(batch.mesh.visible)batch.begin();
     camera.emit(Phaser.Cameras.Scene2D.Events.PRE_RENDER,camera);
     const spatial=staticSpatialIndex(scene);spatial.query(this.orbit.bounds);
     for(const object of children)if(spatial.accepts(object,this.visibility))this.collect(object,camera,1,undefined,undefined);
     this.pickable.length=0;
     for(const batch of this.batches.values()){
-      batch.finish();
+      // Complete the batches that changed this frame or were visible before
+      // collection. Leave long-dormant instance buffers untouched.
+      if(batch.mesh.visible||batch.hasSubmittedInstances)batch.finish();
       if(batch.mesh.visible&&(batch.interactive||batch.mesh.userData.presentationOccluder)&&batch.mesh.parent===this.world)this.pickable.push(batch.mesh);
     }
     const retireStart=performance.now(),retireMs=work.remaining('retire',.3);

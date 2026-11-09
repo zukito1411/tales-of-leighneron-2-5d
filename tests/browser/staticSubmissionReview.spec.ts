@@ -9,7 +9,9 @@ declare global {interface Window {
 }}
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('cached submission matches full collection and preserves texture invalidation',async({browser})=>{
-  test.setTimeout(180000);
+  // Cold CI startup and four 240-frame comparison blocks can exceed three
+  // minutes even when the engine is healthy. Keep a bounded six-minute limit.
+  test.setTimeout(360000);
   const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   try{
@@ -35,10 +37,22 @@ test('cached submission matches full collection and preserves texture invalidati
       };
     });
     await page.getByRole('button',{name:'Start New Game',exact:true}).click();
-    await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:120000});
-    await page.getByRole('button',{name:/Skip scene/}).click();
-    await page.waitForFunction(()=>!(window.__mernondnaGame!.scene.getScene('world') as WorldScene)['cinematicDirector'].active);
-    await page.waitForTimeout(2000);
+    // This test measures instanced world rendering, not the cinematic return
+    // streaming sequence. New saves queue the long roadborn-opening intro;
+    // prevent only that test-only pending scene before BootScene finishes.
+    // Real players and cinematic regression tests still run the original intro.
+    await page.evaluate(async()=>{
+      const storePath='/src/store/gameStore.ts';
+      const {useGameStore}=await import(/* @vite-ignore */ storePath) as typeof import('../../src/store/gameStore');
+      useGameStore.getState().hydrate({pendingCinematic:null,cinematicQueue:[]});
+    });
+    await page.waitForFunction(()=>window.__mernondnaGame?.registry.get('worldReady'),null,{timeout:180000});
+    const cinematicActive=await page.evaluate(()=>{
+      const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      return s['cinematicDirector'].active;
+    });
+    expect(cinematicActive,'renderer parity fixture must be outside story cinematics').toBe(false);
+    await page.waitForTimeout(1000);
     await page.evaluate(()=>{const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;s.player.resetInput();s.scene.pause();});
     await page.waitForTimeout(500);
     for(const fast of [false,true,false,true]){
@@ -104,10 +118,21 @@ test('cached submission matches full collection and preserves texture invalidati
         batch.begin();add(a);batch.finish();const released=batch.objects.length===1&&batch['staticTokens'][1]===undefined&&batch['slots'][1].object===undefined;
         batch.begin();batch.add(mb,uv,colors,1,a,rect,2);batch.finish();
         batch.begin();add(a);batch.finish();const dynamicReset=batch.mesh.instanceMatrix.array[12]===10;
-        return {unchanged,reordered,faded,released,dynamicReset};
+        // A renderer may leave an invisible retained batch idle for many frames.
+        // The next submission must reset slots and GPU attribute ranges itself.
+        batch.begin();batch.finish();
+        const dormant=!batch.mesh.visible&&batch.mesh.count===0&&batch.objects.length===0;
+        add(b);batch.finish();
+        const reactivated=dormant&&batch.mesh.visible&&batch.mesh.count===1
+          &&batch.mesh.instanceMatrix.array[12]===20&&batch.objects[0].object===b;
+        batch.begin();batch.finish();
+        add(a);add(b);batch.finish();
+        const multipleAfterIdle=batch.mesh.count===2&&batch.objects[0].object===a&&batch.objects[1].object===b
+          &&batch.mesh.instanceMatrix.array[12]===10&&batch.mesh.instanceMatrix.array[28]===20;
+        return {unchanged,reordered,faded,released,dynamicReset,reactivated,multipleAfterIdle};
       }finally{batch.destroy();texture.dispose();a.destroy();b.destroy();}
     });
-    expect(slots).toEqual({unchanged:true,reordered:true,faded:true,released:true,dynamicReset:true});
+    expect(slots).toEqual({unchanged:true,reordered:true,faded:true,released:true,dynamicReset:true,reactivated:true,multipleAfterIdle:true});
     const adaptive=await page.evaluate(async()=>{
       const path='/src/game/presentation25d/RenderBudget.ts';const {RenderBudget}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/RenderBudget');
       const gpu=new RenderBudget(),cpu=new RenderBudget(),paused=new RenderBudget();
