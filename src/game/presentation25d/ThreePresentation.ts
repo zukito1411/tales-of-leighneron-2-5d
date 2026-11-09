@@ -108,6 +108,7 @@ export class ThreePresentation {
   private readonly frameTiming=new FrameTiming();
   private readonly visibility=new StreamVisibility();
   private timingFrame=-1;
+  private lastPresentedAt=0;
   private readonly billboardRight={value:new Vector2(1,0)};
   private readonly neutralModel=new Matrix4();
   private readonly viewProjection=new Matrix4();
@@ -196,7 +197,7 @@ export class ThreePresentation {
   private diagnosticsPanel:HTMLPreElement|null=null;
   private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
-  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
+  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
@@ -282,7 +283,6 @@ export class ThreePresentation {
     this.frame++;
     const work=frameWork(this.game);
     this.gpuTimer.poll();
-    if(this.frameDiagnostics&&this.timingFrame!==this.game.loop.frame){this.frameTiming.add(this.game.loop.rawDelta);this.timingFrame=this.game.loop.frame;}
     const adaptive=getGraphicEffects().adaptiveResolution;
     const sampleGpu=(this.frameDiagnostics||adaptive)&&this.frame%(this.frameDiagnostics?4:12)===0;
     this.textures.prepare(this.renderer,work);
@@ -430,7 +430,22 @@ export class ThreePresentation {
       const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
       this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera,work);
     }
-    if(this.frameDiagnostics)this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
+    if(this.frameDiagnostics){
+      // Measure the actual interval between *presented frames*, rather than
+      // Phaser's raw requestAnimationFrame ticks. A 120 Hz display can supply
+      // 8.3 ms raw deltas even when our game is correctly capped at 60 FPS.
+      // A background/resume interval is not an in-game stutter.
+      if(this.timingFrame!==this.game.loop.frame){
+        const now=performance.now(),elapsed=now-this.lastPresentedAt;
+        if(this.lastPresentedAt>0){
+          if(elapsed<1000)this.frameTiming.add(elapsed);
+          else this.frameTiming.reset();
+        }
+        this.lastPresentedAt=now;
+        this.timingFrame=this.game.loop.frame;
+      }
+      this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
+    }
   }
 
   private syncDiagnosticsPanel(){
@@ -469,8 +484,9 @@ export class ThreePresentation {
       const n=(v:number)=>v.toFixed(1);
       this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
         +'Game loop limit: '+this.game.loop.fpsLimit+' FPS (target '+this.game.loop.targetFps+')\n'
-        +'Raw frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+'\n'
-        +'Raw peak: '+n(pacing.maximum)+' | >33ms '+pacing.over33+' | >50ms '+pacing.over50+' / '+pacing.samples+'\n'
+        +'Rendered FPS (rolling): '+(pacing.samples>=20?n(pacing.fps):'warming')+' | 1% low '+(pacing.samples>=100?n(pacing.onePercentLowFps):'warming')+' | target '+this.game.loop.targetFps+'\n'
+        +'Presented frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+' ms\n'
+        +'Presented peak: '+n(pacing.maximum)+' ms | >33ms '+pacing.over33+' | >50ms '+pacing.over50+' / '+pacing.samples+'\n'
         +'Simulation CPU: '+n(result.simulationCpuMs??0)+' | GPU: '+(result.gpuMs===null?'unavailable':n(result.gpuMs))+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
@@ -610,7 +626,9 @@ export class ThreePresentation {
       if(flipX){u+=du;du=-du;}if(flipY){v+=dv;dv=-dv;}
       uv[0]=u;uv[1]=v;uv[2]=du;uv[3]=dv;
     }
-    if(source&&(object instanceof Phaser.GameObjects.Image||object instanceof Phaser.GameObjects.Sprite))this.textures.prefetch(source,this.frame);
+    // Do not eagerly allocate textures for sprites that may be culled below.
+    // Visible sources are requested after the view test; explicit asset
+    // preparation uses the separate bounded prefetch path.
     object.getWorldTransformMatrix(this.transform,this.parentTransform);
     if(hint?.combat&&object instanceof Phaser.GameObjects.Sprite&&source){
       this.collectCombat(object,camera,alpha,hint.combat,hint.anchor,source,rect,uv);return;
@@ -1084,7 +1102,7 @@ export class ThreePresentation {
     this.reportGraphicsFault('context-lost',{status:'statusMessage' in event?String(event.statusMessage).slice(0,2000):undefined});
     this.contextLost=true;this.programsReady=false;this.preparationEpoch++;
     this.shaderWarmup.restartOptional();
-    this.gpuTimer.abandon();mobileInput.reset();this.orbit.suspend();this.firstPersonFeedback.suspend();
+    this.gpuTimer.abandon();this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;mobileInput.reset();this.orbit.suspend();this.firstPersonFeedback.suspend();
     this.game.registry.set('presentationRecovering',true);
     this.game.registry.set('presentationProgramsReady',false);
     this.game.loop.sleep();
