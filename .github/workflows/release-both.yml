@@ -186,6 +186,11 @@ jobs:
     needs: android
     runs-on: windows-latest
     timeout-minutes: 65
+    env:
+      # Keep the two downloaded, version-pinned desktop tool archives in
+      # predictable locations that can be restored across release builds.
+      ELECTRON_CACHE: ${{ github.workspace }}/.ci-cache/electron
+      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.ci-cache/electron-builder
     steps:
       - name: Checkout game
         uses: actions/checkout@v4
@@ -193,6 +198,13 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      - name: Restore Electron and desktop packaging archives
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ci-cache/electron
+            .ci-cache/electron-builder
+          key: ${{ runner.os }}-electron-45.0.0-builder-26.18.0-archives-v1
       - name: Install existing game dependencies
         run: npm ci
       - name: Check TypeScript without starting the game
@@ -211,9 +223,28 @@ jobs:
       - name: Install pinned Windows desktop packaging tools
         run: npm install --no-save --package-lock=false electron@45.0.0 electron-builder@26.18.0
       - name: Package Windows installer and optional portable executable
+        shell: pwsh
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: npx --no-install electron-builder --win nsis portable --x64 --publish never
+        run: |
+          $ErrorActionPreference = 'Stop'
+          # Electron Builder downloads third-party NSIS/signing helper archives
+          # during packaging. A transient upstream HTTP 504 must not cancel the
+          # matching Android APK + Windows EXE release.
+          $PSNativeCommandUseErrorActionPreference = $false
+          for ($attempt = 1; $attempt -le 5; $attempt++) {
+            Write-Host "Windows packaging attempt $attempt of 5"
+            & npx --no-install electron-builder --win nsis portable --x64 --publish never
+            if ($LASTEXITCODE -eq 0) {
+              Write-Host "Windows installer and portable executable built successfully."
+              exit 0
+            }
+            if ($attempt -eq 5) {
+              throw "Electron Builder failed after five attempts (last exit code: $LASTEXITCODE)."
+            }
+            Write-Warning "Electron Builder failed; retrying after a short backoff. Cached downloads are kept."
+            Start-Sleep -Seconds (15 * $attempt)
+          }
       - name: Verify executable and record SHA256
         shell: pwsh
         run: |
