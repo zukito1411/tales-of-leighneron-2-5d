@@ -2,6 +2,8 @@ package com.mernondna.rpg25d;
 
 import android.os.Bundle;
 import android.view.View;
+import android.view.Display;
+import android.view.WindowManager;
 
 import com.getcapacitor.BridgeActivity;
 import com.getcapacitor.BridgeWebViewClient;
@@ -26,6 +28,35 @@ public class MainActivity extends BridgeActivity {
             }
         });
         hideSystemBars();
+        requestHighestRefreshRate();
+    }
+
+    @Override
+    public void onResume() {
+        super.onResume();
+        requestHighestRefreshRate();
+    }
+
+    /**
+     * Request the highest refresh mode supported by the current display,
+     * without changing its resolution. Android may ignore this preference
+     * for power saver, thermal limits, user settings or other app windows.
+     *
+     * Refresh-rate selection never changes Phaser's game-time delta or
+     * Arcade physics; rendering still follows WebView's rAF cadence.
+     */
+    private void requestHighestRefreshRate() {
+        Display display=getWindowManager().getDefaultDisplay();
+        if(display==null)return;
+        float highest=0f;
+        for(float hz:display.getSupportedRefreshRates()) {
+            if(Float.isFinite(hz)&&hz>highest)highest=hz;
+        }
+        if(highest<=0f)return;
+        WindowManager.LayoutParams params=getWindow().getAttributes();
+        if(Math.abs(params.preferredRefreshRate-highest)<.01f)return;
+        params.preferredRefreshRate=highest;
+        getWindow().setAttributes(params);
     }
 
     @Override
