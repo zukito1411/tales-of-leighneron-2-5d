@@ -195,9 +195,10 @@ export class ThreePresentation {
   private frameDiagnostics=getFrameDiagnosticsEnabled();
   private diagnosticsParent:HTMLElement|null=null;
   private diagnosticsPanel:HTMLPreElement|null=null;
-  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,feedback:0,feedbackWorst:0,deltaMax:0};
+  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
-  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
+  private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;sourceDisposals:number;preparedUploads:number}|null=null;
+  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
@@ -278,7 +279,9 @@ export class ThreePresentation {
     if(this.stopped||this.contextLost||!this.programsReady)return;
     const width=this.game.scale.width,height=this.game.scale.height;
     if(!Number.isFinite(width)||!Number.isFinite(height)||width<=0||height<=0)return;
-    const profStart=this.frameDiagnostics?performance.now():0;
+    // Always retain one cheap CPU timestamp: background work must not assume
+    // spare headroom solely because the display is 120 Hz.
+    const cpuStart=performance.now(),profStart=this.frameDiagnostics?cpuStart:0;
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
     const work=frameWork(this.game);
@@ -369,6 +372,7 @@ export class ThreePresentation {
     this.gpuWater.update(scene,presentation.presentationWater,focus,this.frame,this.interior);
     this.gpuWeather.update(weather,this.orbit.camera,focus,night,this.interior,this.orbit.bounds);
     this.gpuLightning.update(this.interior?null:presentation.presentationStorm?.bolt,this.heightAt);
+    const profVisibilityStart=this.frameDiagnostics?performance.now():0;
     // Inactive retained batches already have zero instances. Resetting them
     // each frame wastes work; submissions reactivate them lazily.
     for(const batch of this.batches.values())if(batch.mesh.visible)batch.begin();
@@ -382,6 +386,7 @@ export class ThreePresentation {
       if(batch.mesh.visible||batch.hasSubmittedInstances)batch.finish();
       if(batch.mesh.visible&&(batch.interactive||batch.mesh.userData.presentationOccluder)&&batch.mesh.parent===this.world)this.pickable.push(batch.mesh);
     }
+    const profVisibilityEnd=this.frameDiagnostics?performance.now():0;
     const retireStart=performance.now(),retireMs=work.remaining('retire',.3);
     // Resource caps must remain enforceable when terrain uses the full work
     // allowance. Each cache already bounds releases; cleanup cannot starve.
@@ -430,6 +435,7 @@ export class ThreePresentation {
       const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
       this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera,work);
     }
+    work.reportPresentationMs(performance.now()-cpuStart);
     if(this.frameDiagnostics){
       // Measure the actual interval between *presented frames*, rather than
       // Phaser's raw requestAnimationFrame ticks. A 120 Hz display can supply
@@ -444,7 +450,7 @@ export class ThreePresentation {
         this.lastPresentedAt=now;
         this.timingFrame=this.game.loop.frame;
       }
-      this.recordDiagnostics(profStart,profCollect,profRender,performance.now());
+      this.recordDiagnostics(profStart,profVisibilityStart,profVisibilityEnd,profCollect,profRender,performance.now());
     }
   }
 
@@ -460,13 +466,23 @@ export class ThreePresentation {
     panel.textContent='Measuring 2.5D frame pacing...';
     this.diagnosticsPanel=panel;this.diagnosticsParent.append(panel);
   }
-  private recordDiagnostics(start:number,collected:number,world:number,done:number){
+  private recordDiagnostics(start:number,visibilityStart:number,visibilityEnd:number,collected:number,world:number,done:number){
     const d=this.diag;
     d.frames++;d.total+=done-start;d.collect+=collected-start;d.render+=world-collected;
+    d.prep+=visibilityStart-start;d.visibility+=visibilityEnd-visibilityStart;d.prune+=collected-visibilityEnd;
     d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.rawDelta);
     if(done-this.diagnosticAt<1000)return;
     const frames=Math.max(1,d.frames);
     const textureCache=this.textures.stats();
+    const previous=this.previousCacheSample;
+    const perSecond=(now:number,old:number)=>previous?Math.max(0,(now-old)*1000/Math.max(1,done-previous.at)):null;
+    const cacheRates={
+      creates:perSecond(textureCache.coldCreates,previous?.coldCreates??0),
+      pressureEvictions:perSecond(textureCache.pressureEvictions,previous?.pressureEvictions??0),
+      sourceDisposals:perSecond(textureCache.sourceDisposals,previous?.sourceDisposals??0),
+      preuploads:perSecond(textureCache.preparedUploads,previous?.preparedUploads??0),
+    };
+    this.previousCacheSample={at:done,coldCreates:textureCache.coldCreates,pressureEvictions:textureCache.pressureEvictions,sourceDisposals:textureCache.sourceDisposals,preparedUploads:textureCache.preparedUploads};
     const stream=this.game.registry.get('presentationStreamPerf') as {
       active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
     }|undefined;
@@ -475,7 +491,7 @@ export class ThreePresentation {
     const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
       backgroundWork:frameWork(this.game).stats(),drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
-      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
+      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,cacheRates,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
       gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
       staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds,dispatchHits:this.cachedDispatchHits},shadowModels:this.gpuShadows.stats()};
@@ -483,25 +499,29 @@ export class ThreePresentation {
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
       this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
-        +'Game loop limit: '+this.game.loop.fpsLimit+' FPS (target '+this.game.loop.targetFps+')\n'
-        +'Rendered FPS (rolling): '+(pacing.samples>=20?n(pacing.fps):'warming')+' | 1% low '+(pacing.samples>=100?n(pacing.onePercentLowFps):'warming')+' | target '+this.game.loop.targetFps+'\n'
+        +'Presentation: '+(this.game.loop.hasFpsLimit?this.game.loop.fpsLimit+' FPS cap':'UNCAPPED / display-synced')+' | Physics: fixed 60 Hz\n'
+        +'Rendered FPS (rolling): '+(pacing.samples>=20?n(pacing.fps):'warming')+' | 1% low '+(pacing.samples>=100?n(pacing.onePercentLowFps):'warming')+'\n'
         +'Presented frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+' ms\n'
         +'Presented peak: '+n(pacing.maximum)+' ms | >33ms '+pacing.over33+' | >50ms '+pacing.over50+' / '+pacing.samples+'\n'
         +'Simulation CPU: '+n(result.simulationCpuMs??0)+' | GPU: '+(result.gpuMs===null?'unavailable':n(result.gpuMs))+'\n'
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
-        +'Collect/render avg: '+n(result.collectionAvgMs)+' / '+n(result.renderAvgMs)+'\n'
+        +'Prepare/cull/cleanup CPU avg: '+n(result.preparationAvgMs)+' / '+n(result.visibilityAvgMs)+' / '+n(result.retirementAvgMs)+'\n'
+        +'World submission CPU avg: '+n(result.renderAvgMs)+' | Pre-render total: '+n(result.collectionAvgMs)+'\n'
         +'FPP feedback CPU avg/peak: '+n(result.feedbackAvgMs)+' / '+n(result.feedbackPeakMs)+'\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
-        +'Resident cache: '+textureCache.residentMiB+' MiB / '+textureCache.textures
-          +' | cold '+textureCache.coldCreates+' | evict '+textureCache.evictions+'\n'
+        +'Resident cache: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
+          +' | cold '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
+        +'Cache /s: create '+(cacheRates.creates===null?'warming':n(cacheRates.creates))
+          +' | pressure evict '+(cacheRates.pressureEvictions===null?'warming':n(cacheRates.pressureEvictions))
+          +' | source release '+(cacheRates.sourceDisposals===null?'warming':n(cacheRates.sourceDisposals))+'\n'
         +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
           +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds+'\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }
-    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,feedback:0,feedbackWorst:0,deltaMax:0});
+    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,feedback:0,feedbackWorst:0,deltaMax:0});
     this.diagnosticAt=done;
   }
 
