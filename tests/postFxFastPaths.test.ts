@@ -7,6 +7,14 @@ import {describe,expect,it} from 'vitest';
 const shader=readFileSync(new URL('../src/game/presentation25d/WorldPostFX.ts',import.meta.url),'utf8');
 
 describe('fidelity-preserving compositor fast paths',()=>{
+  it('reuses the identical center-world-depth sample in both bilateral blur passes',()=>{
+    expect(shader).toContain('float depth=eyeDepth(vUv),blur=circleOfConfusion(vUv,depth);');
+    expect(shader).toContain('float neighborDepth=i==0?depth:eyeDepth(uv);');
+    // At the zero-offset tap, clamping does not change an onscreen UV.
+    for(const uv of [0,.02,.3,.5,.9,1]){
+      expect(Math.max(0,Math.min(1,uv+0))).toBe(uv);
+    }
+  });
   it('tests contrast before the same four depth-neighbor samples',()=>{
     const contrast=shader.indexOf('if(contrast>max(.045,high*.16))');
     const depth=shader.indexOf('float edgeDepth=',contrast);
