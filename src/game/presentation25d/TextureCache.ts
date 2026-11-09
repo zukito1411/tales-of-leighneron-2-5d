@@ -3,6 +3,7 @@ import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLR
 import type {FrameWorkBudget} from './FrameWorkBudget';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {VISUAL_QUALITY} from './VisualQuality';
+import {TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS,textureGraceMs} from './textureResidency';
 // Canvas-mode Phaser Text resizes its frame/canvas without updating the
 // TextureSource dimensions. GPU allocation and UVs must use the actual image.
 export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
@@ -11,10 +12,6 @@ export function sourceHeight(source:Phaser.Textures.TextureSource){return source
 interface Entry {texture:Texture;lastUsed:number;lastUsedAtMs:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
-// Frame counts become shorter time periods at 120/144Hz. Residency must use
-// actual time, not frame numbers, or the FPS unlock causes cache churn.
-const IDLE_MS=5000;
-const RESIDENCY_GRACE_MS=2000;
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
@@ -23,12 +20,6 @@ const MAX_IDLE_ENTRIES=MOBILE?48:80;
 // resources time to be reused on camera turns, but accelerate cleanup when
 // memory grows far beyond the normal working set. Never rescale source art.
 const EMERGENCY_RESIDENT_BYTES=MAX_RESIDENT_BYTES*(MOBILE?2.25:1.75);
-const PRESSURE_GRACE_MS=850;
-const EMERGENCY_GRACE_MS=65;
-export function textureGraceMs(residentBytes:number,softBytes:number,emergencyBytes:number){
-  return residentBytes>emergencyBytes?EMERGENCY_GRACE_MS
-    :residentBytes>softBytes?PRESSURE_GRACE_MS:RESIDENCY_GRACE_MS;
-}
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
@@ -158,17 +149,17 @@ export class TextureCache {
     else if(reason==='idle')this.idleEvictions++;
     else this.pressureEvictions++;
   }
-  prune(frame:number){
+  prune(_frame:number){
     let idle=0,retired=0;
     // Destroy a maximum of two GPU resources per frame. A camera turn can
     // retire an entire biome's textures; disposing all of them at once causes
     // a second spike after the original upload.
     for(const [source,entry] of this.entries){
       const age=this.frameTimeMs-entry.lastUsedAtMs;
-      if(age>RESIDENCY_GRACE_MS)idle++;
-      if((!source.image||age>IDLE_MS)&&retired<2){
+      if(age>TEXTURE_RESIDENCY_GRACE_MS)idle++;
+      if((!source.image||age>TEXTURE_IDLE_MS)&&retired<2){
         this.release(source,entry,'idle');retired++;
-        if(age>RESIDENCY_GRACE_MS)idle--;
+        if(age>TEXTURE_RESIDENCY_GRACE_MS)idle--;
       }
     }
     if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
@@ -183,7 +174,7 @@ export class TextureCache {
       for(const [source,entry] of this.entries)if(entry.lastUsedAtMs<this.frameTimeMs-graceMs
         &&(!oldest||entry.lastUsedAtMs<oldest.lastUsedAtMs)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
-      if(this.frameTimeMs-oldest.lastUsedAtMs>RESIDENCY_GRACE_MS)idle--;
+      if(this.frameTimeMs-oldest.lastUsedAtMs>TEXTURE_RESIDENCY_GRACE_MS)idle--;
       this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
