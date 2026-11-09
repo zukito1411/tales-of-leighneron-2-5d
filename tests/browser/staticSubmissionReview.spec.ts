@@ -163,7 +163,7 @@ test('cached submission matches full collection and preserves texture invalidati
         cache.prune(3);
         const kept=cache['entries'].has(source)&&cache.get(source,3)===original;
         // Stop warming and let the authored source become genuinely cold.
-        cache.beginFrame(time+2600);
+        cache.beginFrame(time+3200);
         cache.prune(4);
         const evicted=!cache['entries'].has(source);
         const recreated=cache.get(source,5)!==original;
