@@ -197,7 +197,7 @@ export class ThreePresentation {
   private diagnosticsPanel:HTMLPreElement|null=null;
   private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
-  private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;sourceDisposals:number;preparedUploads:number}|null=null;
+  private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number}|null=null;
   private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
@@ -480,10 +480,11 @@ export class ThreePresentation {
     const cacheRates={
       creates:perSecond(textureCache.coldCreates,previous?.coldCreates??0),
       pressureEvictions:perSecond(textureCache.pressureEvictions,previous?.pressureEvictions??0),
+      pressureRecreates:perSecond(textureCache.pressureRecreates,previous?.pressureRecreates??0),
       sourceDisposals:perSecond(textureCache.sourceDisposals,previous?.sourceDisposals??0),
       preuploads:perSecond(textureCache.preparedUploads,previous?.preparedUploads??0),
     };
-    this.previousCacheSample={at:done,coldCreates:textureCache.coldCreates,pressureEvictions:textureCache.pressureEvictions,sourceDisposals:textureCache.sourceDisposals,preparedUploads:textureCache.preparedUploads};
+    this.previousCacheSample={at:done,coldCreates:textureCache.coldCreates,pressureEvictions:textureCache.pressureEvictions,pressureRecreates:textureCache.pressureRecreates,sourceDisposals:textureCache.sourceDisposals,preparedUploads:textureCache.preparedUploads};
     const stream=this.game.registry.get('presentationStreamPerf') as {
       active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
     }|undefined;
@@ -511,10 +512,12 @@ export class ThreePresentation {
         +'FPP feedback CPU avg/peak: '+n(result.feedbackAvgMs)+' / '+n(result.feedbackPeakMs)+'\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
-        +'Resident cache: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
-          +' | cold '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
+        +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
+          +' | active lease '+textureCache.activeSourceMiB+' MiB | recent visible '+textureCache.recentVisibleMiB+' MiB\n'
+        +'Cold creates '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
         +'Cache /s: create '+(cacheRates.creates===null?'warming':n(cacheRates.creates))
           +' | pressure evict '+(cacheRates.pressureEvictions===null?'warming':n(cacheRates.pressureEvictions))
+          +' | repeat upload '+(cacheRates.pressureRecreates===null?'warming':n(cacheRates.pressureRecreates))
           +' | source release '+(cacheRates.sourceDisposals===null?'warming':n(cacheRates.sourceDisposals))+'\n'
         +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
           +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds+'\n'
