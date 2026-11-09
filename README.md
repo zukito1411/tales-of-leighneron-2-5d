@@ -57,10 +57,21 @@ npm run build
 The first two commands are compiler checks, not gameplay tests. Unit and browser
 tests remain available but should only be run when explicitly requested.
 
-The **Build 2.5D browser game** Actions workflow compiles and builds on pushes to
-`main`. Its `Tales-of-Leighneron-2.5D-Web` artifact contains `dist/` and can be
-served by a static web server. This workflow does not publish to the original
-itch.io page or assume that GitHub Pages has been enabled.
+## Play online via GitHub Pages
+
+**Game site:** https://zukito1411.github.io/tales-of-leighneron-2-5d/
+
+The **Build and deploy 2.5D game to GitHub Pages** workflow builds the complete
+browser game from `main`, uploads a downloadable `Tales-of-Leighneron-2.5D-Web`
+artifact, and publishes `dist/` to GitHub Pages. It is independent of the
+Android APK release workflow; the original game, effects, and save logic are
+not modified for web deployment.
+
+**One-time repository setup:** In **Settings → Pages**, set **Build and
+deployment → Source** to **GitHub Actions** if it is not already selected.
+The public URL is usable only after a successful Pages deployment. The full
+game artwork is large, so the initial download and load can be substantial;
+a successful static build alone does not prove device performance.
 
 ## Android
 
@@ -69,11 +80,11 @@ application ID: **`com.mernondna.rpg25d`**. It can coexist with the original app
 
 The **Build and release 2.5D Android APK** workflow runs on pushes to `main`
 and manual dispatch. It publishes an experimental, non-debuggable release APK.
-Configure all four `ANDROID_25D_*` signing secrets for persistent in-place
-updates. Without them, each run generates an ephemeral signing key; those APKs
-cannot update installations signed by another key. Export save backups before
-replacing an installation. CI compilation and packaging do not verify gameplay
-or real-device rendering.
+Signing uses the existing persistent keystore secrets and verifies
+the certificate SHA-256 fingerprint for in-place update compatibility. CI
+fails if the configured key does not match the pinned identity; it does not
+generate a replacement signing key. Export save backups before installation
+changes. CI builds do not verify real-device gameplay or FPS.
 
 ## Saves and offline storage
 
