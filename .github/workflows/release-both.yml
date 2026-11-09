@@ -1,9 +1,9 @@
-name: Build and release 2.5D Android APK + Windows EXE
+name: Build and release 2.5D Android APK
 
 on:
   push:
     branches: [main]
-    # Workflow-only maintenance must not rebuild the APK or EXE.
+    # Workflow-only maintenance must not rebuild the APK.
     paths-ignore:
       - '.github/workflows/**'
   workflow_dispatch:
@@ -11,9 +11,9 @@ on:
 permissions:
   contents: write
 
-# Cancel superseded builds together: never publish half of a platform pair.
+# Only publish verified release APKs; cancel superseded Android builds.
 concurrency:
-  group: leighneron-combined-${{ github.ref }}
+  group: leighneron-android-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -35,7 +35,7 @@ jobs:
           distribution: temurin
           java-version: '21'
       # Reuse the official Gradle distribution on subsequent releases. A
-      # transient upstream GitHub 504 must not block APK/EXE publication.
+      # transient upstream GitHub 504 must not block APK publication.
       - name: Restore Gradle wrapper distribution
         uses: actions/cache@v4
         with:
@@ -72,12 +72,6 @@ jobs:
           npm run build
           node scripts/prepare-android-downloads.mjs
           npx cap sync android
-      - name: Share the existing pinned Android asset manifest with Windows
-        uses: actions/upload-artifact@v4
-        with:
-          name: Android-Pinned-Asset-Manifest
-          path: dist/native-assets.json
-          if-no-files-found: error
       - name: Upload immutable game download packs
         uses: actions/upload-artifact@v4
         with:
@@ -182,110 +176,17 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  portable-exe:
-    needs: android
-    runs-on: windows-latest
-    timeout-minutes: 65
-    env:
-      # Keep the two downloaded, version-pinned desktop tool archives in
-      # predictable locations that can be restored across release builds.
-      ELECTRON_CACHE: ${{ github.workspace }}/.ci-cache/electron
-      ELECTRON_BUILDER_CACHE: ${{ github.workspace }}/.ci-cache/electron-builder
-    steps:
-      - name: Checkout game
-        uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '24'
-          cache: npm
-      - name: Restore Electron and desktop packaging archives
-        uses: actions/cache@v4
-        with:
-          path: |
-            .ci-cache/electron
-            .ci-cache/electron-builder
-          key: ${{ runner.os }}-electron-45.0.0-builder-26.18.0-archives-v1
-      - name: Install existing game dependencies
-        run: npm ci
-      - name: Check TypeScript without starting the game
-        run: |
-          npm run test:types
-          npm exec --no -- tsc -p tsconfig.node.json --noEmit
-      - name: Bundle game code from the same commit as Android
-        run: npm run build
-      - name: Download the exact manifest produced for the APK
-        uses: actions/download-artifact@v4
-        with:
-          name: Android-Pinned-Asset-Manifest
-          path: android-download-manifest
-      - name: Prepare small Windows shell using Android's existing packs
-        run: node scripts/prepare-windows-downloads.mjs android-download-manifest/native-assets.json
-      - name: Install pinned Windows desktop packaging tools
-        run: npm install --no-save --package-lock=false electron@45.0.0 electron-builder@26.18.0
-      - name: Package Windows installer and optional portable executable
-        shell: pwsh
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: |
-          $ErrorActionPreference = 'Stop'
-          # Electron Builder downloads third-party NSIS/signing helper archives
-          # during packaging. A transient upstream HTTP 504 must not cancel the
-          # matching Android APK + Windows EXE release.
-          $PSNativeCommandUseErrorActionPreference = $false
-          for ($attempt = 1; $attempt -le 5; $attempt++) {
-            Write-Host "Windows packaging attempt $attempt of 5"
-            & npx --no-install electron-builder --win nsis portable --x64 --publish never
-            if ($LASTEXITCODE -eq 0) {
-              Write-Host "Windows installer and portable executable built successfully."
-              exit 0
-            }
-            if ($attempt -eq 5) {
-              throw "Electron Builder failed after five attempts (last exit code: $LASTEXITCODE)."
-            }
-            Write-Warning "Electron Builder failed; retrying after a short backoff. Cached downloads are kept."
-            Start-Sleep -Seconds (15 * $attempt)
-          }
-      - name: Verify executable and record SHA256
-        shell: pwsh
-        run: |
-          foreach ($name in @('Tales-of-Leighneron-2.5D-Setup.exe', 'Tales-of-Leighneron-2.5D-Windows.exe')) {
-            $exe = Join-Path $PWD "windows-release/$name"
-            if (-not (Test-Path $exe)) { throw "Windows executable was not created: $name" }
-            $file = Get-Item $exe
-            if ($file.Length -lt 10000000 -or $file.Length -gt 251658240) { throw "Unexpected launcher size: $name ($($file.Length) bytes)" }
-            $stream = [System.IO.File]::OpenRead($exe)
-            try {
-              if ($stream.ReadByte() -ne 77 -or $stream.ReadByte() -ne 90) { throw "Invalid Windows executable header: $name" }
-            } finally { $stream.Dispose() }
-            $hash = (Get-FileHash $exe -Algorithm SHA256).Hash.ToLowerInvariant()
-            "$hash  $($file.Name)" | Set-Content "$exe.sha256" -Encoding ascii
-            Write-Host "$name`: $($file.Length) bytes, SHA256 $hash"
-          }
-      - name: Upload verified Windows EXE and checksum
-        uses: actions/upload-artifact@v4
-        with:
-          name: Tales-of-Leighneron-2.5D-Windows-Release
-          path: |
-            windows-release/Tales-of-Leighneron-2.5D-Setup.exe
-            windows-release/Tales-of-Leighneron-2.5D-Setup.exe.sha256
-            windows-release/Tales-of-Leighneron-2.5D-Windows.exe
-            windows-release/Tales-of-Leighneron-2.5D-Windows.exe.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 14
-
   publish:
-    name: Publish one Android + Windows release
-    needs: [android, portable-exe]
+    name: Publish verified Android APK release
+    needs: android
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - name: Download both verified platform packages
+      - name: Download verified Android APK and checksum
         uses: actions/download-artifact@v4
         with:
-          pattern: Tales-of-Leighneron-2.5D-*-Release
+          name: Tales-of-Leighneron-2.5D-Android-Release
           path: release-assets
-          merge-multiple: true
       - name: Download game asset packs
         uses: actions/download-artifact@v4
         with:
@@ -308,21 +209,15 @@ jobs:
             filename="$(basename "$pack")"
             if ! grep -Fxq "$filename" existing-packs.txt; then gh release upload "$tag" "$pack" --clobber; fi
           done
-      - name: Verify Android and Windows release payloads
+      - name: Verify Android APK release payload
         working-directory: release-assets
         shell: bash
         run: |
           set -euo pipefail
           test -s Tales-of-Leighneron-2.5D.apk
           test -s Tales-of-Leighneron-2.5D.apk.sha256
-          test -s Tales-of-Leighneron-2.5D-Setup.exe
-          test -s Tales-of-Leighneron-2.5D-Setup.exe.sha256
-          test -s Tales-of-Leighneron-2.5D-Windows.exe
-          test -s Tales-of-Leighneron-2.5D-Windows.exe.sha256
           sha256sum --check Tales-of-Leighneron-2.5D.apk.sha256
-          sha256sum --check Tales-of-Leighneron-2.5D-Setup.exe.sha256
-          sha256sum --check Tales-of-Leighneron-2.5D-Windows.exe.sha256
-      - name: Publish both files in the SAME GitHub Release
+      - name: Publish signed APK to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -331,42 +226,35 @@ jobs:
           set -euo pipefail
           tag="leighneron-25d-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           cat > release-notes.md <<'NOTES'
-          # Tales of Leighneron 2.5D — Android and Windows
+          # Tales of Leighneron 2.5D — Android APK
 
-          Android and Windows download the same immutable game-file packs on first launch, then work offline. Completed files are reused across updates; only packs containing missing or changed files are downloaded. Both use the exact manifest built by the Android job. Both downloads are built from the same source commit and published
-          together. The Android APK is the non-debuggable, signature-verified
-          application com.mernondna.rpg25d; it retains the existing keystore
-          fingerprint for installation updates. For Windows x64, use the Setup.exe
-          to install the small launcher. Windows.exe is the optional portable launcher.
-          Both retain the existing desktop save origin and persistent local storage.
-          First-launch game-file downloads require an internet connection and disk space;
-          restarting or retrying keeps verified completed files.
+          Non-debuggable, certificate-verified Android APK for
+          com.mernondna.rpg25d. The signing fingerprint is checked against
+          the existing install/update-compatible key.
 
-          Traveling horse caravans have been removed from both platforms.
-          Boats, quests, combat, saves and the 2.5D world remain available.
+          On first launch, the game downloads its immutable game-file packs.
+          Completed packs are reused on updates and for offline play.
+          First-launch downloads require internet access and adequate disk space.
+          Retrying or restarting preserves verified completed files.
 
-          Windows EXE is not Authenticode-signed. SmartScreen may display an
-          unknown-publisher warning. Real-device gameplay and FPS are not
-          established by CI compilation and packaging alone. Back up saves
-          before installation changes.
+          This release does not include Windows EXE or installer builds.
+          Game graphics, effects, combat, story, and save behavior are unchanged
+          by the release-workflow removal of the Windows builder.
+
+          Real-device FPS is not established by CI. Back up saves before
+          installation changes.
           NOTES
           gh release create "$tag" \
             release-assets/Tales-of-Leighneron-2.5D.apk \
             release-assets/Tales-of-Leighneron-2.5D.apk.sha256 \
-            release-assets/Tales-of-Leighneron-2.5D-Setup.exe \
-            release-assets/Tales-of-Leighneron-2.5D-Setup.exe.sha256 \
-            release-assets/Tales-of-Leighneron-2.5D-Windows.exe \
-            release-assets/Tales-of-Leighneron-2.5D-Windows.exe.sha256 \
             --target "$GITHUB_SHA" \
-            --title "Tales of Leighneron 2.5D - Android + Windows ($tag)" \
+            --title "Tales of Leighneron 2.5D - Android APK ($tag)" \
             --notes-file release-notes.md \
             --latest
           {
-            echo "### Both platforms are in one release"
+            echo "### Android APK release published"
             echo "- Android APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D.apk"
-            echo "- Windows installer: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Setup.exe"
-            echo "- Windows portable EXE: https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/Tales-of-Leighneron-2.5D-Windows.exe"
-            echo "- Combined release: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
+            echo "- Release page: https://github.com/$GITHUB_REPOSITORY/releases/tag/$tag"
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Retain only the four newest published releases
         env:
@@ -375,7 +263,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          # List ALL published releases, including older platform-specific ones.
+          # Retain the existing rolling release policy; never delete the immutable asset-storage release.
           # Sort by actual publish time: API order is not always chronological.
           rows="$(gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | select(.draft == false and .tag_name != "leighneron-assets-v1") | [(.published_at // .created_at), .tag_name] | @tsv')"
           if [[ -z "$rows" ]]; then
