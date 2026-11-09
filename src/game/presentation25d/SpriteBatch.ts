@@ -359,6 +359,10 @@ export class SpriteBatch {
   mesh:InstancedMesh;
   private capacity=32;
   private used=0;
+  // An offscreen retained batch needs no per-frame reset. Reinitialize lazily
+  // when its first visible instance is submitted after a dormant frame.
+  private needsBegin=false;
+  get hasSubmittedInstances(){return this.used>0;}
   private readonly material:ShaderMaterial;
   private readonly foregroundFactory:()=>SpriteBatch;
   private atlas:InstancedBufferAttribute;
@@ -417,10 +421,12 @@ export class SpriteBatch {
   /** Separate retained batch: faded objects blend after actors and cannot
    * write opaque depth over them. Original instances keep their normal depth. */
   createForegroundVariant(){return this.foregroundFactory();}
-  begin(){this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);for(const slots of this.dirtySlots)slots.length=0;}
+  begin(){this.needsBegin=false;this.used=0;this.interactive=false;this.dirtyStart.fill(2147483647);this.dirtyEnd.fill(-1);for(const slots of this.dirtySlots)slots.length=0;}
+  private beginIfNeeded(){if(this.needsBegin)this.begin();}
   /** A validated, immutable scenery packet can retain the same instance
    * slot. Camera yaw/lighting still animate in shared shader uniforms. */
   addStatic(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat:ArrayLike<number>|undefined,token:object){
+    this.beginIfNeeded();
     const slot=this.used,entry=this.slots[slot];
     if(this.staticTokens[slot]===token&&this.staticAlphas[slot]===alpha&&entry?.object===object){
       this.used++;if(object.input?.enabled)this.interactive=true;
@@ -430,6 +436,7 @@ export class SpriteBatch {
     this.staticTokens[next]=token;this.staticAlphas[next]=alpha;return next;
   }
   add(matrix:Matrix4,uv:ArrayLike<number>,colors:ArrayLike<number>,alpha:number,object:Phaser.GameObjects.GameObject,rect:LocalRect,frame:number,repeat?:ArrayLike<number>){
+    this.beginIfNeeded();
     if(this.used===this.capacity)this.grow();
     const slot=this.used++;
     this.staticTokens[slot]=undefined;
@@ -461,6 +468,7 @@ export class SpriteBatch {
   }
   private writeTint(attribute:InstancedBufferAttribute,index:number,slot:number,color:number,alpha:number){this.write4(attribute,index,slot,LINEAR_TINT[(color>>>16)&255],LINEAR_TINT[(color>>>8)&255],LINEAR_TINT[color&255],alpha);}
   finish(){
+    this.needsBegin=true;
     const countChanged=this.mesh.count!==this.used;
     this.mesh.count=this.used;this.mesh.visible=this.used>0;
     // Keep bounded slot/rectangle storage when view-edge instances disappear,
