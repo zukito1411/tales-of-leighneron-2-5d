@@ -107,14 +107,18 @@ test('cached submission matches full collection and preserves texture invalidati
         probe.fast=fast;probe.measure=false;
         renderer['draw'](world,world.children.list,world.cameras.main);
         let hash=2166136261,instances=0;
-        for(const batch of renderer['batches'].values()){
-          if(!batch.mesh.visible)continue;
-          instances+=batch.mesh.count;
-          const attributes=[batch.mesh.instanceMatrix,...['atlasRect','instanceTint','instanceTintTR','instanceTintBL','instanceTintBR','tileRepeat'].map(key=>batch.mesh.geometry.getAttribute(key))];
-          for(const attribute of attributes){
-            const values=attribute.array;
-            for(let i=0;i<batch.mesh.count*attribute.itemSize;i++)
-              hash=Math.imul(hash^(Math.round(values[i]*10000)|0),16777619);
+        // Include GPU projected and contact shadows in the exact instance
+        // parity assertion, not only the main world sprite batches.
+        for(const batches of [renderer['batches'],renderer['gpuShadows']['batches']]){
+          for(const batch of batches.values()){
+            if(!batch.mesh.visible)continue;
+            instances+=batch.mesh.count;
+            const attributes=[batch.mesh.instanceMatrix,...['atlasRect','instanceTint','instanceTintTR','instanceTintBL','instanceTintBR','tileRepeat'].map(key=>batch.mesh.geometry.getAttribute(key))];
+            for(const attribute of attributes){
+              const values=attribute.array;
+              for(let i=0;i<batch.mesh.count*attribute.itemSize;i++)
+                hash=Math.imul(hash^(Math.round(values[i]*10000)|0),16777619);
+            }
           }
         }
         return {fast,hash:hash>>>0,instances};

@@ -159,7 +159,7 @@ export class ThreePresentation {
   private nightAmount=0;private nightDensity=1;private nightMerged=false;
   private readonly prepareNight=(depth:Texture)=>{
     if(!this.nightScene)return;
-    this.gpuNight.render(this.renderer,this.nightScene,this.nightSource,depth,this.nightAmount,this.interior,this.nightDensity,this.nightMerged);
+    this.gpuNight.render(this.renderer,this.nightScene,this.nightSource,depth,this.nightAmount,this.interior,this.nightDensity,this.nightMerged,this.postFX.inverseViewProjection);
     const composition=this.gpuNight.composition;
     this.postFX.setNight(this.nightMerged?composition.mask:null,composition.darkness);
   };
