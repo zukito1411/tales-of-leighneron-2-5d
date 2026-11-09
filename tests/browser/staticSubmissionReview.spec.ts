@@ -144,6 +144,36 @@ test('cached submission matches full collection and preserves texture invalidati
       return {same:a===again,dirty,resized,changedText,invalidated,restored};
     });
     expect(textures).toEqual({same:true,dirty:true,resized:true,changedText:true,invalidated:true,restored:true});
+    const activeTextureLease=await page.evaluate(async()=>{
+      const path='/src/game/presentation25d/TextureCache.ts';
+      const {TextureCache}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/TextureCache');
+      const scene=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      const cache=new TextureCache(),canvas=scene.textures.createCanvas('review-active-texture-lease',32,32)!;
+      const source=canvas.source[0],time=1000,pressureBytes=420*1048576;
+      try{
+        cache.beginFrame(time);
+        const original=cache.get(source,1);
+        // Simulate the 395-420MiB emergency condition WITHOUT allocating a
+        // 420MiB test texture; verify the real cache implementation and hooks.
+        cache['bytes']=pressureBytes;cache['prefetchPaused']=true;
+        cache.beginFrame(time+1300);
+        cache.prefetch(source,2);
+        const lease=cache['entries'].get(source)?.leaseUntilMs??0;
+        cache.beginFrame(time+1600);
+        cache.prune(3);
+        const kept=cache['entries'].has(source)&&cache.get(source,3)===original;
+        // Stop warming and let the authored source become genuinely cold.
+        cache.beginFrame(time+3200);
+        cache.prune(4);
+        const evicted=!cache['entries'].has(source);
+        const recreated=cache.get(source,5)!==original;
+        const repeatUpload=cache.stats().pressureRecreates===1;
+        return {lease:lease>time+1300,kept,evicted,recreated,repeatUpload};
+      }finally{
+        cache.destroy();scene.textures.remove(canvas.key);
+      }
+    });
+    expect(activeTextureLease).toEqual({lease:true,kept:true,evicted:true,recreated:true,repeatUpload:true});
     const slots=await page.evaluate(async()=>{
       const path='/src/game/presentation25d/SpriteBatch.ts',three='/node_modules/.vite/deps/three.js';
       const {SpriteBatch}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/SpriteBatch');
