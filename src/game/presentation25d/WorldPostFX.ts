@@ -126,11 +126,16 @@ void main(){
     float center=dot(original,luma),e=dot(east,luma),w=dot(west,luma),n=dot(north,luma),s=dot(south,luma);
     float high=max(center,max(max(e,w),max(n,s))),low=min(center,min(min(e,w),min(n,s)));
     float contrast=high-low;
-    // Depth gates distinguish silhouettes from painted grain and roof tiles.
-    // High uses world-target MSAA; Normal smooths silhouettes in this pass.
-    float edgeDepth=max(max(abs(eyeDepth(vUv+vec2(sourceTexel.x,0.0))-depth),abs(eyeDepth(vUv-vec2(sourceTexel.x,0.0))-depth)),
-      max(abs(eyeDepth(vUv+vec2(0.0,sourceTexel.y))-depth),abs(eyeDepth(vUv-vec2(0.0,sourceTexel.y))-depth)));
-    if(edgeDepth>max(3.0,depth*.012)&&contrast>max(.045,high*.16)){
+    // Color contrast is already a required condition for the FXAA edge
+    // blend. Reject flat painted/sky pixels BEFORE fetching four expensive
+    // depth neighbours. The same depth threshold and samples are used for
+    // qualifying pixels; no edge, texture, or anti-alias detail is removed.
+    if(contrast>max(.045,high*.16)){
+      // Depth gates distinguish silhouettes from painted grain and roof tiles.
+      // High uses world-target MSAA; Normal smooths silhouettes in this pass.
+      float edgeDepth=max(max(abs(eyeDepth(vUv+vec2(sourceTexel.x,0.0))-depth),abs(eyeDepth(vUv-vec2(sourceTexel.x,0.0))-depth)),
+        max(abs(eyeDepth(vUv+vec2(0.0,sourceTexel.y))-depth),abs(eyeDepth(vUv-vec2(0.0,sourceTexel.y))-depth)));
+      if(edgeDepth>max(3.0,depth*.012)){
       // FXAA direction follows the edge, using the existing four luma taps.
       // No multisample depth buffer, history, extra world render or FXAA pass.
       vec2 gradient=vec2(w-e,s-n);
@@ -144,6 +149,7 @@ void main(){
       // Soften subpixel stair steps without blurring the whole scene.
       float subpixel=clamp(abs(dot(neighborhood,luma)-center)/max(contrast,.001)-.2,0.0,.55);
       color=mix(color,neighborhood,subpixel*subpixel);
+      }
     }
     // Small bounded detail contrast retains painted timber/stone texture in
     // focus. It never adds noise, outlines or replacement artwork.
@@ -161,7 +167,12 @@ void main(){
   if(depth>clipRange.y-1.0)distanceHaze=0.0;
   color=mix(color,hazeColor,distanceHaze*hazeStrength*(1.0-protection));
   float surfaceFade=0.0;
-  if(depth<clipRange.y-1.0){
+  // These are uniform, frame-wide effect strengths. For a clear unlit frame,
+  // there is no reason to reconstruct a world position for every pixel.
+  // Preserve the exact inverse-projection and blending math whenever clouds,
+  // storm, mist, or the night veil actually require it.
+  if(depth<clipRange.y-1.0
+    &&(overcast>0.0||storm>0.0||mistAmount>.001||nightOpacity>0.0)){
     vec4 p=inverseVP*vec4(vUv*2.0-1.0,rawDepth*2.0-1.0,1.0);
     vec2 ground=p.xz/p.w;
     surfaceFade=1.0-smoothstep(atmosphereRange.x,atmosphereRange.y,distance(ground,atmosphereFocus));
