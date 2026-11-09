@@ -6,6 +6,7 @@ import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
 import {PAINTED_MODEL_ATLASES} from './PaintedMaterials';
 import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork,releaseFrameWork} from './FrameWorkBudget';
+import type {MovementStreamStats} from '../systems/MovementStreamProfiler';
 import {FrameTiming} from './FrameTiming';
 import {GpuTimer} from './GpuTimer';
 import {ShaderWarmup} from './ShaderWarmup';
@@ -490,8 +491,9 @@ export class ThreePresentation {
     }|undefined;
     const renderInfo=this.renderer.info.render;
     const pacing=this.frameTiming.stats();
+    const movement=this.game.registry.get('movementStreamPerf') as MovementStreamStats|undefined;
     const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
-      backgroundWork:frameWork(this.game).stats(),drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
+      backgroundWork:frameWork(this.game).stats(),movement,drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,cacheRates,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
@@ -522,6 +524,11 @@ export class ThreePresentation {
         +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
           +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds+'\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
+        +(movement?'Travel '+(movement.moving?'MOVING':'STILL')+' ('+movement.movingFrames+'/'+movement.sampleFrames+' moving samples)\n'
+          +'Terrain stream avg/peak '+n(movement.terrainAvgMs)+' / '+n(movement.terrainPeakMs)
+          +' | Actor stream '+n(movement.contentAvgMs)+' / '+n(movement.contentPeakMs)
+          +' | View '+n(movement.viewAvgMs)+' / '+n(movement.viewPeakMs)+' ms\n'
+          +'Streaming frames >8.3ms '+movement.streamingHitches+'\n':'')
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }

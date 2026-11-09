@@ -71,6 +71,7 @@ import { Npc } from '../entities/Npc';
 import { Player } from '../entities/Player';
 import type { ContentDefinition, ContentState, CreatureContentDefinition, EnemyDefinition, InteractableContentDefinition, NavigationMarker, NpcDefinition, PropContentDefinition, QuestTarget, RegionId, Vec2, WeaponDefinition, WorldPropTexture } from '../types';
 import { ChunkManager } from '../systems/ChunkManager';
+import {MovementStreamProfiler} from '../systems/MovementStreamProfiler';
 import { DayNightSystem } from '../systems/DayNightSystem';
 import { EventDirector, type EventDirectorHost } from '../systems/EventDirector';
 import { WorldGenerator } from '../systems/WorldGenerator';
@@ -153,6 +154,8 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
       ?walkSurfaceHeight(x,y)??this.presentationTerrain.height(x,y):0);
   private escortDestination:Vec2|null=null;
   private chunkManager!: ChunkManager;
+  private readonly movementStreamProfiler=new MovementStreamProfiler();
+  private movementProfiling=false;
   private dayNight!: DayNightSystem;
   private weather!:WeatherSystem;
   private storm!:StormHazardSystem;
@@ -1356,13 +1359,26 @@ export class WorldScene extends Phaser.Scene implements EventDirectorHost {
     }
 
     this.resolveGroundAfterPhysics=true;
+    const movementDiagnostics=this.registry.get('presentationDiagnostics')===true;
+    if(movementDiagnostics!==this.movementProfiling){
+      this.movementStreamProfiler.reset();this.movementProfiling=movementDiagnostics;
+    }
+    const streamStart=movementDiagnostics?performance.now():0;
     this.chunkManager.update(this.player.x, this.player.y);
+    const afterTerrain=movementDiagnostics?performance.now():0;
     // Residency is presentation state, not persistent progress. Every save
     // invokes syncState() through the registered snapshot provider; semantic
     // changes (defeats, drops, summons, interactions) still publish explicitly.
     // Publishing here scheduled full save serialization merely for walking.
-    this.contentManager.update(this.player.x,this.player.y,
-      projectedGroundView(this.cameras.main,this.player.x,this.player.y));
+    const view=projectedGroundView(this.cameras.main,this.player.x,this.player.y);
+    const afterProjection=movementDiagnostics?performance.now():0;
+    this.contentManager.update(this.player.x,this.player.y,view);
+    if(movementDiagnostics){
+      const now=performance.now(),body=this.player.body as Phaser.Physics.Arcade.Body;
+      const stats=this.movementStreamProfiler.record(now,body.velocity.lengthSq()>1,
+        afterTerrain-streamStart,afterProjection-afterTerrain,now-afterProjection);
+      if(stats)this.registry.set('movementStreamPerf',stats);
+    }
     if (!uiBlocked) this.dayNight.update(delta, this.player.x, this.player.y);
     this.weather.update(uiBlocked?0:delta,this.player.x,this.player.y,uiBlocked);
     this.treeSway.update(uiBlocked?0:delta,this.weather.windStrength);
