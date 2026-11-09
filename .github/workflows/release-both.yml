@@ -34,6 +34,30 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      # Reuse the official Gradle distribution on subsequent releases. A
+      # transient upstream GitHub 504 must not block APK/EXE publication.
+      - name: Restore Gradle wrapper distribution
+        uses: actions/cache@v4
+        with:
+          path: ~/.gradle/wrapper/dists
+          key: ${{ runner.os }}-gradle-wrapper-8.11.1-bin-v1
+      - name: Prepare Gradle 8.11.1 with download retries
+        working-directory: android
+        shell: bash
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4 5; do
+            echo "Preparing Gradle 8.11.1 (attempt ${attempt}/5)"
+            if bash gradlew --version; then
+              exit 0
+            fi
+            if [[ "${attempt}" -eq 5 ]]; then
+              echo "::error::Could not download the Gradle 8.11.1 distribution after five attempts."
+              exit 1
+            fi
+            echo "::warning::Gradle download failed; retrying after a short backoff."
+            sleep $((attempt * 12))
+          done
       - name: Install Android SDK packages
         run: |
           set -euo pipefail
