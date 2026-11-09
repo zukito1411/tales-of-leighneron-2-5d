@@ -33,6 +33,8 @@ jobs:
         run: |
           npm run test:types
           npm exec --no -- tsc -p tsconfig.node.json --noEmit
+      - name: Verify presented FPS readings and loop pacing
+        run: npm test -- tests/frameTiming.test.ts tests/framePacing.test.ts
       - name: Prepare Chromium for actual renderer test
         run: npx playwright install --with-deps chromium
       - name: Confirm static instance parity, ordering and dormant reactivation
