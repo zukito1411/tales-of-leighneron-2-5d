@@ -4,6 +4,7 @@ import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {preparePresentationSource,warmPresentationSource} from '../presentation25d/resourcePreparation';
 import {TerrainWorker,type TerrainJob} from './TerrainWorker';
+import {uniqueChunkSources} from './chunkTextureSources';
 import {planChunkScenerySteps,type ChunkSceneryPlan} from './chunkSceneryPlan';
 import Phaser from 'phaser';
 import { CHUNK_SIZE,TILE_SIZE } from '../../data/world';
@@ -444,12 +445,16 @@ export class ChunkManager {
     // Prepare habitat listeners and optional blending within the work budget.
     // Static collision stays disabled until the corresponding art is revealed.
     for(const actor of scenery){this.ground.prepare(actor);yield;}
+    // A streaming chunk can contain hundreds of trees, flowers and other
+    // actors sharing just a handful of GPU atlases. Poll each unique source
+    // once per upload-wait frame, rather than once per actor. The readiness
+    // fence still covers EVERY source; scenery/colliders publish atomically.
+    const sources=uniqueChunkSources<Phaser.Textures.TextureSource>(scenery,canopies);
     if(background){
       let ready=false;
       while(!ready){
         ready=true;
-        for(const actor of scenery)if(!preparePresentationSource(this.scene.game,actor.frame.source))ready=false;
-        for(const leaves of canopies)if(!preparePresentationSource(this.scene.game,leaves.frame.source))ready=false;
+        for(const source of sources)if(!preparePresentationSource(this.scene.game,source))ready=false;
         if(!ready)yield;
       }
     }
@@ -458,9 +463,8 @@ export class ChunkManager {
     const image = this.scene.add.image(chunkX * CHUNK_SIZE, chunkY * CHUNK_SIZE, textureKey)
       .setOrigin(0,0).setDisplaySize(CHUNK_SIZE,CHUNK_SIZE).setDepth(-1000);
     markStaticPresentation(image);
-    const sources=new Set<Phaser.Textures.TextureSource>();
-    for(const actor of scenery)sources.add(actor.frame.source);
-    for(const leaves of canopies)sources.add(leaves.frame.source);
+    // Reuse the already deduplicated atlas list for 150ms active-chunk
+    // residency renewals; don't rebuild another Set during publication.
     this.active.set(`${chunkX}:${chunkY}`, { image, textureKey, scenery,sources:[...sources] });
     committed=true;
     }finally{
