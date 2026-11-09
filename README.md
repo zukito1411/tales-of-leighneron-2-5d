@@ -86,6 +86,32 @@ fails if the configured key does not match the pinned identity; it does not
 generate a replacement signing key. Export save backups before installation
 changes. CI builds do not verify real-device gameplay or FPS.
 
+## Automatic itch.io APK updates
+
+The **Publish 2.5D Android APK to itch.io** workflow starts after a successful
+**Build and release 2.5D Android APK** run on `main`. It downloads the **same
+signed APK** and its SHA-256 checksum from GitHub Releases, verifies the file,
+then uses the official itch.io Butler CLI to update
+[`zukiaoki/tales-of-leighneron-25d:android`](https://zukiaoki.itch.io/tales-of-leighneron-25d).
+It never rebuilds or re-signs the game, and a failed itch.io upload does not
+block GitHub Releases or GitHub Pages. The original 2D itch.io project is not
+touched.
+
+**Required setup:** Add the 2.5D repository's GitHub Actions secret
+`BUTLER_API_KEY` using your itch.io API key. The legacy misspelling
+`BUTER_API_KEY` is also accepted, matching the original game's workflow.
+Secrets from the original repository do not automatically carry over to this
+separate repository. A missing key causes only the itch.io upload job to fail
+with an explanatory message.
+
+To republish an existing release after configuring the secret, open
+**Actions → Publish 2.5D Android APK to itch.io → Run workflow**. Leave the
+release tag blank for the latest APK, or specify an existing
+`leighneron-25d-RUN_ID-ATTEMPT` GitHub release tag. The itch.io project
+currently contains external GitHub download links, which may need to be hidden
+in the itch.io Edit Game page to avoid showing duplicate APK downloads once
+the Butler channel is available.
+
 ## Saves and offline storage
 
 The browser edition uses `mernondna-25d-save-v1`, and the service worker has a
