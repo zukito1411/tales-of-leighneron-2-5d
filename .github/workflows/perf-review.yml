@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - 'src/game/presentation25d/**'
+      - 'src/game/MernondnaGame.ts'
+      - 'src/game/systems/framePacing.ts'
+      - 'tests/framePacing.test.ts'
+      - 'tests/frameWorkBudget.test.ts'
+      - 'tests/textureResidency.test.ts'
       - 'tests/browser/staticSubmissionReview.spec.ts'
       - '.github/workflows/perf-review.yml'
   workflow_dispatch:
@@ -34,7 +39,7 @@ jobs:
           npm run test:types
           npm exec --no -- tsc -p tsconfig.node.json --noEmit
       - name: Verify presented FPS readings and loop pacing
-        run: npm test -- tests/frameTiming.test.ts tests/framePacing.test.ts
+        run: npm test -- tests/frameTiming.test.ts tests/framePacing.test.ts tests/frameWorkBudget.test.ts tests/textureResidency.test.ts
       - name: Prepare Chromium for actual renderer test
         run: npx playwright install --with-deps chromium
       - name: Confirm static instance parity, ordering and dormant reactivation

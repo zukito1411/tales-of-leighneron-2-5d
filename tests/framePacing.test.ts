@@ -1,13 +1,12 @@
 import {describe,it,expect} from 'vitest';
 import {GAME_FPS_CONFIG} from '../src/game/systems/framePacing';
 
-describe('2.5D game frame pacing',()=>{
-  it('enforces a 60 FPS game loop rather than the uncapped refresh rate',()=>{
-    // Phaser's default target is 60, but its default limit is zero (uncapped).
-    expect(GAME_FPS_CONFIG).toMatchObject({target:60,limit:60});
-    expect(GAME_FPS_CONFIG.limit).toBe(GAME_FPS_CONFIG.target);
+describe('2.5D high refresh frame pacing',()=>{
+  it('uses rAF without an artificial 60 FPS cap',()=>{
+    expect(GAME_FPS_CONFIG).toMatchObject({target:60,limit:0,forceSetTimeOut:false});
   });
-  it('retains browser requestAnimationFrame scheduling',()=>{
+  it('preserves Phaser timing reference without forcing setTimeout',()=>{
+    expect(GAME_FPS_CONFIG.target).toBeGreaterThan(0);
     expect(GAME_FPS_CONFIG.forceSetTimeOut).toBe(false);
   });
 });

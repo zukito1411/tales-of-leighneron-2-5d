@@ -40,10 +40,9 @@ export function createMernondnaGame(parent: HTMLElement) {
     // Canvas remains an asset/vector preparation backend. ThreePresentation
     // replaces its world render call; physics and gameplay run exactly once.
     type: Phaser.CANVAS,
-    // Phaser's default target of 60 is advisory: with limit=0 a 120 Hz
-    // Android display runs the entire simulation and 2.5D GPU pipeline at
-    // 120 steps/s. Enforce the intended 60 Hz pacing without scaling down
-    // shaders, textures, lighting, particles, or any other visual effect.
+    // Submit a game frame on every browser rAF (up to screen refresh).
+    // The nominal target is a timing reference, not an FPS ceiling.
+    // Arcade physics below remains independently fixed at 60 Hz.
     fps: GAME_FPS_CONFIG,
     parent,
     backgroundColor: '#1b2418',
@@ -76,6 +75,9 @@ export function createMernondnaGame(parent: HTMLElement) {
       default: 'arcade',
       arcade: {
         gravity: { x: 0, y: 0 },
+        // High-refresh presentation must never accelerate collision physics.
+        fixedStep: true,
+        fps: 60,
         debug: false,
       },
     },

@@ -3,19 +3,23 @@ import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLR
 import type {FrameWorkBudget} from './FrameWorkBudget';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {VISUAL_QUALITY} from './VisualQuality';
+import {TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS,textureGraceMs} from './textureResidency';
 // Canvas-mode Phaser Text resizes its frame/canvas without updating the
 // TextureSource dimensions. GPU allocation and UVs must use the actual image.
 export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
 export function sourceHeight(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.height:source.height;}
 
-interface Entry {texture:Texture;lastUsed:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
+interface Entry {texture:Texture;lastUsed:number;lastUsedAtMs:number;bytes:number;uploadedVersion:number;width:number;height:number;text?:Phaser.GameObjects.Text;restorers:Array<()=>void>;restore:()=>void}
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
-const IDLE_FRAMES=300;
-const RESIDENCY_GRACE=120;
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
 const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
+// Texture budgets are soft: a live scene's full-quality textures cannot be
+// thrown out just because the view itself exceeds 128 MiB. Give recently seen
+// resources time to be reused on camera turns, but accelerate cleanup when
+// memory grows far beyond the normal working set. Never rescale source art.
+const EMERGENCY_RESIDENT_BYTES=MAX_RESIDENT_BYTES*(MOBILE?2.25:1.75);
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
@@ -24,13 +28,20 @@ export class TextureCache {
   private readonly profile=VISUAL_QUALITY[getEffectsQuality()];
   private readonly entries=new Map<Phaser.Textures.TextureSource,Entry>();
   private bytes=0;
+  private frameTimeMs=0;
+  /** Called once per rendered frame; no performance.now() in the many
+   * repeated TextureCache.get calls for shared atlases. */
+  beginFrame(nowMs:number){if(Number.isFinite(nowMs))this.frameTimeMs=nowMs;}
   private readonly pending=new Set<Phaser.Textures.TextureSource>();
   private uploads=0;private uploadMs=0;
   private coldCreates=0;
   private evictions=0;
+  private pressureEvictions=0;
+  private idleEvictions=0;
+  private sourceDisposals=0;
   private prefetchPaused=false;
   private prefetchSuppressed=0;
-  stats(){return {residentMiB:Math.round(this.bytes/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed};}
+  stats(){return {residentMiB:Math.round(this.bytes/1048576),budgetMiB:Math.round(MAX_RESIDENT_BYTES/1048576),emergencyMiB:Math.round(EMERGENCY_RESIDENT_BYTES/1048576),textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,pressureEvictions:this.pressureEvictions,idleEvictions:this.idleEvictions,sourceDisposals:this.sourceDisposals,pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed};}
   get(source:Phaser.Textures.TextureSource,frame:number,text?:Phaser.GameObjects.Text){
     const width=sourceWidth(source),height=sourceHeight(source);
     let entry=this.entries.get(source);
@@ -38,7 +49,8 @@ export class TextureCache {
     // memory charge changes only when image identity/dimensions change. Keep
     // immediate dirty-version checks, including updates made in this frame.
     if(entry&&entry.width===width&&entry.height===height&&entry.texture.image===source.image&&(!text||entry.text===text)){
-      entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);
+      entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
+      if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);
       return entry.texture;
     }
     if(!entry){
@@ -62,7 +74,7 @@ export class TextureCache {
       // streaming frame has exhausted its optional retirement allowance.
       const destroy:typeof originalDestroy=()=>{
         const current=this.entries.get(source);
-        if(current)this.release(source,current);
+        if(current)this.release(source,current,'source');
         originalDestroy.call(source);
       };
       source.destroy=destroy;
@@ -75,7 +87,7 @@ export class TextureCache {
         dynamic.fill=nextFill;dynamic.clear=nextClear;dynamic.endDraw=nextEnd;
         restoreDynamic.push(()=>{if(dynamic.fill===nextFill)dynamic.fill=fill;if(dynamic.clear===nextClear)dynamic.clear=clear;if(dynamic.endDraw===nextEnd)dynamic.endDraw=endDraw;});
       }
-      entry={texture,lastUsed:frame,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;if(source.destroy===destroy)source.destroy=originalDestroy;for(const restore of restoreDynamic)restore();}};
+      entry={texture,lastUsed:frame,lastUsedAtMs:this.frameTimeMs,bytes:0,uploadedVersion:-1,width,height,restorers:restoreDynamic,restore:()=>{if(source.update===update)source.update=original;if(source.destroy===destroy)source.destroy=originalDestroy;for(const restore of restoreDynamic)restore();}};
       this.entries.set(source,entry);
     }
     if(text&&entry.text!==text){
@@ -97,7 +109,8 @@ export class TextureCache {
     const bytes=Math.ceil(Math.max(1,width)*Math.max(1,height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
     if(this.bytes>MAX_RESIDENT_BYTES)this.prefetchPaused=true;
-    entry.lastUsed=frame;if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
+    entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
+    if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
   prefetch(source:Phaser.Textures.TextureSource,frame:number){
     // Reserve headroom for the visible view and mandatory upload fences.
@@ -107,7 +120,7 @@ export class TextureCache {
     const mipmaps=key.startsWith('chunk:')||key==='shared-ocean-chunk'||key.startsWith('painted-model-');
     const bytes=Math.ceil(Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4*(mipmaps?4/3:1));
     if(this.prefetchPaused||!entry&&this.bytes+bytes>MAX_RESIDENT_BYTES*.85
-      ||entry&&this.bytes>MAX_RESIDENT_BYTES*.85&&entry.lastUsed<frame-2){this.prefetchSuppressed++;return;}
+      ||entry&&this.bytes>MAX_RESIDENT_BYTES*.85&&entry.lastUsedAtMs<this.frameTimeMs-30){this.prefetchSuppressed++;return;}
     this.get(source,frame);
   }
   ready(source:Phaser.Textures.TextureSource){const entry=this.entries.get(source);return Boolean(entry&&entry.uploadedVersion===entry.texture.version);}
@@ -130,30 +143,39 @@ export class TextureCache {
       this.uploads++;this.uploadMs+=performance.now()-started;work.charge('upload',started);break;
     }
   }
-  private release(source:Phaser.Textures.TextureSource,entry:Entry){entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.evictions++;}
-  prune(frame:number){
+  private release(source:Phaser.Textures.TextureSource,entry:Entry,reason:'source'|'idle'|'pressure'){
+    entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.evictions++;
+    if(reason==='source')this.sourceDisposals++;
+    else if(reason==='idle')this.idleEvictions++;
+    else this.pressureEvictions++;
+  }
+  prune(_frame:number){
     let idle=0,retired=0;
     // Destroy a maximum of two GPU resources per frame. A camera turn can
     // retire an entire biome's textures; disposing all of them at once causes
     // a second spike after the original upload.
     for(const [source,entry] of this.entries){
-      if(entry.lastUsed<frame-RESIDENCY_GRACE)idle++;
-      if((!source.image||frame-entry.lastUsed>IDLE_FRAMES)&&retired<2){
-        this.release(source,entry);retired++;
-        if(entry.lastUsed<frame-RESIDENCY_GRACE)idle--;
+      const age=this.frameTimeMs-entry.lastUsedAtMs;
+      if(age>TEXTURE_RESIDENCY_GRACE_MS)idle++;
+      if((!source.image||age>TEXTURE_IDLE_MS)&&retired<2){
+        this.release(source,entry,'idle');retired++;
+        if(age>TEXTURE_RESIDENCY_GRACE_MS)idle--;
       }
     }
     if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
     // Evict only idle resources, oldest first; never drop visible assets.
     while((this.bytes>MAX_RESIDENT_BYTES||idle>MAX_IDLE_ENTRIES)&&retired<2){
       let oldest:Entry|undefined,oldestSource:Phaser.Textures.TextureSource|undefined;
-      // Above the byte budget, reclaim sources absent from the last complete
-      // view immediately. A two-second grace is only affordable below budget.
-      const grace=this.bytes>MAX_RESIDENT_BYTES?2:RESIDENCY_GRACE;
-      for(const [source,entry] of this.entries)if(entry.lastUsed<frame-grace&&(!oldest||entry.lastUsed<oldest.lastUsed)){oldest=entry;oldestSource=source;}
+      // The normal working set can exceed the *soft* budget. Two-frame
+      // eviction was causing recently visible textures to be discarded during
+      // camera turns. Keep a short reuse window unless emergency pressure
+      // demands quicker retirement; still retire no more than two per frame.
+      const graceMs=textureGraceMs(this.bytes,MAX_RESIDENT_BYTES,EMERGENCY_RESIDENT_BYTES);
+      for(const [source,entry] of this.entries)if(entry.lastUsedAtMs<this.frameTimeMs-graceMs
+        &&(!oldest||entry.lastUsedAtMs<oldest.lastUsedAtMs)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
-      if(oldest.lastUsed<frame-RESIDENCY_GRACE)idle--;
-      this.release(oldestSource,oldest);retired++;
+      if(this.frameTimeMs-oldest.lastUsedAtMs>TEXTURE_RESIDENCY_GRACE_MS)idle--;
+      this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
   destroy(){for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}

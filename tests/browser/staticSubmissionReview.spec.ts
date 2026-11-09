@@ -9,9 +9,10 @@ declare global {interface Window {
 }}
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('cached submission matches full collection and preserves texture invalidation',async({browser})=>{
-  // Cold CI startup and four 240-frame comparison blocks can exceed three
-  // minutes even when the engine is healthy. Keep a bounded six-minute limit.
-  test.setTimeout(360000);
+  // This is a deterministic instance-buffer equality check, not an FPS
+  // benchmark. A few frozen frames in each ABBA block suffice to prove exact
+  // ordering, while software GL on CI can take seconds per rendered frame.
+  test.setTimeout(240000);
   const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   try{
@@ -53,7 +54,21 @@ test('cached submission matches full collection and preserves texture invalidati
     });
     expect(cinematicActive,'renderer parity fixture must be outside story cinematics').toBe(false);
     await page.waitForTimeout(1000);
-    await page.evaluate(()=>{const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;s.player.resetInput();s.scene.pause();});
+    await page.evaluate(()=>{
+      const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      const renderer=window.__submissionRenderer!;
+      s.player.resetInput();
+      s.scene.pause();
+      // Phaser doesn't render paused scenes. Drive the *actual Three renderer*
+      // with a fixed scene snapshot on rAF while preserving the frozen world,
+      // otherwise the frame-count parity test waits forever in headless CI.
+      const pump=()=>{
+        if(!window.__submissionProbe)return;
+        renderer['draw'](s,s.children.list,s.cameras.main);
+        requestAnimationFrame(pump);
+      };
+      requestAnimationFrame(pump);
+    });
     await page.waitForTimeout(500);
     for(const fast of [false,true,false,true]){
       await page.evaluate(fast=>{window.__submissionProbe!.fast=fast;},fast);
@@ -64,7 +79,7 @@ test('cached submission matches full collection and preserves texture invalidati
       await page.evaluate(fast=>{const p=window.__submissionProbe!;p.fast=fast;p.measure=false;},fast);
       await page.waitForTimeout(80);
       await page.evaluate(()=>{const p=window.__submissionProbe!;p.cpu=0;p.calls=0;p.frames=0;p.samples=[];p.measure=true;});
-      await page.waitForFunction(()=>window.__submissionProbe!.frames>=240);
+      await page.waitForFunction(()=>window.__submissionProbe!.frames>=16);
       samples.push(await page.evaluate(()=>{
         const p=window.__submissionProbe!;p.measure=false;
         const renderer=window.__submissionRenderer!;let hash=2166136261,instances=0;
@@ -80,10 +95,34 @@ test('cached submission matches full collection and preserves texture invalidati
         return {fast:p.fast,cpuPerFrame:p.cpu/p.frames,calls:p.calls,frames:p.frames,median:sorted[Math.floor(sorted.length/2)],hash:hash>>>0,instances,dispatchHits:renderer['cachedDispatchHits']};
       }));
     }
-    // Same frozen shot and actual instance buffers, alternating ABBA to avoid
-    // treating startup/JIT drift as evidence of a rendering improvement.
-    expect(new Set(samples.map(s=>s.hash)).size).toBe(1);
-    expect(new Set(samples.map(s=>s.instances)).size).toBe(1);
+    // The benchmark blocks above occur on different rAF ticks and can include
+    // time-dependent presentation data even when WorldScene is paused.
+    // Compare cached/full submission on the SAME game-loop tick instead:
+    // immediate alternating ABBA draws prevent that drift from corrupting
+    // exact instance-buffer parity checks. All normal actors stay untouched.
+    const parity=await page.evaluate(()=>{
+      const probe=window.__submissionProbe!,renderer=window.__submissionRenderer!;
+      const world=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      const snapshot=(fast:boolean)=>{
+        probe.fast=fast;probe.measure=false;
+        renderer['draw'](world,world.children.list,world.cameras.main);
+        let hash=2166136261,instances=0;
+        for(const batch of renderer['batches'].values()){
+          if(!batch.mesh.visible)continue;
+          instances+=batch.mesh.count;
+          const attributes=[batch.mesh.instanceMatrix,...['atlasRect','instanceTint','instanceTintTR','instanceTintBL','instanceTintBR','tileRepeat'].map(key=>batch.mesh.geometry.getAttribute(key))];
+          for(const attribute of attributes){
+            const values=attribute.array;
+            for(let i=0;i<batch.mesh.count*attribute.itemSize;i++)
+              hash=Math.imul(hash^(Math.round(values[i]*10000)|0),16777619);
+          }
+        }
+        return {fast,hash:hash>>>0,instances};
+      };
+      return [snapshot(false),snapshot(true),snapshot(true),snapshot(false)];
+    });
+    expect(new Set(parity.map(s=>s.hash)).size,JSON.stringify(parity)).toBe(1);
+    expect(new Set(parity.map(s=>s.instances)).size,JSON.stringify(parity)).toBe(1);
     expect(samples[1].dispatchHits).toBeGreaterThan(samples[0].dispatchHits);
     const textures=await page.evaluate(async()=>{
       const path='/src/game/presentation25d/TextureCache.ts';const {TextureCache}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/TextureCache');
