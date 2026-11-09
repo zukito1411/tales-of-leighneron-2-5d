@@ -3,6 +3,7 @@ import { BootScene } from './scenes/BootScene';
 import { WorldScene } from './scenes/WorldScene';
 import {backingSize,RENDER_DENSITY_KEY} from './systems/renderSizing';
 import {ThreePresentation} from './presentation25d/ThreePresentation';
+import {GAME_FPS_CONFIG} from './systems/framePacing';
 
 function followDisplaySize(game:Phaser.Game,parent:HTMLElement){
   let pending=0,stopped=false;
@@ -39,6 +40,11 @@ export function createMernondnaGame(parent: HTMLElement) {
     // Canvas remains an asset/vector preparation backend. ThreePresentation
     // replaces its world render call; physics and gameplay run exactly once.
     type: Phaser.CANVAS,
+    // Phaser's default target of 60 is advisory: with limit=0 a 120 Hz
+    // Android display runs the entire simulation and 2.5D GPU pipeline at
+    // 120 steps/s. Enforce the intended 60 Hz pacing without scaling down
+    // shaders, textures, lighting, particles, or any other visual effect.
+    fps: GAME_FPS_CONFIG,
     parent,
     backgroundColor: '#1b2418',
     pixelArt: false,
