@@ -50,7 +50,7 @@ public class MainActivity extends BridgeActivity {
         if(display==null)return;
         float highest=0f;
         for(float hz:display.getSupportedRefreshRates()) {
-            if(Float.isFinite(hz)&&hz>highest)highest=hz;
+            if(!Float.isNaN(hz)&&!Float.isInfinite(hz)&&hz>highest)highest=hz;
         }
         if(highest<=0f)return;
         WindowManager.LayoutParams params=getWindow().getAttributes();
