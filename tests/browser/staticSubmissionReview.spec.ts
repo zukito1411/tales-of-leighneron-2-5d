@@ -104,10 +104,21 @@ test('cached submission matches full collection and preserves texture invalidati
         batch.begin();add(a);batch.finish();const released=batch.objects.length===1&&batch['staticTokens'][1]===undefined&&batch['slots'][1].object===undefined;
         batch.begin();batch.add(mb,uv,colors,1,a,rect,2);batch.finish();
         batch.begin();add(a);batch.finish();const dynamicReset=batch.mesh.instanceMatrix.array[12]===10;
-        return {unchanged,reordered,faded,released,dynamicReset};
+        // A renderer may leave an invisible retained batch idle for many frames.
+        // The next submission must reset slots and GPU attribute ranges itself.
+        batch.begin();batch.finish();
+        const dormant=!batch.mesh.visible&&batch.mesh.count===0&&batch.objects.length===0;
+        add(b);batch.finish();
+        const reactivated=dormant&&batch.mesh.visible&&batch.mesh.count===1
+          &&batch.mesh.instanceMatrix.array[12]===20&&batch.objects[0].object===b;
+        batch.begin();batch.finish();
+        add(a);add(b);batch.finish();
+        const multipleAfterIdle=batch.mesh.count===2&&batch.objects[0].object===a&&batch.objects[1].object===b
+          &&batch.mesh.instanceMatrix.array[12]===10&&batch.mesh.instanceMatrix.array[28]===20;
+        return {unchanged,reordered,faded,released,dynamicReset,reactivated,multipleAfterIdle};
       }finally{batch.destroy();texture.dispose();a.destroy();b.destroy();}
     });
-    expect(slots).toEqual({unchanged:true,reordered:true,faded:true,released:true,dynamicReset:true});
+    expect(slots).toEqual({unchanged:true,reordered:true,faded:true,released:true,dynamicReset:true,reactivated:true,multipleAfterIdle:true});
     const adaptive=await page.evaluate(async()=>{
       const path='/src/game/presentation25d/RenderBudget.ts';const {RenderBudget}=await import(/* @vite-ignore */ path) as typeof import('../../src/game/presentation25d/RenderBudget');
       const gpu=new RenderBudget(),cpu=new RenderBudget(),paused=new RenderBudget();
