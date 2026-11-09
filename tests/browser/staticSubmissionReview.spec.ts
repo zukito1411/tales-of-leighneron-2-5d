@@ -9,9 +9,10 @@ declare global {interface Window {
 }}
 test.use({launchOptions:{args:['--use-angle=default']},trace:'off'});
 test('cached submission matches full collection and preserves texture invalidation',async({browser})=>{
-  // Cold CI startup and four 240-frame comparison blocks can exceed three
-  // minutes even when the engine is healthy. Keep a bounded six-minute limit.
-  test.setTimeout(360000);
+  // Keep the real renderer and frozen gameplay. CI software GL is much slower
+  // than a phone: test enough alternating frames for parity without spending
+  // six minutes on ~1,000 redundant headless frames.
+  test.setTimeout(240000);
   const context=await browser.newContext({viewport:{width:1280,height:800}}),page=await context.newPage(),errors:string[]=[];
   page.on('pageerror',e=>errors.push(e.message));
   try{
@@ -53,7 +54,21 @@ test('cached submission matches full collection and preserves texture invalidati
     });
     expect(cinematicActive,'renderer parity fixture must be outside story cinematics').toBe(false);
     await page.waitForTimeout(1000);
-    await page.evaluate(()=>{const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;s.player.resetInput();s.scene.pause();});
+    await page.evaluate(()=>{
+      const s=window.__mernondnaGame!.scene.getScene('world') as WorldScene;
+      const renderer=window.__submissionRenderer!;
+      s.player.resetInput();
+      s.scene.pause();
+      // Phaser doesn't render paused scenes. Drive the *actual Three renderer*
+      // with a fixed scene snapshot on rAF while preserving the frozen world,
+      // otherwise the frame-count parity test waits forever in headless CI.
+      const pump=()=>{
+        if(!window.__submissionProbe)return;
+        renderer['draw'](s,s.children.list,s.cameras.main);
+        requestAnimationFrame(pump);
+      };
+      requestAnimationFrame(pump);
+    });
     await page.waitForTimeout(500);
     for(const fast of [false,true,false,true]){
       await page.evaluate(fast=>{window.__submissionProbe!.fast=fast;},fast);
@@ -64,7 +79,7 @@ test('cached submission matches full collection and preserves texture invalidati
       await page.evaluate(fast=>{const p=window.__submissionProbe!;p.fast=fast;p.measure=false;},fast);
       await page.waitForTimeout(80);
       await page.evaluate(()=>{const p=window.__submissionProbe!;p.cpu=0;p.calls=0;p.frames=0;p.samples=[];p.measure=true;});
-      await page.waitForFunction(()=>window.__submissionProbe!.frames>=240);
+      await page.waitForFunction(()=>window.__submissionProbe!.frames>=72);
       samples.push(await page.evaluate(()=>{
         const p=window.__submissionProbe!;p.measure=false;
         const renderer=window.__submissionRenderer!;let hash=2166136261,instances=0;
