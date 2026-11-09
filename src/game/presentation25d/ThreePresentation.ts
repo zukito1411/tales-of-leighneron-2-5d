@@ -468,6 +468,7 @@ export class ThreePresentation {
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
       this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
+        +'Game loop limit: '+this.game.loop.fpsLimit+' FPS (target '+this.game.loop.targetFps+')\n'
         +'Raw frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+'\n'
         +'Raw peak: '+n(pacing.maximum)+' | >33ms '+pacing.over33+' | >50ms '+pacing.over50+' / '+pacing.samples+'\n'
         +'Simulation CPU: '+n(result.simulationCpuMs??0)+' | GPU: '+(result.gpuMs===null?'unavailable':n(result.gpuMs))+'\n'
