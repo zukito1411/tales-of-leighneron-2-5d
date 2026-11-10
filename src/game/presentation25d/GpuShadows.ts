@@ -44,8 +44,8 @@ function optionsMatch(saved:ShadowOptions,caster:ShadowCaster){
  * No shadow canvas repaint, silhouette readback, duplicate actors or loop. */
 export class GpuShadows {
   private modelShadows=new WeakMap<ShadowCaster,ModelShadow>();
-  private modelHits=0;private modelBuilds=0;
-  stats(){return {hits:this.modelHits,builds:this.modelBuilds};}
+  private modelHits=0;private modelBuilds=0;private boundBatchHits=0;
+  stats(){return {hits:this.modelHits,builds:this.modelBuilds,batchReuse:this.boundBatchHits};}
   private readonly batches=new Map<string,SpriteBatch>();
   private readonly shadowProjection={value:new Vector2()};
   private readonly matrix=new Matrix4();private readonly sun=new Vector3();
@@ -198,8 +198,9 @@ export class GpuShadows {
     // original material key and creation logic. No shadow instances are skipped.
     let batch:SpriteBatch|undefined;
     if(plan?.boundBatch&&plan.boundTexture===texture&&plan.boundDeckDefined===deckDefined
-      &&plan.boundKey&&this.batches.get(plan.boundKey)===plan.boundBatch)
-      batch=plan.boundBatch;
+      &&plan.boundKey&&this.batches.get(plan.boundKey)===plan.boundBatch){
+      batch=plan.boundBatch;this.boundBatchHits++;
+    }
     if(!batch){
       const key=Number(deckDefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
       batch=this.batches.get(key);
