@@ -497,7 +497,9 @@ export class SpriteBatch {
       // Coalesce nearby unchanged slots and cap the number of driver commands:
       // CPU/GL call overhead can exceed copying a few intact floats on mobile.
       // Every changed instance is still transferred with identical values.
-      const spans=planInstanceUploadRanges(slots,start,end,this.uploadSpans);
+      // A 2-command mobile-friendly policy cuts driver overhead while preserving
+      // all dirty instance bytes. The helper defaults remain unchanged for callers.
+      const spans=planInstanceUploadRanges(slots,start,end,this.uploadSpans,2,24);
       for(let j=0;j<spans.length;j+=2){
         const rangeStart=spans[j],rangeEnd=spans[j+1];
         attribute.addUpdateRange(rangeStart*size,(rangeEnd-rangeStart)*size);
