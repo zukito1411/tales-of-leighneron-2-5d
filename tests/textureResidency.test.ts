@@ -1,9 +1,21 @@
 import {describe,expect,it} from 'vitest';
-import {ACTIVE_SOURCE_LEASE_MS,RECENT_PRESSURE_RECREATE_MS,mayRetireTexture,textureGraceMs,TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS}
+import {ACTIVE_SOURCE_LEASE_MS,RECENT_PRESSURE_RECREATE_MS,mayRetireTexture,textureGraceMs,textureCacheBudgetMiB,TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS}
   from '../src/game/presentation25d/textureResidency';
 
 describe('full-resolution texture residency on high-refresh mobile',()=>{
   const soft=128*1048576,emergency=288*1048576;
+  it('keeps high-RAM rotating-camera working sets resident without losing graphics',()=>{
+    expect(textureCacheBudgetMiB(16,true)).toEqual({softMiB:512,emergencyMiB:640});
+    expect(textureCacheBudgetMiB(8,true)).toEqual({softMiB:512,emergencyMiB:640});
+    expect(textureCacheBudgetMiB(4,true)).toEqual({softMiB:320,emergencyMiB:448});
+    expect(textureCacheBudgetMiB(2,true)).toEqual({softMiB:128,emergencyMiB:288});
+    expect(textureCacheBudgetMiB(undefined,true)).toEqual({softMiB:128,emergencyMiB:288});
+    expect(textureCacheBudgetMiB(16,false)).toEqual({softMiB:256,emergencyMiB:448});
+    expect(textureCacheBudgetMiB(Infinity,true)).toEqual({softMiB:128,emergencyMiB:288});
+    // 434MiB is above the old 128MiB phone soft budget, but below
+    // the maximum bounded 512MiB high-RAM working-set target.
+    expect(434*1048576).toBeLessThan(textureCacheBudgetMiB(16,true).softMiB*1048576);
+  });
   it('retains textures by elapsed milliseconds rather than render frame counts',()=>{
     expect(TEXTURE_IDLE_MS).toBe(5000);
     expect(textureGraceMs(100*1048576,soft,emergency)).toBe(TEXTURE_RESIDENCY_GRACE_MS);
