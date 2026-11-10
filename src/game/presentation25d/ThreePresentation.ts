@@ -196,7 +196,9 @@ export class ThreePresentation {
   private frameDiagnostics=getFrameDiagnosticsEnabled();
   private diagnosticsParent:HTMLElement|null=null;
   private diagnosticsPanel:HTMLPreElement|null=null;
-  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,feedback:0,feedbackWorst:0,deltaMax:0};
+  private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
+    shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
+    feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
   private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number}|null=null;
   private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
@@ -369,7 +371,9 @@ export class ThreePresentation {
     this.atmosphere.fogFocus.value.set(focus.x,focus.y);this.atmosphere.fogColor.value.copy(this.sky.horizon);
     this.atmosphere.fogRange.value.set(this.interior?0:FOG_START,this.interior?0:VIEW_DISTANCE);
     this.volcano.update(presentation.presentationFocus,this.heightAt(CINDERPEAK.x,CINDERPEAK.y),this.atmosphere.natureAtlas.value,this.atmosphere.visualTime.value,presentation.presentationVolcano,this.interior);
+    const shadowStart=this.frameDiagnostics?performance.now():0;
     this.gpuShadows.update(scene,presentation.presentationShadows,minute,weather?.cloudCover??0,this.orbit.yaw,this.frame,this.interior,this.orbit.bounds);
+    if(this.frameDiagnostics){const ms=performance.now()-shadowStart;this.diag.shadows+=ms;this.diag.shadowsWorst=Math.max(ms,this.diag.shadowsWorst);}
     this.gpuClouds.update(this.sky.artwork,this.sky.ready,focus,minute,weather?.presentation,this.interior||!presentation.presentationFocus);
     this.gpuWater.update(scene,presentation.presentationWater,focus,this.frame,this.interior);
     this.gpuWeather.update(weather,this.orbit.camera,focus,night,this.interior,this.orbit.bounds);
@@ -405,12 +409,14 @@ export class ThreePresentation {
     const mergeNight=nightActive&&!this.screen.children.some(object=>object.visible&&object.renderOrder<1_000_000);
     this.nightScene=scene;this.nightSource=presentation.presentationLighting;this.nightAmount=night;this.nightDensity=density;this.nightMerged=mergeNight;
     if(!nightActive){this.gpuNight.render(this.renderer,scene,presentation.presentationLighting,null,night,this.interior,density);this.postFX.setNight(null,0);}
+    const worldFxStart=this.frameDiagnostics?performance.now():0;
     this.postFX.render(this.renderer,{world:this.world,camera:this.orbit.camera,background:this.background,backgroundCamera:this.screenCamera,
       width:this.renderer.domElement.width,height:this.renderer.domElement.height,density:density*this.renderScale,focus:presentation.presentationFocus,
       lockedTarget,lockedGroundHeight:lockedTarget?this.heightAt(lockedTarget.x,lockedTarget.y):0,focusHeight:presentation.presentationFocus?this.heightAt(presentation.presentationFocus.x,presentation.presentationFocus.y):0,
       night,interior:this.interior,firstPerson:this.orbit.firstPerson,sky:presentation.presentationFocus&&!this.interior?this.sky:undefined,
       depthNeeded:this.gpuWeather.needsDepth||nightActive||night>0&&getGraphicEffects().lightBloom,
       afterWorldRender:this.prepareNight,weather:weather?.presentation,mist:this.gpuWeather.fog});
+    if(this.frameDiagnostics){const ms=performance.now()-worldFxStart;this.diag.worldFx+=ms;this.diag.worldFxWorst=Math.max(ms,this.diag.worldFxWorst);}
     this.overlayAtmosphere.worldDepth.value=this.postFX.depth;
     this.overlayAtmosphere.depthClipRange.value.set(this.orbit.camera.near,this.orbit.camera.far);
     this.overlayAtmosphere.depthTexel.value.set(1/this.renderer.domElement.width,1/this.renderer.domElement.height);
@@ -420,7 +426,9 @@ export class ThreePresentation {
     const profRender=this.frameDiagnostics?performance.now():0;
     // Screen-space UI, weather, darkness and camera transitions stay sharp and
     // retain their existing order after world focus/colour processing.
+    const screenStart=this.frameDiagnostics?performance.now():0;
     this.renderer.clearDepth();this.renderer.render(this.screen,this.screenCamera);
+    if(this.frameDiagnostics){const ms=performance.now()-screenStart;this.diag.screen+=ms;this.diag.screenWorst=Math.max(ms,this.diag.screenWorst);}
     this.gpuTimer.end();
     const feedbackStart=this.frameDiagnostics?performance.now():0;
     this.firstPersonFeedback.update(this.firstPersonPlayer,this.orbit.firstPerson,presentation.presentationControlsEnabled===true,this.game.loop.delta);
@@ -429,6 +437,7 @@ export class ThreePresentation {
     if(presentation.presentationFocus)this.game.registry.set('presentationInitialViewReady',true);
     camera.dirty=false;
     camera.emit(Phaser.Cameras.Scene2D.Events.POST_RENDER,camera);
+    const backgroundStart=this.frameDiagnostics?performance.now():0;
     if(!this.stopped){
       // Uploads have a reserved share of the same allowance used by streaming.
       const elevationStart=performance.now(),elevationMs=work.remaining('elevation',.5);
@@ -437,6 +446,7 @@ export class ThreePresentation {
       const geometryStart=performance.now();this.foreground.preload(work.remaining('geometry',.4));work.charge('geometry',geometryStart);
       this.shaderWarmup.advanceOptional(this.renderer,this.orbit.camera,work);
     }
+    if(this.frameDiagnostics){const ms=performance.now()-backgroundStart;this.diag.background+=ms;this.diag.backgroundWorst=Math.max(ms,this.diag.backgroundWorst);}
     work.reportPresentationMs(performance.now()-cpuStart);
     if(this.frameDiagnostics){
       // Measure the actual interval between *presented frames*, rather than
@@ -495,7 +505,12 @@ export class ThreePresentation {
     const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
       backgroundWork:frameWork(this.game).stats(),movement,drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
-      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,cacheRates,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
+      collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,
+      shadowCpuAvgMs:d.shadows/frames,shadowCpuPeakMs:d.shadowsWorst,
+      worldFxCpuAvgMs:d.worldFx/frames,worldFxCpuPeakMs:d.worldFxWorst,
+      screenCpuAvgMs:d.screen/frames,screenCpuPeakMs:d.screenWorst,
+      backgroundCpuAvgMs:d.background/frames,backgroundCpuPeakMs:d.backgroundWorst,
+      cacheRates,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
       gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
       staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds,dispatchHits:this.cachedDispatchHits},shadowModels:this.gpuShadows.stats()};
@@ -511,6 +526,10 @@ export class ThreePresentation {
         +'Presentation CPU avg/peak: '+n(result.cpuAvgMs)+' / '+n(result.cpuPeakMs)+'\n'
         +'Prepare/cull/cleanup CPU avg: '+n(result.preparationAvgMs)+' / '+n(result.visibilityAvgMs)+' / '+n(result.retirementAvgMs)+'\n'
         +'World submission CPU avg: '+n(result.renderAvgMs)+' | Pre-render total: '+n(result.collectionAvgMs)+'\n'
+        +'Shadow CPU avg/peak: '+n(result.shadowCpuAvgMs)+' / '+n(result.shadowCpuPeakMs)+'\n'
+        +'World/FX WebGL submission avg/peak: '+n(result.worldFxCpuAvgMs)+' / '+n(result.worldFxCpuPeakMs)+'\n'
+        +'HUD/weather WebGL submission avg/peak: '+n(result.screenCpuAvgMs)+' / '+n(result.screenCpuPeakMs)+'\n'
+        +'Optional background CPU avg/peak: '+n(result.backgroundCpuAvgMs)+' / '+n(result.backgroundCpuPeakMs)+'\n'
         +'FPP feedback CPU avg/peak: '+n(result.feedbackAvgMs)+' / '+n(result.feedbackPeakMs)+'\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
@@ -532,7 +551,9 @@ export class ThreePresentation {
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
     }
-    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,feedback:0,feedbackWorst:0,deltaMax:0});
+    Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
+      shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
+      feedback:0,feedbackWorst:0,deltaMax:0});
     this.diagnosticAt=done;
   }
 
