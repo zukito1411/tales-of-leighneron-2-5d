@@ -40,6 +40,13 @@ export function isSailingWater(world:WorldGenerator,x:number,y:number){
 /** Deterministic water lanes near the camera. Hull-width samples prohibit
  * grounding at a shore; rivers and bridges never become sea traffic lanes. */
 export function seaRoute(world:WorldGenerator,cx:number,cy:number):TrafficRoute|null{
+  const steps=seaRouteSteps(world,cx,cy);
+  let step=steps.next();while(!step.done)step=steps.next();return step.value;
+}
+
+/** Same seed, attempts and hull checks as the synchronous API. Yield only
+ * between checks; preparation time never changes the resulting lane/phase. */
+export function* seaRouteSteps(world:WorldGenerator,cx:number,cy:number):Generator<void,TrafficRoute|null>{
   const id=`boat:${cx}:${cy}`,rng=seededRandom(id);
   // Sparse deterministic routes, rather than a boat for nearly every sea cell.
   if(rng()>.22)return null;
@@ -47,6 +54,7 @@ export function seaRoute(world:WorldGenerator,cx:number,cy:number):TrafficRoute|
     const a={x:(cx+.15+rng()*.7)*CHUNK_SIZE,y:(cy+.15+rng()*.7)*CHUNK_SIZE};
     const angle=rng()*Math.PI*2,length=420+rng()*420,dx=Math.cos(angle),dy=Math.sin(angle);
     const b={x:a.x+dx*length,y:a.y+dy*length};
+    yield;
     if(fortificationBlocksPath(a,b,BOAT_HULL_CLEARANCE))continue;
     let safe=true;
     for(let d=0;d<=Math.ceil(length/24);d++){
@@ -54,6 +62,7 @@ export function seaRoute(world:WorldGenerator,cx:number,cy:number):TrafficRoute|
       const radius=BOAT_HULL_CLEARANCE;
       if(![[0,0],[radius,0],[-radius,0],[0,radius],[0,-radius]].every(([ox,oy])=>
         isSailingWater(world,x+ox,y+oy)&&!fortificationBlocksPoint(x+ox,y+oy,12))){safe=false;break;}
+      yield;
     }
     if(safe)return {id,kind:'boat',points:[a,b],length,speed:28+rng()*12,phase:rng()*40000};
   }

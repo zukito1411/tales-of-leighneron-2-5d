@@ -983,8 +983,7 @@ export class InteriorSession {
         this.scene.companionActor&&Math.hypot(this.scene.companionActor.x-x,this.scene.companionActor.y-y)<180?'Talk to Alice Fen':null)});
     }
     for(const npc of this.getResidents()){
-      npc.updatePresentation(x,y,this.guideTarget?.contentId==='npc:'+npc.definition.id);
-      npc.setInteriorLabelDepth(DEPTH-this.origin.y);
+      npc.updatePresentation(x,y,this.guideTarget?.contentId==='npc:'+npc.definition.id,false,false,DEPTH-this.origin.y);
     }
     this.guide?.clear();this.guideMarker?.clear();
     if(this.guideTarget&&this.guide&&this.guideMarker){

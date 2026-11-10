@@ -1,6 +1,7 @@
 import {actorViewAim,actorViewTravel} from '../systems/actorViewDirection';
 import Phaser from 'phaser';
 import {onPlane} from '../presentation25d/plane';
+import {warmPresentationSource} from '../presentation25d/resourcePreparation';
 import {DepthSortedSprite,setDepthIfChanged} from '../systems/renderDepth';
 import type { NpcDefinition, Vec2 } from '../types';
 import { ART_BY_KEY, actorScaleForHeight, artScale, type ArtTextureKey } from '../../data/art';
@@ -173,6 +174,15 @@ export class Npc extends DepthSortedSprite {
         let phase=0;for(const c of definition.id)phase=(phase*31+c.charCodeAt(0))>>>0;
         this.anims.setProgress((phase%997)/997);
       }
+    }
+    // Prepare only this admitted resident's actual pose family. Shared atlases
+    // deduplicate in the bounded renderer cache; no PNG decoding is added here.
+    const poseTextures=regionalModel!==undefined?[this.texture.key]:[
+      this.texture.key,this.walkArtTexture,...(idleArt?[idleArt.key,npcDirectionalIdleTexture(idleArt.walk)]:[]),
+    ];
+    for(const key of poseTextures)if(scene.textures.exists(key)){
+      const source=scene.textures.getFrame(key)?.source;
+      if(source?.image)warmPresentationSource(scene.game,source);
     }
   }
 
@@ -350,7 +360,10 @@ export class Npc extends DepthSortedSprite {
     this.playDirection(dx,dy,true);
   }
   setStoryAlert(text?:string){this.storyAlert=text;}
-  setInteriorLabelDepth(offset:number){this.nameLabel.setDepth(offset+this.y+80);this.titleLabel.setDepth(offset+this.y+80);this.sideQuestMarker?.setDepth(offset+this.y+82);}
+  setInteriorLabelDepth(offset:number){
+    setDepthIfChanged(this.nameLabel,offset+this.y+80);setDepthIfChanged(this.titleLabel,offset+this.y+80);
+    if(this.sideQuestMarker)setDepthIfChanged(this.sideQuestMarker,offset+this.y+82);
+  }
   advanceCinematic(delta:number) {
     const body=this.body as Phaser.Physics.Arcade.Body,step=Math.min(delta,80)/1000;
     const point={x:this.x+body.velocity.x*step,y:this.y+body.velocity.y*step};
@@ -635,7 +648,7 @@ export class Npc extends DepthSortedSprite {
     return Boolean(this.settlementVisit&&this.canStoryWalk)||this.regionalModel===undefined&&npcMayPatrol(this.definition)&&(!this.definition.townRoutine||this.canStoryWalk);
   }
 
-  updatePresentation(playerX: number, playerY: number, questTarget: boolean, paused = false, cinematic=false) {
+  updatePresentation(playerX: number, playerY: number, questTarget: boolean, paused = false, cinematic=false,labelDepthOffset=0) {
     const distance = Phaser.Math.Distance.Between(playerX,playerY,this.x,this.y);
     if(this.storyAttack){
       const direction=actorViewAim(this.scene,this.facing.x,this.facing.y,this.walkDirection);
@@ -670,11 +683,11 @@ export class Npc extends DepthSortedSprite {
         this.nameHighlighted=questTarget;
         this.nameLabel.setColor(questTarget?'#ffe193':'#f6edd7');
       }
-      setDepthIfChanged(this.nameLabel,this.y+80).setPosition(this.x,this.y+this.labelY)
+      setDepthIfChanged(this.nameLabel,labelDepthOffset+this.y+80).setPosition(this.x,this.y+this.labelY)
         .setVisible(!this.companionControl);
       const title=this.storyAlert??this.definition.title;
       if(this.titleLabel.text!==title)this.titleLabel.setText(title);
-      setDepthIfChanged(this.titleLabel,this.y+80).setPosition(this.x,this.y+this.labelY+2)
+      setDepthIfChanged(this.titleLabel,labelDepthOffset+this.y+80).setPosition(this.x,this.y+this.labelY+2)
         .setVisible(!this.companionControl&&(Boolean(this.storyAlert)||distance<260));
     }
     if(this.sideQuestMarker){
@@ -687,7 +700,7 @@ export class Npc extends DepthSortedSprite {
         return status.status==='active'&&next?.targetId===this.definition.id
           &&['talk','deliver','choice','puzzle'].includes(next.type);
       });
-      setDepthIfChanged(this.sideQuestMarker,this.y+82).setPosition(this.x,this.y+this.labelY-17)
+      setDepthIfChanged(this.sideQuestMarker,labelDepthOffset+this.y+82).setPosition(this.x,this.y+this.labelY-17)
         .setVisible(!this.companionControl&&available&&!cinematic&&distance<650);
     }
   }
@@ -774,6 +787,7 @@ export class Npc extends DepthSortedSprite {
     // taller pike/idle canvases. The body occupies y-22..y, not y-2..y+20.
     const originY = 1 - (sheet.groundPadding??2) / sheet.frameHeight;
     this.setTexture(texture,0).setScale(scale).setOrigin(.5,originY).setFlipX(false);
+    if(this.frame.source.image)warmPresentationSource(this.scene.game,this.frame.source);
     const body = this.body as Phaser.Physics.Arcade.Body;
     body.setSize(18 / scale,22 / scale).setOffset(sheet.frameWidth * sheet.density / 2 - 9 / scale,
       originY * sheet.frameHeight * sheet.density - 22 / scale);

@@ -1,3 +1,4 @@
+import type {ModelGeometryCache} from './ModelGeometryCache';
 import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
 import {staticSpatialIndex} from './StaticSpatialIndex';
 import {walkSurfaceHeight} from './WalkSurface';
@@ -13,8 +14,8 @@ import type {TextureCache} from './TextureCache';
 import type {ElevationField} from './ElevationField';
 import {sunDirection} from './environment';
 import {PRESENTATION_HINT,type PresentationHint} from './plane';
-import {createHouseGeometry,applyHouseRise,type HouseShape} from './HouseGeometry';
-import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
+import {applyHouseRise,type HouseShape} from './HouseGeometry';
+import {furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 
 type ShadowOptions=Omit<ShadowCaster,'actor'|'enabled'>;
 const OPTION_KEYS:readonly (keyof ShadowOptions)[]=['texture','frame','projection','contactScale','contactHeight','contactOffset','groundOffsetY','contactOpacity','projectionBottom','contacts'];
@@ -44,6 +45,7 @@ function optionsMatch(saved:ShadowOptions,caster:ShadowCaster){
  * No shadow canvas repaint, silhouette readback, duplicate actors or loop. */
 export class GpuShadows {
   private modelShadows=new WeakMap<ShadowCaster,ModelShadow>();
+  private work:ReturnType<typeof frameWork>|undefined;
   private modelHits=0;private modelBuilds=0;private boundBatchHits=0;
   stats(){return {hits:this.modelHits,builds:this.modelBuilds,batchReuse:this.boundBatchHits};}
   private readonly batches=new Map<string,SpriteBatch>();
@@ -53,8 +55,9 @@ export class GpuShadows {
   private readonly repeat=[1,0,0,0];private readonly rect={left:0,top:0,width:1,height:1};
   private readonly furniturePosition={x:0,y:0,width:0,heading:0,lift:0};
   private contactSource:Phaser.Textures.TextureSource|undefined;
-  constructor(private readonly world:Scene,private readonly textures:TextureCache,private readonly elevation:ElevationField,private readonly atmosphere:DistanceAtmosphere){}
+  constructor(private readonly world:Scene,private readonly textures:TextureCache,private readonly elevation:ElevationField,private readonly atmosphere:DistanceAtmosphere,private readonly modelGeometry:ModelGeometryCache){}
   update(scene:Phaser.Scene,source:GroundShadowSystem|undefined,minute:number,cloud:number,yaw:number,frame:number,interior:boolean,bounds:{left:number;right:number;top:number;bottom:number}){
+    this.work=frameWork(scene.game);
     // On fast (60 Hz) frames in mobile Low mode, reuse the previous shadow
     // instances every other frame. Skip no updates at all when frame time is
     // already 25+ ms or when entering an interior: collisions and player
@@ -204,7 +207,7 @@ export class GpuShadows {
     if(!batch){
       const key=Number(deckDefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
       batch=this.batches.get(key);
-      if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deckDefined?1:-9.94,[],true,false,false,!deckDefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+      if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deckDefined?1:-9.94,[],true,false,false,!deckDefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>this.modelGeometry.furniture(furniture,false,this.work):house?()=>this.modelGeometry.house(house,0,false,this.work):undefined);this.batches.set(key,batch);}
       if(plan){plan.boundKey=key;plan.boundBatch=batch;plan.boundTexture=texture;plan.boundDeckDefined=deckDefined;}
     }
     if(reuse&&plan)batch.addStatic(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat,plan);

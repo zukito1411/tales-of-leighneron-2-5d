@@ -1,5 +1,6 @@
 import {GpuVolcano} from './GpuVolcano';
 import {WindmillMotion} from './WindmillMotion';
+import {ModelGeometryCache} from './ModelGeometryCache';
 import {CINDERPEAK,type VolcanoPulse} from '../../data/cinderpeak';
 import {captureModelState,modelStateMatches,type ModelState} from './ModelState';
 import {releaseLifeTreeGeometry} from './LifeTreeGeometry';
@@ -27,8 +28,8 @@ import {OrbitCamera,type PresentationCameraControl} from './OrbitCamera';
 import {ElevationField,TERRAIN_GRID_SEGMENTS} from './ElevationField';
 import {FRAME_DIAGNOSTICS_EVENT,getFrameDiagnosticsEnabled} from './renderDiagnostics';
 import {getEffectsQuality} from '../systems/effectsQuality';
-import {createHouseGeometry,createWallGeometry,applyHouseRise} from './HouseGeometry';
-import {createFurnitureGeometry,furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
+import {applyHouseRise} from './HouseGeometry';
+import {furniturePlacement,type FurnitureShape} from './FurnitureGeometry';
 import {RenderBudget} from './RenderBudget';
 import {getGraphicEffects} from '../systems/graphicsEffects';
 import {RasterCache} from './RasterCache';
@@ -144,6 +145,7 @@ export class ThreePresentation {
   private readonly fade=new Mesh(this.effectGeometry,new MeshBasicMaterial({transparent:true,depthTest:false,depthWrite:false}));
   private readonly batches=new Map<string,SpriteBatch>();
   private readonly textures=new TextureCache();
+  private readonly modelGeometry=new ModelGeometryCache();
   private readonly postFX:WorldPostFX;
   private readonly sky:GpuSky;
   private readonly gpuShadows:GpuShadows;
@@ -207,7 +209,7 @@ export class ThreePresentation {
     uploadCalls:0,uploadCallPeak:0,uploadBytes:0,uploadModifiedBytes:0,
     feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
-  private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number}|null=null;
+  private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number;renderUploads:number}|null=null;
   private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.cameraMotionProfiler.reset();this.cameraMotionStats=undefined;this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
@@ -235,7 +237,7 @@ export class ThreePresentation {
     this.renderer.info.autoReset=false;
     this.renderer.setPixelRatio(1);this.renderer.autoClear=false;
     this.postFX=new WorldPostFX();
-    this.sky=new GpuSky();this.gpuShadows=new GpuShadows(this.world,this.textures,this.elevation,this.atmosphere);
+    this.sky=new GpuSky();this.gpuShadows=new GpuShadows(this.world,this.textures,this.elevation,this.atmosphere,this.modelGeometry);
     this.gpuClouds=new GpuCloudShadows(this.world,this.elevation,this.atmosphere);
     this.gpuWeather=new GpuWeather(this.screen,this.elevation);this.gpuNight=new GpuNightMask(this.screen);
     this.gpuLightning=new GpuStormLightning(this.world);
@@ -261,7 +263,8 @@ export class ThreePresentation {
     ]);
     this.preparePrograms(Promise.all([this.shaderWarmup.ready,this.volcano.preparePrograms(this.renderer,this.orbit.camera)]).then(()=>{}));
     bindResourcePreparation(game,{
-      request:source=>{this.textures.get(source,this.frame);},warm:source=>this.textures.prefetch(source,this.frame),ready:source=>this.textures.ready(source),
+      request:source=>{this.textures.request(source,this.frame);},warm:source=>this.textures.prefetch(source,this.frame),ready:source=>this.textures.ready(source),
+      objectReady:object=>this.modelGeometry.prepare(object.getData(PRESENTATION_HINT) as PresentationHint|undefined,frameWork(this.game)),
       viewReady:(scene,point)=>this.programsReady&&!this.contextLost&&this.presentedScene===scene
         &&Math.hypot(this.orbit.focusGround.x-point.x,this.orbit.focusGround.y-point.y)<1
         &&(!this.heightEnabled||this.elevation.readyAt(point)),
@@ -541,8 +544,9 @@ export class ThreePresentation {
       pressureRecreates:perSecond(textureCache.pressureRecreates,previous?.pressureRecreates??0),
       sourceDisposals:perSecond(textureCache.sourceDisposals,previous?.sourceDisposals??0),
       preuploads:perSecond(textureCache.preparedUploads,previous?.preparedUploads??0),
+      renderUploads:perSecond(textureCache.renderUploads,previous?.renderUploads??0),
     };
-    this.previousCacheSample={at:done,coldCreates:textureCache.coldCreates,pressureEvictions:textureCache.pressureEvictions,pressureRecreates:textureCache.pressureRecreates,sourceDisposals:textureCache.sourceDisposals,preparedUploads:textureCache.preparedUploads};
+    this.previousCacheSample={at:done,coldCreates:textureCache.coldCreates,pressureEvictions:textureCache.pressureEvictions,pressureRecreates:textureCache.pressureRecreates,sourceDisposals:textureCache.sourceDisposals,preparedUploads:textureCache.preparedUploads,renderUploads:textureCache.renderUploads};
     const stream=this.game.registry.get('presentationStreamPerf') as {
       active:number;pending:number;visibleMissing:number;fallbacks:number;terrainCache:number;retiring:number
     }|undefined;
@@ -561,7 +565,7 @@ export class ThreePresentation {
       backgroundCpuAvgMs:d.background/frames,backgroundCpuPeakMs:d.backgroundWorst,
       cacheRates,feedbackAvgMs:d.feedback/frames,feedbackPeakMs:d.feedbackWorst,
       longestFrameMs:d.deltaMax,shaderBatches:this.batches.size,
-      gpuTextures:this.renderer.info.memory.textures,textureCache,stream,
+      gpuTextures:this.renderer.info.memory.textures,textureCache,stream,modelGeometry:this.modelGeometry.stats(),
       staticModels:{hits:this.staticModelHits,builds:this.staticModelBuilds,dispatchHits:this.cachedDispatchHits},shadowModels:this.gpuShadows.stats()};
     this.game.registry.set('presentationPerf',result);
     if(this.diagnosticsPanel){
@@ -588,6 +592,10 @@ export class ThreePresentation {
           +' | RAM tier '+n(textureCache.ramGiB)+' GiB'
           +' | active lease '+textureCache.activeSourceMiB+' MiB | recent visible '+textureCache.recentVisibleMiB+' MiB\n'
         +'Cold creates '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
+        +'Texture uploads /s: staged '+(cacheRates.preuploads===null?'warming':n(cacheRates.preuploads))
+          +' | during render '+(cacheRates.renderUploads===null?'warming':n(cacheRates.renderUploads))+'\n'
+        +'Model topology builds/reuses: '+result.modelGeometry.builds+' / '+result.modelGeometry.hits
+          +' | CPU cache '+n(result.modelGeometry.cpuMiB)+' MiB | build peak '+n(result.modelGeometry.peakBuildMs)+' ms\n'
         +'Cache /s: create '+(cacheRates.creates===null?'warming':n(cacheRates.creates))
           +' | pressure evict '+(cacheRates.pressureEvictions===null?'warming':n(cacheRates.pressureEvictions))
           +' | repeat upload '+(cacheRates.pressureRecreates===null?'warming':n(cacheRates.pressureRecreates))
@@ -908,7 +916,7 @@ export class ThreePresentation {
     const billboard=staticImage&&!house&&!furniture&&plane==='upright'&&!object.input?.enabled;
     const key=Number(Boolean(hint?.occlude))+':'+Number(billboard)+':'+texture.uuid+':'+Number(additive)+':'+Number(fillTint)+':'+Number(overlay)+':'+plane+':'+order+':'+Number(opaque)+':'+Number(depthWrite)+':'+Number(solidModel)+':'+Number(tiled)+':'+terrainGrid+':'+(mask?.id??0)+':'+Number(Boolean(warningArea))+':'+Number(!followsTerrain)+':'+(furnitureVolume?'furniture:'+furniture!.key:houseVolume?house!.profile.id+':'+(house!.shopfront??'')+':'+(house!.tradeSign??'')+':'+(house!.floorLift??0)+':'+(house!.doorHeight??0)+(house!.segment?':surveyed':''):roomWall?'room-wall':wallDepth?'panel:'+wallDepth:'');
     let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>createFurnitureGeometry(furniture!,Boolean(emissionOwner)):houseVolume?()=>createHouseGeometry(house!,emissionOwner?.0008:0,Boolean(emissionOwner)):wallDepth?()=>createWallGeometry(wallDepth,roomWall?.panel):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude),undefined,solidModel);this.batches.set(key,batch);}
+    if(!batch){batch=new SpriteBatch(object.name==='interior-backdrop'?this.background:overlay?this.screen:this.world,texture,additive,overlay,order,mask?.rects,fillTint,opaque,depthWrite,followsTerrain&&!overlay,tiled,this.elevation,terrainGrid,overlay?this.overlayAtmosphere:this.atmosphere,false,Boolean(warningArea),furnitureVolume?()=>this.modelGeometry.furniture(furniture!,Boolean(emissionOwner),frameWork(this.game)):houseVolume?()=>this.modelGeometry.house(house!,emissionOwner?.0008:0,Boolean(emissionOwner),frameWork(this.game)):wallDepth?()=>this.modelGeometry.wall(wallDepth,roomWall?.panel,frameWork(this.game)):undefined,billboard,this.billboardRight,this.presentationUniforms,true,Boolean(hint?.occlude),undefined,solidModel);this.batches.set(key,batch);}
     const factor=emissionOwner?this.foregroundFactor(emissionOwner):fadeEligible?this.sceneryOpacity(object,batch):1;
     const drawingBatch=factor<1?this.foregroundBatch(key,batch):batch;
     const colors=this.colors;
@@ -1247,7 +1255,7 @@ export class ThreePresentation {
     this.preparationEpoch++;this.recoveryDeadline.clear();this.shaderWarmup.destroy();
     const canvas=this.renderer.domElement;canvas.removeEventListener('webglcontextlost',this.onContextLost);canvas.removeEventListener('webglcontextrestored',this.onContextRestored);this.orbit.destroy();clearPresentationView(this.game);
     for(const batch of this.batches.values())batch.destroy();this.batches.clear();
-    releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuLightning.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
+    this.modelGeometry.destroy();releaseLifeTreeGeometry();this.volcano.destroy();this.gpuNight.destroy();this.gpuWeather.destroy();this.gpuLightning.destroy();this.gpuWater.destroy();this.gpuClouds.destroy();this.gpuShadows.destroy();this.sky.destroy();
     clearResourcePreparation(this.game);releaseFrameWork(this.game);this.gpuTimer.destroy();
     this.firstPersonWeapon.destroy();this.firstPersonFeedback.destroy();this.firstPersonPlayer=undefined;
     this.budget.destroy();this.postFX.destroy();this.elevation.destroy();this.rasters.destroy();this.textures.destroy();this.renderer.dispose();this.renderer.forceContextLoss();canvas.remove();

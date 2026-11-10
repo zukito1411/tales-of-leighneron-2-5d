@@ -2,7 +2,7 @@ import {RegionalTreeArt} from './RegionalTreeArt';
 import {artFrameSize} from '../../data/art';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
 import {frameWork} from '../presentation25d/FrameWorkBudget';
-import {preparePresentationSource,warmPresentationSource} from '../presentation25d/resourcePreparation';
+import {preparePresentationSource,preparePresentationObject,warmPresentationSource} from '../presentation25d/resourcePreparation';
 import {TerrainWorker,type TerrainJob} from './TerrainWorker';
 import {uniqueChunkSources} from './chunkTextureSources';
 import {planChunkScenerySteps,type ChunkSceneryPlan} from './chunkSceneryPlan';
@@ -12,7 +12,7 @@ import {harborWaterRect} from '../../data/worldLandscape';
 import {projectedGroundView} from '../presentation25d/plane';
 import { artScale } from '../../data/art';
 import { WorldGenerator } from './WorldGenerator';
-import { nearbyPhysicsChunks,viewportChunks,streamViewKey,type StreamView } from './chunkNeighborhood';
+import { nearbyPhysicsChunks,viewportChunks,ViewportChunkCache,streamViewKey,type StreamView } from './chunkNeighborhood';
 import { TerrainBaker } from './TerrainBaker';
 import type {TreeSwaySystem} from './TreeSwaySystem';
 import type {DayNightSystem} from './DayNightSystem';
@@ -53,6 +53,10 @@ export class ChunkManager {
   }
   private lastCenter = '';
   private lastTravelViewKey='';
+  private readonly visibleView=new ViewportChunkCache();
+  private readonly marginView=new ViewportChunkCache();
+  private readonly aheadView=new ViewportChunkCache();
+  private readonly transitionView=new ViewportChunkCache();
   private lastOpenSeaStatus:boolean|null=null;
   private readonly baker: TerrainBaker;private readonly regionalTrees:RegionalTreeArt;
   private readonly terrainWorker:TerrainWorker;
@@ -63,7 +67,7 @@ export class ChunkManager {
   private preparing:{key:string;steps:Generator<void,void>}|null=null;
   private preparedFrame=-1;
   private bootstrapped=false;
-  private visibleChunks=new Set<string>();
+  private visibleChunks:ReadonlySet<string>=new Set<string>();
   // Shared terrain art provides a temporary ground plane while the expensive
   // authored chunk texture and its collision scenery finish across frames.
   private readonly fallbacks=new Map<string,Phaser.GameObjects.TileSprite>();
@@ -104,13 +108,13 @@ export class ChunkManager {
       +Math.floor((groundView.top-384)/CHUNK_SIZE)+':'+Math.floor((groundView.bottom+384)/CHUNK_SIZE);
     if(viewKey===this.lastTravelViewKey){this.retireExpired();this.loadPendingChunk();return;}
     this.lastTravelViewKey=viewKey;
-    const visible=viewportChunks(groundView);
+    const visible=this.visibleView.update(groundView);
     this.visibleChunks=visible;
     const wanted=nearbyPhysicsChunks(worldX,worldY);
     // Prepare a small band around the real view plus the next second of
     // movement. Hidden chunks keep GPU-ready art until they enter the camera.
-    for(const key of viewportChunks(groundView,256))wanted.add(key);
-    for(const key of viewportChunks(projectedGroundView(camera,aheadX,aheadY,128),256))wanted.add(key);
+    for(const key of this.marginView.update(groundView,256))wanted.add(key);
+    for(const key of this.aheadView.update(projectedGroundView(camera,aheadX,aheadY,128),256))wanted.add(key);
     const centerKey = `${centerX}:${centerY}:`+streamViewKey(wanted)+':'+streamViewKey(visible);
     if (centerKey === this.lastCenter) { this.retireExpired();this.loadPendingChunk(); return; }
     this.lastCenter = centerKey;
@@ -143,12 +147,20 @@ export class ChunkManager {
    * keeps the existing staggered budget for offscreen margin chunks. */
   updateView(view:StreamView,staged=false,focus?:{x:number;y:number}):boolean {
     // Covers complete mature trees beyond the edge, not just their ground anchors.
-    const wanted=viewportChunks(view,384),visible=viewportChunks(view);
+    const viewWanted=this.transitionView.update(view,384),viewVisible=this.visibleView.update(view);
+    const focusKey=focus?Math.floor((focus.x-384)/CHUNK_SIZE)+':'+Math.floor((focus.x+384)/CHUNK_SIZE)+':'
+      +Math.floor((focus.y-384)/CHUNK_SIZE)+':'+Math.floor((focus.y+384)/CHUNK_SIZE):'';
+    const center='view:'+this.transitionView.revision+':'+this.visibleView.revision+':'+focusKey;
+    this.bootstrapped=true;
+    this.lastTravelViewKey=''; // Explicit transition views supersede walking cache.
+    if(center===this.lastCenter){
+      this.retireExpired();this.loadPendingChunk(staged);this.updateOpenSeaStatus();
+      return this.visibleReady();
+    }
+    const wanted=new Set(viewWanted),visible=new Set(viewVisible);
     if(focus)for(const key of nearbyPhysicsChunks(focus.x,focus.y)){visible.add(key);wanted.add(key);}
     this.visibleChunks=visible;
-    this.bootstrapped=true;
-    this.lastCenter='view:'+streamViewKey(wanted);
-    this.lastTravelViewKey=''; // Explicit transition views supersede walking cache.
+    this.lastCenter=center;
     this.markRetiring(wanted);
     this.retireExpired();
     for(const key of this.pendingChunks.keys())if(!wanted.has(key))this.pendingChunks.delete(key);
@@ -164,8 +176,10 @@ export class ChunkManager {
     this.loadPendingChunk(staged);this.updateOpenSeaStatus();
     // Margin chunks are speculative canopy coverage. They continue loading
     // after the shot is drawable, but must not hold the transition cover up.
-    return [...visible].every(key=>this.active.has(key));
+    return this.visibleReady();
   }
+
+  private visibleReady(){for(const key of this.visibleChunks)if(!this.active.has(key))return false;return true;}
 
   recoverPreparation(){
     // Abandon a wedged worker/upload job, not the published terrain or caches.
@@ -321,7 +335,8 @@ export class ChunkManager {
     }
     this.active.clear();
     for(const key of this.fallbacks.keys())this.removeFallback(key);
-    this.visibleChunks.clear();this.bootstrapped=false;this.retiring.clear();
+    this.visibleChunks=new Set();this.bootstrapped=false;this.retiring.clear();
+    this.visibleView.clear();this.marginView.clear();this.aheadView.clear();this.transitionView.clear();
     this.pendingChunks.clear();
     for(const textureKey of this.recentTerrain.values())this.scene.textures.remove(textureKey);
     this.recentTerrain.clear();this.sceneryPlans.clear();
@@ -444,7 +459,10 @@ export class ChunkManager {
     }
     // Prepare habitat listeners and optional blending within the work budget.
     // Static collision stays disabled until the corresponding art is revealed.
-    for(const actor of scenery){this.ground.prepare(actor);yield;}
+    for(const actor of scenery){
+      this.ground.prepare(actor);yield;
+      if(background)while(!preparePresentationObject(this.scene.game,actor))yield;
+    }
     // A streaming chunk can contain hundreds of trees, flowers and other
     // actors sharing just a handful of GPU atlases. Poll each unique source
     // once per upload-wait frame, rather than once per actor. The readiness

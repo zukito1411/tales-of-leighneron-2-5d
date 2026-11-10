@@ -2,9 +2,10 @@ import {groundWorldView,onPlane,onGround,viewDirection,worldHeight,PRESENTATION_
 import {coastalBoatShape,BOAT_DECK_RATIO} from '../presentation25d/CoastalBoatGeometry';
 import Phaser from 'phaser';
 import {setDepthIfChanged} from './renderDepth';
+import {frameWork} from '../presentation25d/FrameWorkBudget';
 import {viewportChunks} from './chunkNeighborhood';
 import {CHUNK_SIZE,WORLD_CHUNKS_WIDTH,WORLD_CHUNKS_HEIGHT} from '../../data/world';
-import {seaRoute,routePosition,type TrafficRoute} from './travelRoutes';
+import {seaRouteSteps,routePosition,type TrafficRoute} from './travelRoutes';
 import {trafficDirection} from './trafficMotion';
 import {BOAT_SCALE,boatHelm,boatPassenger} from './VehicleArt';
 import {ART_BY_KEY,actorScaleForHeight,type ArtTextureKey} from '../../data/art';
@@ -23,6 +24,9 @@ export interface Vehicle {
 /** Real artwork layers follow traveled distance. All attached actors unload together. */
 export class WorldTrafficSystem {
   private readonly sea=new Map<string,TrafficRoute|null>();
+  private readonly seaJobs=new Map<string,Generator<void,TrafficRoute|null>>();
+  private routesDirty=false;
+  private readonly wantedVehicles=new Set<string>();
   private readonly active=new Map<string,Vehicle>();
   private elapsed=0;
   private routes:TrafficRoute[]=[];
@@ -50,14 +54,21 @@ export class WorldTrafficSystem {
     if(bounds!==this.lastSeaBounds){
       this.lastSeaBounds=bounds;
       const nearby=viewportChunks(view,500);
-      for(const [key] of this.sea)if(!nearby.has(key))this.sea.delete(key);
-      for(const key of nearby)if(!this.sea.has(key)){const [x,y]=key.split(':').map(Number);this.sea.set(key,seaRoute(this.world,x,y));}
+      for(const [key] of this.sea)if(!nearby.has(key)){this.sea.delete(key);this.routesDirty=true;}
+      for(const [key,job] of this.seaJobs)if(!nearby.has(key)){job.return(null);this.seaJobs.delete(key);}
+      for(const key of nearby)if(!this.sea.has(key)&&!this.seaJobs.has(key)){
+        const [x,y]=key.split(':').map(Number);this.seaJobs.set(key,seaRouteSteps(this.world,x,y));
+      }
+    }
+    this.prepareSeaRoutes();
+    if(this.routesDirty){
+      this.routesDirty=false;
       this.routes=[...this.sea.values()].filter((r):r is TrafficRoute=>Boolean(r));
       // Retain already visible boats when a neighboring sea cell streams in.
       // The cap must not replace all three vessels on every boundary crossing.
       this.routes.sort((a,b)=>Number(this.active.has(b.id))-Number(this.active.has(a.id))||a.id.localeCompare(b.id));
     }
-    const wanted=new Set<string>(),passageFrom=useGameStore.getState().passage?.from;
+    const wanted=this.wantedVehicles;wanted.clear();const passageFrom=useGameStore.getState().passage?.from;
     for(const port of PORTS){
       if(passageFrom===port.id)continue;
       if(Math.abs(port.boat.x-view.centerX)>view.width/2+400||Math.abs(port.boat.y-view.centerY)>view.height/2+500)continue;
@@ -76,6 +87,21 @@ export class WorldTrafficSystem {
       this.presentBoat(vehicle,point.x,point.y,point.dx,point.dy,trafficDirection(point.dx,point.dy),point.moving);
     }
     for(const [id,vehicle] of this.active)if(!wanted.has(id)){this.release(vehicle);this.active.delete(id);}
+  }
+  private prepareSeaRoutes(){
+    if(!this.seaJobs.size)return;
+    const work=frameWork(this.scene.game),allowance=work.remaining('geography',.25);
+    if(allowance<=0)return;
+    const start=performance.now();let steps=0;
+    try{
+      for(const [key,job] of this.seaJobs){
+        while(steps<8&&performance.now()-start<allowance){
+          const next=job.next();steps++;
+          if(next.done){this.sea.set(key,next.value);this.seaJobs.delete(key);this.routesDirty=true;break;}
+        }
+        if(steps>=8||performance.now()-start>=allowance)break;
+      }
+    }finally{work.charge('geography',start);}
   }
   private create(route:TrafficRoute,x:number,y:number):Vehicle{
     const sprite=this.scene.add.sprite(x,y,'traffic-'+route.kind,0).setName(route.id),vehicle:Vehicle={route,sprite,ground:{x,y,depth:y,presentationElevation:0}};
@@ -171,5 +197,9 @@ export class WorldTrafficSystem {
       try{object.destroy();}catch(error){console.warn('[boats] Could not retire an attachment:',error);}
     }
   }
-  destroy(){for(const vehicle of this.active.values())this.release(vehicle);this.active.clear();this.sea.clear();}
+  destroy(){
+    for(const job of this.seaJobs.values())job.return(null);this.seaJobs.clear();
+    for(const vehicle of this.active.values())this.release(vehicle);
+    this.active.clear();this.sea.clear();this.routes=[];this.wantedVehicles.clear();
+  }
 }

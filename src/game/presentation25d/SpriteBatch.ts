@@ -387,7 +387,14 @@ export class SpriteBatch {
   private readonly dirtySlots:number[][]=Array.from({length:7},()=>[]);
   private readonly uploadSpans:number[]=[];
   private attributes:BufferAttribute[]=[];
-  lastUsed=0;
+  private lastUsedFrame=-1;
+  lastUsedAtMs=performance.now();
+  get lastUsed(){return this.lastUsedFrame;}
+  set lastUsed(frame:number){
+    // One timestamp per active batch/frame, rather than per instance. The
+    // foreground variant also touches its base through this same setter.
+    if(frame!==this.lastUsedFrame){this.lastUsedFrame=frame;this.lastUsedAtMs=performance.now();}
+  }
   interactive=false;
   readonly objects:PickEntry[]=[];
   private readonly slots:PickEntry[]=[];
@@ -542,18 +549,18 @@ export class SpriteBatch {
 
 /** Retain a small recent set across view-edge occlusion and animation gaps.
  * Destroying after two missed frames repeatedly recreates buffers/materials. */
-export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,frame:number,maxIdle=80,maxReleases=2,deadline=Infinity){
+export function pruneSpriteBatches(batches:Map<string,SpriteBatch>,_frame:number,maxIdle=80,maxReleases=2,deadline=Infinity,now=performance.now()){
   let idle=0,released=0;
   for(const [key,batch] of batches){
     if(batch.mesh.visible)continue;
-    if(frame-batch.lastUsed>180&&released<maxReleases&&performance.now()<deadline){batch.destroy();batches.delete(key);released++;}
+    if(now-batch.lastUsedAtMs>3000&&released<maxReleases&&performance.now()<deadline){batch.destroy();batches.delete(key);released++;}
     else idle++;
   }
   if(idle<=maxIdle||released>=maxReleases||performance.now()>=deadline)return;
   // Select a couple of oldest idle entries without allocating/sorting a map copy.
   while(idle>maxIdle&&released<maxReleases&&performance.now()<deadline){
     let oldest:SpriteBatch|undefined,oldestKey='';
-    for(const [key,batch] of batches)if(!batch.mesh.visible&&(!oldest||batch.lastUsed<oldest.lastUsed)){oldest=batch;oldestKey=key;}
+    for(const [key,batch] of batches)if(!batch.mesh.visible&&(!oldest||batch.lastUsedAtMs<oldest.lastUsedAtMs)){oldest=batch;oldestKey=key;}
     if(!oldest)break;
     oldest.destroy();batches.delete(oldestKey);idle--;released++;
   }

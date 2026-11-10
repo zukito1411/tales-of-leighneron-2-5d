@@ -2,7 +2,7 @@ import {outdoorSceneryBounds} from '../../data/outdoorFurniture';
 import {artFrameSize} from '../../data/art';
 import type {FrameWorkBudget} from '../presentation25d/FrameWorkBudget';
 import type { ContentDefinition, ContentState, ContentWorldState, CreatureContentDefinition, EncounterRole, Vec2 } from '../types';
-import { chunkNeighborhood,nearbyPhysicsChunks, contentChunkKey,viewportChunks,type StreamView } from './chunkNeighborhood';
+import { chunkNeighborhood,nearbyPhysicsChunks, contentChunkKey,ViewportChunkCache,sameChunkKeys,type StreamView } from './chunkNeighborhood';
 import {CHUNK_SIZE,STREAM_RADIUS,WORLD_WIDTH,WORLD_HEIGHT} from '../../data/world';
 import {ENEMY_BY_ID,isWolfFamily} from '../../data/enemies';
 import {MAX_LIVE_HOSTILES,MAX_PERSISTENT_SPAWNS} from './encounterAdmission';
@@ -91,8 +91,11 @@ export class ContentChunkManager<Actor> {
   private readonly creatureGroups = new Map<string, Set<string>>();
   private wanted = new Set<string>();
   private centerKey = '';
+  private readonly residencyView=new ViewportChunkCache();
   private readonly sceneryIndex:StaticBoundsIndex<{id:string;bounds:StreamView}>;
   private sceneryKey='';
+  private sceneryBoundsKey='';
+  private sceneryItems:ReadonlyArray<{id:string;bounds:StreamView}>=[];
   private sceneryWanted=new Set<string>();
   private sceneryCandidates=new Set<string>();
   private nextAdmissionCheckAt=0;
@@ -163,21 +166,30 @@ export class ContentChunkManager<Actor> {
     const center=view?playerCell+':view:'
       +Math.floor((view.left-768)/CHUNK_SIZE)+':'+Math.floor((view.right+768)/CHUNK_SIZE)+':'
       +Math.floor((view.top-768)/CHUNK_SIZE)+':'+Math.floor((view.bottom+768)/CHUNK_SIZE)+':'+(view.key??''):playerCell;
-    let changed = center !== this.centerKey;
-    if(changed){
-      this.centerKey=center;this.wanted=view?nearbyPhysicsChunks(x,y):chunkNeighborhood(x,y);
-      if(view)for(const key of viewportChunks(view,384))this.wanted.add(key);
+    let changed = false;
+    if(center!==this.centerKey){
+      this.centerKey=center;const wanted=view?nearbyPhysicsChunks(x,y):chunkNeighborhood(x,y);
+      if(view)for(const key of this.residencyView.update(view,384))wanted.add(key);
+      if(!sameChunkKeys(wanted,this.wanted)){this.wanted=wanted;changed=true;}
     }
     // Roofs and canopies may be visible while their base belongs to another
     // chunk. Query immutable drawn bounds, not a larger world neighborhood.
-    const sceneryKey=view?[view.left-768,view.right+768,view.top-768,view.bottom+768].map(v=>Math.floor(v/512)).join(':')+':'+(view.key??''):'';
+    const boundsKey=view?Math.floor((view.left-768)/512)+':'+Math.floor((view.right+768)/512)+':'
+      +Math.floor((view.top-768)/512)+':'+Math.floor((view.bottom+768)/512):'';
+    const sceneryKey=view?boundsKey+':'+(view.key??''):'';
     if(sceneryKey!==this.sceneryKey){
       this.sceneryKey=sceneryKey;
-      this.sceneryWanted=view?new Set(this.sceneryIndex.query({left:view.left-768,right:view.right+768,top:view.top-768,bottom:view.bottom+768})
-        .filter(item=>!view.containsChunk||view.containsChunk(Math.floor((item.bounds.left+item.bounds.right)/2/CHUNK_SIZE),Math.floor((item.bounds.top+item.bounds.bottom)/2/CHUNK_SIZE),384))
-        .map(item=>item.id)):new Set();
-      this.sceneryCandidates=new Set([...this.oversized.keys(),...this.sceneryWanted]);
-      changed=true;
+      if(boundsKey!==this.sceneryBoundsKey){
+        this.sceneryBoundsKey=boundsKey;
+        this.sceneryItems=view?this.sceneryIndex.query({left:view.left-768,right:view.right+768,top:view.top-768,bottom:view.bottom+768}):[];
+      }
+      const wanted=new Set<string>();
+      if(view)for(const item of this.sceneryItems){
+        if(!view.containsChunk||view.containsChunk(Math.floor((item.bounds.left+item.bounds.right)/2/CHUNK_SIZE),Math.floor((item.bounds.top+item.bounds.bottom)/2/CHUNK_SIZE),384))wanted.add(item.id);
+      }
+      if(!sameChunkKeys(wanted,this.sceneryWanted)||!this.sceneryCandidates.size&&this.oversized.size>0){
+        this.sceneryWanted=wanted;this.sceneryCandidates=new Set([...this.oversized.keys(),...wanted]);changed=true;
+      }
     }
     const now=Date.now();
     // Only scheduled returns are inspected, even while their chunks are far
@@ -491,6 +503,7 @@ export class ContentChunkManager<Actor> {
   }
 
   destroy() {
+    this.residencyView.clear();this.sceneryItems=[];
     this.admissionCursor=null;this.admissionPlayerCell='';this.admissionRetryAt.clear();
     for (const id of [...this.active.keys()]) this.deactivate(id);
     this.wanted.clear();this.sceneryWanted.clear();this.sceneryCandidates.clear();this.sceneryKey='';this.centerKey = '';

@@ -57,6 +57,9 @@ export class TextureCache {
    * repeated TextureCache.get calls for shared atlases. */
   beginFrame(nowMs:number){if(Number.isFinite(nowMs))this.frameTimeMs=nowMs;}
   private readonly pending=new Set<Phaser.Textures.TextureSource>();
+  private readonly required=new Set<Phaser.Textures.TextureSource>();
+  private preparingUpload=false;
+  private renderUploads=0;private renderUploadBytes=0;private preparedUploadBytes=0;
   private uploads=0;private uploadMs=0;
   private uploadPeakMs=0;private uploadOverBudget=0;
   private coldCreates=0;
@@ -83,6 +86,7 @@ export class TextureCache {
       pressureEvictions:this.pressureEvictions,pressureRecreates:this.pressureRecreates,
       idleEvictions:this.idleEvictions,sourceDisposals:this.sourceDisposals,
       pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,
+      renderUploads:this.renderUploads,renderUploadMiB:this.renderUploadBytes/RAM_MIB,preparedUploadMiB:this.preparedUploadBytes/RAM_MIB,
        uploadPeakMs:this.uploadPeakMs,uploadOverBudget:this.uploadOverBudget,
       prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed
     };
@@ -114,7 +118,12 @@ export class TextureCache {
       texture.generateMipmaps=ground||materials;
       if(ground||materials){texture.minFilter=LinearMipmapLinearFilter;texture.anisotropy=ground?this.profile.groundAnisotropy:this.profile.modelAnisotropy;}
       texture.needsUpdate=true;
-      texture.onUpdate=()=>{const current=this.entries.get(source);if(current){current.uploadedVersion=texture.version;this.pending.delete(source);}};
+      texture.onUpdate=()=>{
+        const current=this.entries.get(source);if(!current||current.texture!==texture)return;
+        if(this.preparingUpload)this.preparedUploadBytes+=current.bytes;
+        else {this.renderUploads++;this.renderUploadBytes+=current.bytes;}
+        current.uploadedVersion=texture.version;this.pending.delete(source);this.required.delete(source);
+      };
       const original=source.update;
       const originalDestroy=source.destroy;
       const update:typeof original=function(){const result=original.call(source);texture.needsUpdate=true;return result;};
@@ -162,6 +171,10 @@ export class TextureCache {
     entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
     if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
+  /** Required chunk fences take precedence over speculative resident sources. */
+  request(source:Phaser.Textures.TextureSource,frame:number){
+    this.get(source,frame);if(!this.ready(source))this.required.add(source);
+  }
   prefetch(source:Phaser.Textures.TextureSource,frame:number){
     // The active world streamer asks us to warm each resident chunk source
     // every ~150ms. Even when memory exceeds the speculative prefetch budget,
@@ -191,19 +204,21 @@ export class TextureCache {
   invalidate(){
     // A restored context must not eagerly reupload every old town/atlas.
     // get() requeues only sources requested by the live view or preload band.
-    this.pending.clear();
+    this.pending.clear();this.required.clear();
     for(const entry of this.entries.values()){entry.uploadedVersion=-1;entry.texture.needsUpdate=true;}
   }
   prepare(renderer:WebGLRenderer,work:FrameWorkBudget){
     if(work.remaining('upload')<=0)return;
     // A GL upload is atomic. Do at most one cold/dirty source here, before it
     // becomes visible; never claim that initTexture itself is asynchronous.
-    for(const source of this.pending){
-      this.pending.delete(source);const entry=this.entries.get(source);
+    for(const source of this.required.size?this.required:this.pending){
+      this.pending.delete(source);this.required.delete(source);const entry=this.entries.get(source);
       if(!entry||!source.image)continue;
       if(entry.uploadedVersion===entry.texture.version)continue;
       const started=performance.now();
-      renderer.initTexture(entry.texture);entry.uploadedVersion=entry.texture.version;
+      this.preparingUpload=true;
+      try{renderer.initTexture(entry.texture);entry.uploadedVersion=entry.texture.version;}
+      finally{this.preparingUpload=false;}
       const uploadCost=performance.now()-started;
       this.uploads++;this.uploadMs+=uploadCost;
       this.uploadPeakMs=Math.max(this.uploadPeakMs,uploadCost);
@@ -212,7 +227,7 @@ export class TextureCache {
     }
   }
   private release(source:Phaser.Textures.TextureSource,entry:Entry,reason:'source'|'idle'|'pressure'){
-    entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.evictions++;
+    entry.restore();entry.texture.dispose();this.bytes-=entry.bytes;this.entries.delete(source);this.pending.delete(source);this.required.delete(source);this.evictions++;
     if(reason==='source'){this.sourceDisposals++;this.pressureRemovedAt.delete(source);}
     else if(reason==='idle'){this.idleEvictions++;this.pressureRemovedAt.delete(source);}
     else {this.pressureEvictions++;this.pressureRemovedAt.set(source,this.frameTimeMs);}
@@ -247,5 +262,5 @@ export class TextureCache {
       this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
-  destroy(){this.disposed=true;for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}
+  destroy(){this.disposed=true;for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.required.clear();this.bytes=0;}
 }

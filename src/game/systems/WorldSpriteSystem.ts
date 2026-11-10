@@ -7,6 +7,7 @@ import {bridgeShape} from '../presentation25d/BridgeGeometry';
 import {dockShape} from '../presentation25d/DockGeometry';
 import {BRIDGE_DECK_HEIGHT} from '../presentation25d/WalkSurface';
 import {markStaticPresentation} from '../presentation25d/StaticSpatialIndex';
+import {preparePresentationObject,warmPresentationSource} from '../presentation25d/resourcePreparation';
 import Phaser from 'phaser';
 import {onPlane,worldHeight,PRESENTATION_HINT,type PresentationHint} from '../presentation25d/plane';
 import {houseShape,sizeHouseForPlayer,type WallSegment} from '../presentation25d/HouseGeometry';
@@ -242,7 +243,14 @@ export class WorldSpriteSystem {
     if(staged){
       for(const shape of owned)if(shape.body instanceof Phaser.Physics.Arcade.StaticBody)shape.body.enable=false;
       this.staged.set(actor,prepare);this.publication.set(actor,publish);
-    }else {prepare();publish();}
+    }else {
+      prepare();
+      if(actor.frame.source.image)warmPresentationSource(this.scene.game,actor.frame.source);
+      // Use spare admission time, but never hide a live quest object because
+      // optional preparation is exhausted. Draw retains its exact fallback.
+      preparePresentationObject(this.scene.game,actor);
+      publish();
+    }
   }
   /** Expensive habitat/blend setup remains staged while collisions stay off. */
   prepare(actor:WorldActor){
