@@ -10,6 +10,18 @@ export const TEXTURE_RESIDENCY_GRACE_MS=2000;
 export const ACTIVE_SOURCE_LEASE_MS=600;
 export const RECENT_PRESSURE_RECREATE_MS=5000;
 
+/** RAM is a safety hint, NOT available GPU memory. Keep a finite ceiling
+ * even for 16GB phones, and retain the conservative 128MiB soft budget on
+ * older 2-3GB Android devices. Full-resolution images remain unchanged. */
+export function textureCacheBudgetMiB(physicalRamGiB:number|undefined,mobile:boolean){
+  if(!mobile)return {softMiB:256,emergencyMiB:448};
+  if(physicalRamGiB!==undefined&&Number.isFinite(physicalRamGiB)){
+    if(physicalRamGiB>=7.5)return {softMiB:512,emergencyMiB:640};
+    if(physicalRamGiB>=3.5)return {softMiB:320,emergencyMiB:448};
+  }
+  return {softMiB:128,emergencyMiB:288};
+}
+
 /** High memory pressure may shorten stale residency, but never to two or
  * three render frames: a retained sprite batch may need the same full-detail
  * texture again after a short camera pan. No texture resolution changes. */

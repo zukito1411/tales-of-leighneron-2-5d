@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
+import {Capacitor,registerPlugin} from '@capacitor/core';
 import {LinearFilter,LinearMipmapLinearFilter,SRGBColorSpace,Texture,type WebGLRenderer} from 'three';
 import type {FrameWorkBudget} from './FrameWorkBudget';
 import {getEffectsQuality} from '../systems/effectsQuality';
 import {VISUAL_QUALITY} from './VisualQuality';
-import {ACTIVE_SOURCE_LEASE_MS,RECENT_PRESSURE_RECREATE_MS,TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS,textureGraceMs,mayRetireTexture} from './textureResidency';
+import {ACTIVE_SOURCE_LEASE_MS,RECENT_PRESSURE_RECREATE_MS,TEXTURE_IDLE_MS,TEXTURE_RESIDENCY_GRACE_MS,textureGraceMs,mayRetireTexture,textureCacheBudgetMiB} from './textureResidency';
 // Canvas-mode Phaser Text resizes its frame/canvas without updating the
 // TextureSource dimensions. GPU allocation and UVs must use the actual image.
 export function sourceWidth(source:Phaser.Textures.TextureSource){return source.image instanceof HTMLCanvasElement?source.image.width:source.width;}
@@ -13,16 +14,39 @@ interface Entry {texture:Texture;lastUsed:number;lastUsedAtMs:number;leaseUntilM
 // Brief camera turns must not cause the same PNG/canvas to be reuploaded.
 // Bounded, device-aware residency avoids runaway Android WebView memory use.
 const MOBILE=/(Android|iPhone|iPad|iPod)/i.test(navigator.userAgent);
-const MAX_RESIDENT_BYTES=(MOBILE?128:256)*1024*1024;
+const RAM_MIB=1024*1024;
+const INITIAL_RAM_GIB=Number((navigator as Navigator&{deviceMemory?:number}).deviceMemory);
+const initialBudget=textureCacheBudgetMiB(Number.isFinite(INITIAL_RAM_GIB)&&INITIAL_RAM_GIB>0?INITIAL_RAM_GIB:undefined,MOBILE);
 const MAX_IDLE_ENTRIES=MOBILE?48:80;
 // Texture budgets are soft: a live scene's full-quality textures cannot be
 // thrown out just because the view itself exceeds 128 MiB. Give recently seen
 // resources time to be reused on camera turns, but accelerate cleanup when
 // memory grows far beyond the normal working set. Never rescale source art.
-const EMERGENCY_RESIDENT_BYTES=MAX_RESIDENT_BYTES*(MOBILE?2.25:1.75);
+const nativeMemory=registerPlugin<{profile():Promise<{physicalRamGiB:number;lowMemory:boolean}>}>('GameMemory');
 /** Observe the existing source upload boundary: animated atlas frames do not
  * reupload an image; mutable text, terrain, water and lighting update on demand. */
 export class TextureCache {
+  private softResidentBytes=initialBudget.softMiB*RAM_MIB;
+  private emergencyResidentBytes=initialBudget.emergencyMiB*RAM_MIB;
+  private ramGiB=Number.isFinite(INITIAL_RAM_GIB)&&INITIAL_RAM_GIB>0?INITIAL_RAM_GIB:0;
+  private disposed=false;
+  constructor(){
+    // Chrome's deviceMemory is optional and intentionally coarse; Android's
+    // own read-only memory profile supplies the real RAM tier in the APK.
+    // Neither source is a GPU VRAM claim. All values stay hard bounded.
+    if(MOBILE&&Capacitor.getPlatform()==='android')
+      void nativeMemory.profile().then(profile=>{
+        if(this.disposed||!Number.isFinite(profile.physicalRamGiB)||profile.physicalRamGiB<=0)return;
+        this.applyRamProfile(profile.physicalRamGiB);
+      }).catch(()=>{});
+  }
+  private applyRamProfile(ramGiB:number){
+    this.ramGiB=ramGiB;
+    const budget=textureCacheBudgetMiB(ramGiB,MOBILE);
+    this.softResidentBytes=budget.softMiB*RAM_MIB;
+    this.emergencyResidentBytes=budget.emergencyMiB*RAM_MIB;
+    this.prefetchPaused=this.bytes>this.softResidentBytes;
+  }
   // Sampler policy is fixed for this renderer lifetime. Changing a menu preset
   // must not dirty/reupload every resident terrain and model atlas at once.
   private readonly profile=VISUAL_QUALITY[getEffectsQuality()];
@@ -52,8 +76,8 @@ export class TextureCache {
     return {
       residentMiB:Math.round(this.bytes/1048576),activeSourceMiB:Math.round(activeSourceMiB/1048576),
       recentVisibleMiB:Math.round(recentVisibleMiB/1048576),
-      budgetMiB:Math.round(MAX_RESIDENT_BYTES/1048576),
-      emergencyMiB:Math.round(EMERGENCY_RESIDENT_BYTES/1048576),
+      budgetMiB:Math.round(this.softResidentBytes/1048576),
+      emergencyMiB:Math.round(this.emergencyResidentBytes/1048576),ramGiB:this.ramGiB,
       textures:this.entries.size,coldCreates:this.coldCreates,evictions:this.evictions,
       pressureEvictions:this.pressureEvictions,pressureRecreates:this.pressureRecreates,
       idleEvictions:this.idleEvictions,sourceDisposals:this.sourceDisposals,
@@ -132,7 +156,7 @@ export class TextureCache {
     if(entry.texture.image!==source.image){entry.texture.image=source.image;entry.texture.needsUpdate=true;}
     const bytes=Math.ceil(Math.max(1,width)*Math.max(1,height)*4*(entry.texture.generateMipmaps?4/3:1));
     this.bytes+=bytes-entry.bytes;entry.bytes=bytes;
-    if(this.bytes>MAX_RESIDENT_BYTES)this.prefetchPaused=true;
+    if(this.bytes>this.softResidentBytes)this.prefetchPaused=true;
     entry.lastUsed=frame;entry.lastUsedAtMs=this.frameTimeMs;
     if(entry.uploadedVersion!==entry.texture.version)this.pending.add(source);return entry.texture;
   }
@@ -152,11 +176,11 @@ export class TextureCache {
     }
     // New speculative sources must still respect the existing cap. Mandatory
     // visible-chunk uploads use preparePresentationSource, not this method.
-    if(this.prefetchPaused&&this.bytes<=MAX_RESIDENT_BYTES*.75)this.prefetchPaused=false;
+    if(this.prefetchPaused&&this.bytes<=this.softResidentBytes*.75)this.prefetchPaused=false;
     const key=source.texture.key;
     const mipmaps=key.startsWith('chunk:')||key==='shared-ocean-chunk'||key.startsWith('painted-model-');
     const bytes=Math.ceil(Math.max(1,sourceWidth(source))*Math.max(1,sourceHeight(source))*4*(mipmaps?4/3:1));
-    if(this.prefetchPaused||this.bytes+bytes>MAX_RESIDENT_BYTES*.85){
+    if(this.prefetchPaused||this.bytes+bytes>this.softResidentBytes*.85){
       this.prefetchSuppressed++;return;
     }
     this.get(source,frame);
@@ -201,15 +225,15 @@ export class TextureCache {
         if(!protectedSource&&age>TEXTURE_RESIDENCY_GRACE_MS)idle--;
       }
     }
-    if(retired>=2||this.bytes<=MAX_RESIDENT_BYTES&&idle<=MAX_IDLE_ENTRIES)return;
+    if(retired>=2||this.bytes<=this.softResidentBytes&&idle<=MAX_IDLE_ENTRIES)return;
     // Evict only idle resources, oldest first; never drop visible assets.
-    while((this.bytes>MAX_RESIDENT_BYTES||idle>MAX_IDLE_ENTRIES)&&retired<2){
+    while((this.bytes>this.softResidentBytes||idle>MAX_IDLE_ENTRIES)&&retired<2){
       let oldest:Entry|undefined,oldestSource:Phaser.Textures.TextureSource|undefined;
       // The normal working set can exceed the *soft* budget. Two-frame
       // eviction was causing recently visible textures to be discarded during
       // camera turns. Keep a short reuse window unless emergency pressure
       // demands quicker retirement; still retire no more than two per frame.
-      const graceMs=textureGraceMs(this.bytes,MAX_RESIDENT_BYTES,EMERGENCY_RESIDENT_BYTES);
+      const graceMs=textureGraceMs(this.bytes,this.softResidentBytes,this.emergencyResidentBytes);
       for(const [source,entry] of this.entries)if(mayRetireTexture(this.frameTimeMs,entry.lastUsedAtMs,entry.leaseUntilMs,graceMs)
         &&(!oldest||entry.lastUsedAtMs<oldest.lastUsedAtMs)){oldest=entry;oldestSource=source;}
       if(!oldest||!oldestSource)break;
@@ -217,5 +241,5 @@ export class TextureCache {
       this.release(oldestSource,oldest,'pressure');retired++;
     }
   }
-  destroy(){for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}
+  destroy(){this.disposed=true;for(const entry of this.entries.values()){entry.restore();entry.texture.dispose();}this.entries.clear();this.pending.clear();this.bytes=0;}
 }

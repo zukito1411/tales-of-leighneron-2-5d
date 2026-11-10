@@ -8,6 +8,7 @@ import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork,releaseFrameWork} from './FrameWorkBudget';
 import type {MovementStreamStats} from '../systems/MovementStreamProfiler';
 import {FrameTiming} from './FrameTiming';
+import {CameraMotionProfiler,type CameraMotionStats} from './CameraMotionProfiler';
 import {GpuTimer} from './GpuTimer';
 import {ShaderWarmup} from './ShaderWarmup';
 import {staticSpatialIndex} from './StaticSpatialIndex';
@@ -107,6 +108,8 @@ export class ThreePresentation {
   private programsReady=false;private contextLost=false;private preparationEpoch=0;
   private readonly recoveryDeadline=new ForegroundDeadline(()=>this.failPresentation(new Error('Graphics context restoration timed out.')));
   private readonly frameTiming=new FrameTiming();
+  private readonly cameraMotionProfiler=new CameraMotionProfiler();
+  private cameraMotionStats:CameraMotionStats|undefined;
   private readonly visibility=new StreamVisibility();
   private timingFrame=-1;
   private lastPresentedAt=0;
@@ -202,7 +205,7 @@ export class ThreePresentation {
     feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
   private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number}|null=null;
-  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
+  private readonly onDiagnosticChange=(event:Event)=>{this.frameDiagnostics=(event as CustomEvent<boolean>).detail;this.frameTiming.reset();this.cameraMotionProfiler.reset();this.cameraMotionStats=undefined;this.lastPresentedAt=0;this.timingFrame=-1;this.previousCacheSample=null;this.diagnosticAt=0;this.game.registry.set('presentationDiagnostics',this.frameDiagnostics);this.syncDiagnosticsPanel();};
 
   constructor(private readonly game:Phaser.Game,parent:HTMLElement){
     if(!(game.renderer instanceof Phaser.Renderer.Canvas.CanvasRenderer))throw new Error('2.5D requires the Phaser canvas compatibility backend');
@@ -319,6 +322,11 @@ export class ThreePresentation {
     const eye=this.firstPersonPlayer?HERO_BODY_HEIGHT*.8+this.firstPersonPlayer.presentationElevation+this.firstPersonPlayer.skills.presentationElevation:undefined;
     if(!this.orbit.update(camera,presentation.presentationFocus??camera.midPoint,this.heightAt,this.game.loop.delta,
       presentation.presentationControlsEnabled===true,lockedTarget,eye,presentation.presentationCameraControl,terrainRange))return;
+    if(this.frameDiagnostics){
+      const focus=this.orbit.focusGround;
+      const sample=this.cameraMotionProfiler.record(performance.now(),this.orbit.yaw,this.orbit.pitch,focus.x,focus.y);
+      if(sample)this.cameraMotionStats=sample;
+    }
     // Resizing clears the drawing buffer. Validate the next view first so
     // invalid transition inputs retain the last presented image.
     if(this.width!==width||this.height!==height||Math.abs(this.renderScale-scale)>.001){
@@ -511,7 +519,7 @@ export class ThreePresentation {
     const pacing=this.frameTiming.stats();
     const movement=this.game.registry.get('movementStreamPerf') as MovementStreamStats|undefined;
     const result={pacing,gpuMs:this.gpuTimer.milliseconds,simulationCpuMs:this.game.registry.get('simulationCpuMs') as number|undefined,
-      backgroundWork:frameWork(this.game).stats(),movement,drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
+      backgroundWork:frameWork(this.game).stats(),movement,cameraMotion:this.cameraMotionStats,drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,
       instanceUploads:{callsAvg:d.uploadCalls/frames,callsPeak:d.uploadCallPeak,
@@ -545,7 +553,8 @@ export class ThreePresentation {
           +') | '+n(result.instanceUploads.kibAvg)+' KiB/frame (dirty '+n(result.instanceUploads.modifiedKiBAvg)+')\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
-        +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
+        +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+', emergency '+textureCache.emergencyMiB+') / '+textureCache.textures
+          +' | RAM tier '+n(textureCache.ramGiB)+' GiB'
           +' | active lease '+textureCache.activeSourceMiB+' MiB | recent visible '+textureCache.recentVisibleMiB+' MiB\n'
         +'Cold creates '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
         +'Cache /s: create '+(cacheRates.creates===null?'warming':n(cacheRates.creates))
@@ -556,6 +565,9 @@ export class ThreePresentation {
           +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds
           +' | batch bindings reused '+result.shadowModels.batchReuse+'\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
+        +(result.cameraMotion?'Camera '+result.cameraMotion.mode+' | turning '+result.cameraMotion.turningFrames+'/'+result.cameraMotion.sampleFrames
+          +' frames | yaw '+n(result.cameraMotion.yawDegreesPerSecond)+' deg/s'
+          +' (peak '+n(result.cameraMotion.yawPeakDegreesPerSecond)+')\n':'')
         +(movement?'Travel '+(movement.moving?'MOVING':'STILL')+' ('+movement.movingFrames+'/'+movement.sampleFrames+' moving samples)\n'
           +'Terrain stream avg/peak '+n(movement.terrainAvgMs)+' / '+n(movement.terrainPeakMs)
           +' | Actor stream '+n(movement.contentAvgMs)+' / '+n(movement.contentPeakMs)
