@@ -19,7 +19,7 @@ import {
   Mesh,PlaneGeometry,MeshBasicMaterial,SRGBColorSpace,Color,
   type Intersection,type Object3D,type Texture,
 } from 'three';
-import {SpriteBatch,pruneSpriteBatches} from './SpriteBatch';
+import {SpriteBatch,pruneSpriteBatches,startInstanceUploadMetrics,instanceUploadMetrics} from './SpriteBatch';
 import {ForegroundOcclusion,FOREGROUND_OPACITY} from './ForegroundOcclusion';
 import {createCombatEffectGeometry,combatEffectPoint,type CombatEffectShape} from './CombatEffectGeometry';
 import {OrbitCamera,type PresentationCameraControl} from './OrbitCamera';
@@ -198,6 +198,7 @@ export class ThreePresentation {
   private diagnosticsPanel:HTMLPreElement|null=null;
   private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
     shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
+    uploadCalls:0,uploadCallPeak:0,uploadBytes:0,uploadModifiedBytes:0,
     feedback:0,feedbackWorst:0,deltaMax:0};
   private diagnosticAt=0;
   private previousCacheSample:{at:number;coldCreates:number;pressureEvictions:number;pressureRecreates:number;sourceDisposals:number;preparedUploads:number}|null=null;
@@ -288,6 +289,7 @@ export class ThreePresentation {
     this.textures.beginFrame(cpuStart);
     if('renderToTexture' in camera&&camera.renderToTexture){this.originalRender.call(this.native,scene,children,camera);return;}
     this.frame++;
+    startInstanceUploadMetrics(this.frameDiagnostics);
     const work=frameWork(this.game);
     this.gpuTimer.poll();
     const adaptive=getGraphicEffects().adaptiveResolution;
@@ -402,7 +404,10 @@ export class ThreePresentation {
     work.charge('retire',retireStart);
     const profCollect=this.frameDiagnostics?performance.now():0;
     this.gpuTimer.begin(sampleGpu);
-    this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
+    // The fullscreen world compositor overwrites every default framebuffer
+    // pixel. Clearing that same framebuffer beforehand wastes tile-GPU
+    // bandwidth. The direct-render fallback in WorldPostFX still clears.
+    this.renderer.setClearColor(camera.backgroundColor.color,1);
     this.syncCameraEffect(this.flash,camera.flashEffect.isRunning?camera.flashEffect:undefined);
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
     const nightActive=this.gpuNight.active(night,this.interior);
@@ -483,6 +488,9 @@ export class ThreePresentation {
     d.frames++;d.total+=done-start;d.collect+=collected-start;d.render+=world-collected;
     d.prep+=visibilityStart-start;d.visibility+=visibilityEnd-visibilityStart;d.prune+=collected-visibilityEnd;
     d.worst=Math.max(d.worst,done-start);d.deltaMax=Math.max(d.deltaMax,this.game.loop.rawDelta);
+    const uploads=instanceUploadMetrics();
+    d.uploadCalls+=uploads.calls;d.uploadCallPeak=Math.max(d.uploadCallPeak,uploads.calls);
+    d.uploadBytes+=uploads.bytes;d.uploadModifiedBytes+=uploads.modifiedBytes;
     if(done-this.diagnosticAt<1000)return;
     const frames=Math.max(1,d.frames);
     const textureCache=this.textures.stats();
@@ -506,6 +514,8 @@ export class ThreePresentation {
       backgroundWork:frameWork(this.game).stats(),movement,drawCalls:renderInfo.calls,triangles:renderInfo.triangles,
       cpuAvgMs:d.total/frames,cpuPeakMs:d.worst,
       collectionAvgMs:d.collect/frames,renderAvgMs:d.render/frames,preparationAvgMs:d.prep/frames,visibilityAvgMs:d.visibility/frames,retirementAvgMs:d.prune/frames,
+      instanceUploads:{callsAvg:d.uploadCalls/frames,callsPeak:d.uploadCallPeak,
+        kibAvg:d.uploadBytes/frames/1024,modifiedKiBAvg:d.uploadModifiedBytes/frames/1024},
       shadowCpuAvgMs:d.shadows/frames,shadowCpuPeakMs:d.shadowsWorst,
       worldFxCpuAvgMs:d.worldFx/frames,worldFxCpuPeakMs:d.worldFxWorst,
       screenCpuAvgMs:d.screen/frames,screenCpuPeakMs:d.screenWorst,
@@ -531,6 +541,8 @@ export class ThreePresentation {
         +'HUD/weather WebGL submission avg/peak: '+n(result.screenCpuAvgMs)+' / '+n(result.screenCpuPeakMs)+'\n'
         +'Optional background CPU avg/peak: '+n(result.backgroundCpuAvgMs)+' / '+n(result.backgroundCpuPeakMs)+'\n'
         +'FPP feedback CPU avg/peak: '+n(result.feedbackAvgMs)+' / '+n(result.feedbackPeakMs)+'\n'
+        +'Instance GPU uploads: '+n(result.instanceUploads.callsAvg)+' calls/frame (peak '+result.instanceUploads.callsPeak
+          +') | '+n(result.instanceUploads.kibAvg)+' KiB/frame (dirty '+n(result.instanceUploads.modifiedKiBAvg)+')\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
         +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
@@ -554,6 +566,7 @@ export class ThreePresentation {
     }
     Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
       shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
+      uploadCalls:0,uploadCallPeak:0,uploadBytes:0,uploadModifiedBytes:0,
       feedback:0,feedbackWorst:0,deltaMax:0});
     this.diagnosticAt=done;
   }

@@ -315,6 +315,9 @@ export class WorldPostFX {
     const environmental=Boolean(!frame.interior&&(effects?.sunRays||frame.weather&&(frame.weather.mist>.001||frame.weather.cloudCover>.001)));
     if(!focus||!effects||this.quality!=='high'&&!frame.depthNeeded&&!environmental&&!effects.depthOfField&&!effects.depthHaze&&!effects.cinematicColor&&!(effects.lightBloom&&this.quality!=='low')){
       this.releaseTargets();
+      // No fullscreen composite runs in this branch: preserve the original
+      // background clear for loading, scene transitions and direct drawing.
+      renderer.clear();
       frame.sky?.render(renderer);
       renderer.render(frame.background,frame.backgroundCamera);renderer.render(frame.world,frame.camera);return;
     }
