@@ -2,7 +2,7 @@ import {captureModelState,modelStateMatches,type ModelState} from './ModelState'
 import {staticSpatialIndex} from './StaticSpatialIndex';
 import {walkSurfaceHeight} from './WalkSurface';
 import {frameWork} from './FrameWorkBudget';
-import {Matrix4,Vector2,Vector3,type Scene} from 'three';
+import {Matrix4,Vector2,Vector3,type Scene,type Texture} from 'three';
 import type Phaser from 'phaser';
 import {ART_BY_KEY,type ArtTextureKey} from '../../data/art';
 import type {GroundShadowSystem,ShadowCaster} from '../systems/GroundShadowSystem';
@@ -26,6 +26,14 @@ interface ModelShadow {
   /** Last terrain-deck offset used for the retained GPU instance. If it
    * changes, upload the new matrix rather than reuse the static token. */
   cachedDeck?:number;
+  // Most authored projected shadows reuse the same batch for thousands of
+  // frames while the camera/player moves. Avoid rebuilding the long immutable
+  // atlas/geometry key on every update; verify the live batch + actual texture
+  // before reusing, since eviction may replace either resource.
+  boundBatch?:SpriteBatch;
+  boundKey?:string;
+  boundTexture?:Texture;
+  boundDeckDefined?:boolean;
 }
 function optionsMatch(saved:ShadowOptions,caster:ShadowCaster){
   for(const key of OPTION_KEYS)if(saved[key]!==caster[key])return false;
@@ -184,9 +192,20 @@ export class GpuShadows {
     const reuse=Boolean(plan&&plan.cachedDeck===deck);
     if(plan)plan.cachedDeck=deck;
     if(deck!==undefined)this.matrix.elements[13]+=deck;
-    const texture=this.textures.get(source,frame),key=Number(deck!==undefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
-    let batch=this.batches.get(key);
-    if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deck!==undefined?1:-9.94,[],true,false,false,deck===undefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+    const texture=this.textures.get(source,frame),deckDefined=deck!==undefined;
+    // The binding cache is only for validated immutable house/furniture plans.
+    // When either the GPU texture or the batch changes, fall back to the exact
+    // original material key and creation logic. No shadow instances are skipped.
+    let batch:SpriteBatch|undefined;
+    if(plan?.boundBatch&&plan.boundTexture===texture&&plan.boundDeckDefined===deckDefined
+      &&plan.boundKey&&this.batches.get(plan.boundKey)===plan.boundBatch)
+      batch=plan.boundBatch;
+    if(!batch){
+      const key=Number(deckDefined)+':' +texture.uuid+':'+Number(projected)+':'+(furniture?.key??house?.profile.id??'')+':'+(house?.shopfront??'')+':'+(house?.tradeSign??'')+':'+(house?.floorLift??0)+':'+(house?.doorHeight??0)+(house?.segment?':surveyed':'');
+      batch=this.batches.get(key);
+      if(!batch){batch=new SpriteBatch(this.world,texture,false,false,deckDefined?1:-9.94,[],true,false,false,!deckDefined,false,this.elevation,false,{...this.atmosphere,shadowProjection:this.shadowProjection},true,false,furniture?()=>createFurnitureGeometry(furniture):house?()=>createHouseGeometry(house):undefined);this.batches.set(key,batch);}
+      if(plan){plan.boundKey=key;plan.boundBatch=batch;plan.boundTexture=texture;plan.boundDeckDefined=deckDefined;}
+    }
     if(reuse&&plan)batch.addStatic(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat,plan);
     else batch.add(this.matrix,this.uv,this.color,alpha,actor,this.rect,frame,this.repeat);
   }
