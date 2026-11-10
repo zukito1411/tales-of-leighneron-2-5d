@@ -58,6 +58,7 @@ export class TextureCache {
   beginFrame(nowMs:number){if(Number.isFinite(nowMs))this.frameTimeMs=nowMs;}
   private readonly pending=new Set<Phaser.Textures.TextureSource>();
   private uploads=0;private uploadMs=0;
+  private uploadPeakMs=0;private uploadOverBudget=0;
   private coldCreates=0;
   private evictions=0;
   private pressureEvictions=0;
@@ -82,6 +83,7 @@ export class TextureCache {
       pressureEvictions:this.pressureEvictions,pressureRecreates:this.pressureRecreates,
       idleEvictions:this.idleEvictions,sourceDisposals:this.sourceDisposals,
       pendingUploads:this.pending.size,preparedUploads:this.uploads,uploadMs:this.uploadMs,
+       uploadPeakMs:this.uploadPeakMs,uploadOverBudget:this.uploadOverBudget,
       prefetchPaused:this.prefetchPaused,prefetchSuppressed:this.prefetchSuppressed
     };
   }
@@ -202,7 +204,11 @@ export class TextureCache {
       if(entry.uploadedVersion===entry.texture.version)continue;
       const started=performance.now();
       renderer.initTexture(entry.texture);entry.uploadedVersion=entry.texture.version;
-      this.uploads++;this.uploadMs+=performance.now()-started;work.charge('upload',started);break;
+      const uploadCost=performance.now()-started;
+      this.uploads++;this.uploadMs+=uploadCost;
+      this.uploadPeakMs=Math.max(this.uploadPeakMs,uploadCost);
+      if(uploadCost>8.333)this.uploadOverBudget++;
+      work.chargeMs('upload',uploadCost);break;
     }
   }
   private release(source:Phaser.Textures.TextureSource,entry:Entry,reason:'source'|'idle'|'pressure'){

@@ -2,7 +2,7 @@
  * At 90/120/144 Hz many tiny scattered updates can cost more driver time
  * than uploading some unmodified bytes between adjacent instances.
  *
- * All touched slots are covered exactly. The returned [start,end) pairs are
+* All touched slots are covered exactly. The returned [start,end) pairs are
  * in instance-slot units; caller converts to BufferAttribute components.
  * Scratch output is reused per attribute, avoiding per-frame allocations.
  */
