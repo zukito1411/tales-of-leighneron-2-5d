@@ -591,6 +591,7 @@ export class ThreePresentation {
         +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
           +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds
           +' | batch bindings reused '+result.shadowModels.batchReuse+'\n'
+        +'Texture upload CPU peak: '+n(textureCache.uploadPeakMs)+' ms | >8.3ms: '+textureCache.uploadOverBudget+' (session)\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
         +(result.cameraMotion?'Camera '+result.cameraMotion.mode+' | turning '+result.cameraMotion.turningFrames+'/'+result.cameraMotion.sampleFrames
           +' frames | yaw '+n(result.cameraMotion.yawDegreesPerSecond)+' deg/s'
