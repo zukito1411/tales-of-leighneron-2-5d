@@ -17,6 +17,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         registerPlugin(SaveFilesPlugin.class);
         registerPlugin(GameAssetsPlugin.class);
+        registerPlugin(GameMemoryPlugin.class);
         gameAssets=new GameAssetStore(this);
         super.onCreate(savedInstanceState);
         if(gameAssets.enabled)bridge.setWebViewClient(new BridgeWebViewClient(bridge){
