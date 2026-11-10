@@ -3,6 +3,7 @@ import {
   InstancedMesh,Matrix4,NormalBlending,PlaneGeometry,Scene,ShaderMaterial,Texture,Vector4,Vector2,Vector3,Color,type BufferGeometry,
 } from 'three';
 import {cloneModelTopology,modelIsOpaque} from './modelTopology';
+import {planInstanceUploadRanges} from './InstanceUploadRanges';
 import {lightOcclusionShader,lightDepthShader} from './LightOcclusion';
 import {waveVertexDeclarations,waveVertexMotion,waveFragmentDeclarations} from './WaveEnergyShader';
 import {elevationShader,TERRAIN_GRID_SEGMENTS,type ElevationField} from './ElevationField';
@@ -24,6 +25,15 @@ interface PickEntry {object:Phaser.GameObjects.GameObject|undefined;rect:LocalRe
 // Phaser tint bytes are sRGB; shared Three textures are sampled in linear light.
 // Cache the conversion once rather than applying powers to every fragment.
 const LINEAR_TINT=Float32Array.from({length:256},(_,i)=>{const value=i/255;return value<=.04045?value/12.92:Math.pow((value+.055)/1.055,2.4);});
+// Optional counters: only read/update during a player-requested diagnostics
+// session. No WebGL getters, readbacks, or synchronous GPU flushes.
+const uploadMetrics={enabled:false,calls:0,bytes:0,modifiedBytes:0};
+export function startInstanceUploadMetrics(enabled:boolean){
+  uploadMetrics.enabled=enabled;uploadMetrics.calls=0;uploadMetrics.bytes=0;uploadMetrics.modifiedBytes=0;
+}
+export function instanceUploadMetrics(){
+  return {calls:uploadMetrics.calls,bytes:uploadMetrics.bytes,modifiedBytes:uploadMetrics.modifiedBytes};
+}
 
 const vertexShader=`
 attribute vec4 atlasRect;
@@ -375,6 +385,7 @@ export class SpriteBatch {
   private readonly dirtyStart=new Int32Array(7);
   private readonly dirtyEnd=new Int32Array(7);
   private readonly dirtySlots:number[][]=Array.from({length:7},()=>[]);
+  private readonly uploadSpans:number[]=[];
   private attributes:BufferAttribute[]=[];
   lastUsed=0;
   interactive=false;
@@ -481,16 +492,21 @@ export class SpriteBatch {
       const start=this.dirtyStart[i],end=this.dirtyEnd[i];if(end<0)continue;
       const attribute=attributes[i];
       attribute.clearUpdateRanges();
-      const slots=this.dirtySlots[i];
-      // Sparse actors must not reupload the unchanged scenery between them.
-      // Bound GL calls too; densely changed batches keep one original range.
-      if(slots.length<=32){
-        let first=slots[0],last=first;
-        for(let j=1;j<=slots.length;j++){
-          const slot=slots[j];if(slot!==undefined&&slot<=last+4){last=slot;continue;}
-          attribute.addUpdateRange(first*attribute.itemSize,(last-first+1)*attribute.itemSize);first=last=slot;
+      const slots=this.dirtySlots[i],size=attribute.itemSize;
+      // WebGLAttributes calls bufferSubData once per disjoint update range.
+      // Coalesce nearby unchanged slots and cap the number of driver commands:
+      // CPU/GL call overhead can exceed copying a few intact floats on mobile.
+      // Every changed instance is still transferred with identical values.
+      const spans=planInstanceUploadRanges(slots,start,end,this.uploadSpans);
+      for(let j=0;j<spans.length;j+=2){
+        const rangeStart=spans[j],rangeEnd=spans[j+1];
+        attribute.addUpdateRange(rangeStart*size,(rangeEnd-rangeStart)*size);
+        if(uploadMetrics.enabled){
+          uploadMetrics.calls++;
+          uploadMetrics.bytes+=(rangeEnd-rangeStart)*size*4;
         }
-      }else attribute.addUpdateRange(start*attribute.itemSize,(end-start)*attribute.itemSize);
+      }
+      if(uploadMetrics.enabled)uploadMetrics.modifiedBytes+=slots.length*size*4;
       attribute.needsUpdate=true;
     }
     // Raycasting uses the current instance transforms after actors move.
