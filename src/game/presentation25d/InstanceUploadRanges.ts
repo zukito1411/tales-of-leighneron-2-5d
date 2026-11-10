@@ -2,16 +2,12 @@
  * At 90/120/144 Hz many tiny scattered updates can cost more driver time
  * than uploading some unmodified bytes between adjacent instances.
  *
- * Keep the default to at most two disjoint transfers per attribute on mobile.
- * A few more unchanged floats are cheap compared with repeated WebGL calls;
- * the same instance data and visual quality are preserved.
- *
- * All touched slots are covered exactly. The returned [start,end) pairs are
+* All touched slots are covered exactly. The returned [start,end) pairs are
  * in instance-slot units; caller converts to BufferAttribute components.
  * Scratch output is reused per attribute, avoiding per-frame allocations.
  */
-export const MAX_INSTANCE_UPLOAD_GROUPS=2;
-export const MAX_COALESCE_GAP_SLOTS=24;
+export const MAX_INSTANCE_UPLOAD_GROUPS=4;
+export const MAX_COALESCE_GAP_SLOTS=12;
 export function planInstanceUploadRanges(
   dirtySlots:readonly number[],first:number,end:number,out:number[],
   maxGroups=MAX_INSTANCE_UPLOAD_GROUPS,gapSlots=MAX_COALESCE_GAP_SLOTS
