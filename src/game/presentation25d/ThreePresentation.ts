@@ -541,7 +541,8 @@ export class ThreePresentation {
           +' | repeat upload '+(cacheRates.pressureRecreates===null?'warming':n(cacheRates.pressureRecreates))
           +' | source release '+(cacheRates.sourceDisposals===null?'warming':n(cacheRates.sourceDisposals))+'\n'
         +'Static model cache hits/builds: '+result.staticModels.hits+' / '+result.staticModels.builds
-          +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds+'\n'
+          +' | Shadow '+result.shadowModels.hits+' / '+result.shadowModels.builds
+          +' | batch bindings reused '+result.shadowModels.batchReuse+'\n'
         +'Upload queue: '+textureCache.pendingUploads+' | Background: '+n(result.backgroundWork.usedMs)+' / '+n(result.backgroundWork.allowanceMs)+'\n'
         +(movement?'Travel '+(movement.moving?'MOVING':'STILL')+' ('+movement.movingFrames+'/'+movement.sampleFrames+' moving samples)\n'
           +'Terrain stream avg/peak '+n(movement.terrainAvgMs)+' / '+n(movement.terrainPeakMs)
