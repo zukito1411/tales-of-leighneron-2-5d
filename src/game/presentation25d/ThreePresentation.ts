@@ -553,7 +553,8 @@ export class ThreePresentation {
           +') | '+n(result.instanceUploads.kibAvg)+' KiB/frame (dirty '+n(result.instanceUploads.modifiedKiBAvg)+')\n'
         +'Draw calls: '+result.drawCalls+' | Triangles: '+result.triangles+'\n'
         +'Batches: '+result.shaderBatches+' | GPU textures: '+result.gpuTextures+'\n'
-        +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+') / '+textureCache.textures
+        +'Resident cache estimate: '+textureCache.residentMiB+' MiB (soft '+textureCache.budgetMiB+', emergency '+textureCache.emergencyMiB+') / '+textureCache.textures
+          +' | RAM tier '+n(textureCache.ramGiB)+' GiB'
           +' | active lease '+textureCache.activeSourceMiB+' MiB | recent visible '+textureCache.recentVisibleMiB+' MiB\n'
         +'Cold creates '+textureCache.coldCreates+' | source releases '+textureCache.sourceDisposals+'\n'
         +'Cache /s: create '+(cacheRates.creates===null?'warming':n(cacheRates.creates))
