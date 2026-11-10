@@ -199,6 +199,9 @@ export class ThreePresentation {
   private frameDiagnostics=getFrameDiagnosticsEnabled();
   private diagnosticsParent:HTMLElement|null=null;
   private diagnosticsPanel:HTMLPreElement|null=null;
+  private diagnosticsExpanded=false;
+  private diagnosticsSummary='Measuring frame pacing…';
+  private diagnosticsDetail='';
   private readonly diag={frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
     shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
     uploadCalls:0,uploadCallPeak:0,uploadBytes:0,uploadModifiedBytes:0,
@@ -483,13 +486,37 @@ export class ThreePresentation {
     if(!this.frameDiagnostics){this.diagnosticsPanel?.remove();this.diagnosticsPanel=null;return;}
     if(!this.diagnosticsParent||this.diagnosticsPanel)return;
     const panel=document.createElement('pre');
-    panel.setAttribute('aria-label','2.5D rendering diagnostics');
-    Object.assign(panel.style,{position:'absolute',left:'8px',top:'8px',zIndex:'30',
-      background:'rgba(0,0,0,.82)',color:'#ffffff',padding:'8px',
-      font:'11px/1.4 monospace',whiteSpace:'pre',pointerEvents:'none',
-      borderRadius:'4px',maxWidth:'95vw'});
-    panel.textContent='Measuring 2.5D frame pacing...';
+    panel.setAttribute('aria-label','2.5D FPS diagnostics, tap to expand or collapse');
+    panel.setAttribute('role','button');
+    panel.setAttribute('tabindex','0');
+    Object.assign(panel.style,{
+      position:'absolute',left:'8px',top:'8px',zIndex:'30',
+      margin:'0',boxSizing:'border-box',width:'min(330px, 43vw)',
+      maxHeight:'min(45vh, 320px)',overflowX:'hidden',overflowY:'auto',
+      background:'rgba(0,0,0,.78)',color:'#ffffff',padding:'7px 9px',
+      font:'11px/1.35 monospace',whiteSpace:'pre-wrap',overflowWrap:'anywhere',
+      border:'1px solid rgba(255,255,255,.28)',borderRadius:'8px',
+      pointerEvents:'auto',touchAction:'pan-y',cursor:'pointer'
+    });
+    const toggle=()=>{
+      this.diagnosticsExpanded=!this.diagnosticsExpanded;
+      this.renderDiagnosticsPanel();
+    };
+    panel.addEventListener('click',toggle);
+    panel.addEventListener('keydown',event=>{
+      if(event.key==='Enter'||event.key===' '){event.preventDefault();toggle();}
+    });
     this.diagnosticsPanel=panel;this.diagnosticsParent.append(panel);
+    this.renderDiagnosticsPanel();
+  }
+  private renderDiagnosticsPanel(){
+    if(!this.diagnosticsPanel)return;
+    const panel=this.diagnosticsPanel;
+    panel.textContent=this.diagnosticsExpanded
+      ?'▲ FPS diagnostics · tap to collapse\n'+this.diagnosticsDetail
+      :'FPS diagnostics · tap for details ▼\n'+this.diagnosticsSummary;
+    panel.setAttribute('aria-expanded',String(this.diagnosticsExpanded));
+    if(!this.diagnosticsExpanded)panel.scrollTop=0;
   }
   private recordDiagnostics(start:number,visibilityStart:number,visibilityEnd:number,collected:number,world:number,done:number){
     const d=this.diag;
@@ -535,7 +562,7 @@ export class ThreePresentation {
     this.game.registry.set('presentationPerf',result);
     if(this.diagnosticsPanel){
       const n=(v:number)=>v.toFixed(1);
-      this.diagnosticsPanel.textContent='2.5D frame pacing (ms)\n'
+      this.diagnosticsDetail='2.5D frame pacing (ms)\n'
         +'Presentation: '+(this.game.loop.hasFpsLimit?this.game.loop.fpsLimit+' FPS cap':'UNCAPPED / display-synced')+' | Physics: fixed 60 Hz\n'
         +'Rendered FPS (rolling): '+(pacing.samples>=20?n(pacing.fps):'warming')+' | 1% low '+(pacing.samples>=100?n(pacing.onePercentLowFps):'warming')+'\n'
         +'Presented frame p50/p95/p99: '+n(pacing.p50)+' / '+n(pacing.p95)+' / '+n(pacing.p99)+' ms\n'
@@ -575,6 +602,11 @@ export class ThreePresentation {
           +'Streaming frames >8.3ms '+movement.streamingHitches+'\n':'')
         +(stream?'Terrain: '+stream.active+' active, '+stream.pending+' pending'
           +', '+stream.visibleMissing+' missing, '+stream.terrainCache+' cached':'Terrain: not ready');
+      this.diagnosticsSummary='FPS '+n(pacing.fps)+' · 1% low '+n(pacing.onePercentLowFps)
+        +'\nFrame p95 / p99: '+n(pacing.p95)+' / '+n(pacing.p99)+' ms'
+        +'\nCPU '+n(result.cpuAvgMs)+' ms · GPU '+(result.gpuMs===null?'N/A':n(result.gpuMs)+' ms')
+        +'\nDraw '+result.drawCalls+' · Upload '+n(result.instanceUploads.callsAvg)+'/frame';
+      this.renderDiagnosticsPanel();
     }
     Object.assign(d,{frames:0,total:0,worst:0,collect:0,render:0,prep:0,visibility:0,prune:0,
       shadows:0,shadowsWorst:0,worldFx:0,worldFxWorst:0,screen:0,screenWorst:0,background:0,backgroundWorst:0,
