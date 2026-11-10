@@ -502,7 +502,10 @@ export class ThreePresentation {
       this.diagnosticsExpanded=!this.diagnosticsExpanded;
       this.renderDiagnosticsPanel();
     };
-    panel.addEventListener('click',toggle);
+    // Keep touch, camera orbit and wheel zoom from responding to monitor use.
+    for(const type of ['pointerdown','pointermove','pointerup','wheel'])
+      panel.addEventListener(type,event=>event.stopPropagation());
+    panel.addEventListener('click',event=>{event.stopPropagation();toggle();});
     panel.addEventListener('keydown',event=>{
       if(event.key==='Enter'||event.key===' '){event.preventDefault();toggle();}
     });
@@ -512,11 +515,12 @@ export class ThreePresentation {
   private renderDiagnosticsPanel(){
     if(!this.diagnosticsPanel)return;
     const panel=this.diagnosticsPanel;
+    const previousScroll=panel.scrollTop;
     panel.textContent=this.diagnosticsExpanded
       ?'▲ FPS diagnostics · tap to collapse\n'+this.diagnosticsDetail
       :'FPS diagnostics · tap for details ▼\n'+this.diagnosticsSummary;
     panel.setAttribute('aria-expanded',String(this.diagnosticsExpanded));
-    if(!this.diagnosticsExpanded)panel.scrollTop=0;
+    panel.scrollTop=this.diagnosticsExpanded?previousScroll:0;
   }
   private recordDiagnostics(start:number,visibilityStart:number,visibilityEnd:number,collected:number,world:number,done:number){
     const d=this.diag;
