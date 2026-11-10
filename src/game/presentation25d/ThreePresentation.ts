@@ -404,7 +404,10 @@ export class ThreePresentation {
     work.charge('retire',retireStart);
     const profCollect=this.frameDiagnostics?performance.now():0;
     this.gpuTimer.begin(sampleGpu);
-    this.renderer.setClearColor(camera.backgroundColor.color,1);this.renderer.clear();
+    // The fullscreen world compositor overwrites every default framebuffer
+    // pixel. Clearing that same framebuffer beforehand wastes tile-GPU
+    // bandwidth. The direct-render fallback in WorldPostFX still clears.
+    this.renderer.setClearColor(camera.backgroundColor.color,1);
     this.syncCameraEffect(this.flash,camera.flashEffect.isRunning?camera.flashEffect:undefined);
     this.syncCameraEffect(this.fade,camera.fadeEffect.isRunning||camera.fadeEffect.isComplete?camera.fadeEffect:undefined);
     const nightActive=this.gpuNight.active(night,this.interior);
